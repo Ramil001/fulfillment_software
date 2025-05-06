@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<odoo>
+
+<menuitem
+    id="menu_fulfillment_root"  
+    name="Fulfillment Software"
+    sequence="90">
+    <menuitem
+        id="menu_fulfillment_dashboard"
+        name="Overview"
+        action="fulfillment_software.fulfillment_main"
+        sequence="5"
+     />
+</menuitem>
+
+</odoo>

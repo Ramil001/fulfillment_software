@@ -1,7 +1,6 @@
 <odoo>
   <data>
-    <!-- explicit list view definition -->
-<!--
+<!--     
     <record model="ir.ui.view" id="fulfillment_software.list">
       <field name="name">fulfillment_software list</field>
       <field name="model">fulfillment_software.fulfillment_software</field>
@@ -13,19 +12,16 @@
         </list>
       </field>
     </record>
--->
 
-    <!-- actions opening views on models -->
-<!--
+
+
     <record model="ir.actions.act_window" id="fulfillment_software.action_window">
       <field name="name">fulfillment_software window</field>
       <field name="res_model">fulfillment_software.fulfillment_software</field>
       <field name="view_mode">list,form</field>
     </record>
--->
 
-    <!-- server action to the one above -->
-<!--
+
     <record model="ir.actions.server" id="fulfillment_software.action_server">
       <field name="name">fulfillment_software server</field>
       <field name="model_id" ref="model_fulfillment_software_fulfillment_software"/>
@@ -38,23 +34,18 @@
         }
       </field>
     </record>
--->
 
-    <!-- Top menu item -->
-<!--
+
     <menuitem name="fulfillment_software" id="fulfillment_software.menu_root"/>
--->
-    <!-- menu categories -->
-<!--
     <menuitem name="Menu 1" id="fulfillment_software.menu_1" parent="fulfillment_software.menu_root"/>
     <menuitem name="Menu 2" id="fulfillment_software.menu_2" parent="fulfillment_software.menu_root"/>
--->
-    <!-- actions -->
-<!--
+   
     <menuitem name="List" id="fulfillment_software.menu_1_list" parent="fulfillment_software.menu_1"
               action="fulfillment_software.action_window"/>
     <menuitem name="Server to list" id="fulfillment_software" parent="fulfillment_software.menu_2"
-              action="fulfillment_software.action_server"/>
--->
+              action="fulfillment_software.action_server"/> -->
+
+
+
   </data>
 </odoo>
