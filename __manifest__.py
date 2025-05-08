@@ -13,11 +13,10 @@
     'license': "OEEL-1",
     'depends': ['base'],
     'data': [
-        'security/ir.model.access.csv',
-        'views/fulfillment_main.xml', 
-        'views/views.xml',
-        'views/menu.xml',
-        'views/templates.xml',
+        'security/ir.model.access.csv',  # Права доступа
+        'views/views.xml',               # Представления
+        'views/fulfillment_main.xml',    # Действие
+        'views/menu.xml',                # Меню (после действия)
     ],
     'demo': [
         'demo/demo.xml',

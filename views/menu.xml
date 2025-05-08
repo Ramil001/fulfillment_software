@@ -8,7 +8,7 @@
     <menuitem
         id="menu_fulfillment_dashboard"
         name="Overview"
-        action="fulfillment_software.fulfillment_main"
+        action="fulfillment_main"
         sequence="5"
      />
 </menuitem>

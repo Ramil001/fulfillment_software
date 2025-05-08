@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-
+<!-- 
   <record id="fulfillment_main" model="ir.actions.act_window">
     <field name="name">Fulfillment Dashboard</field>
     <field name="res_model">fulfillment.dashboard</field>
@@ -13,7 +13,7 @@
         The first module
       </p>
     </field>
-  </record>
+  </record> -->
 
 
 </odoo>

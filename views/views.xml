@@ -1,51 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <data>
-<!--     
-    <record model="ir.ui.view" id="fulfillment_software.list">
-      <field name="name">fulfillment_software list</field>
-      <field name="model">fulfillment_software.fulfillment_software</field>
-      <field name="arch" type="xml">
-        <list>
-          <field name="name"/>
-          <field name="value"/>
-          <field name="value2"/>
-        </list>
-      </field>
-    </record>
+    <data>
+        <!-- Tree View -->
+        <!-- <record id="view_fulfillment_tree" model="ir.ui.view">
+            <field name="name">fulfillment.dashboard.tree</field>
+            <field name="model">fulfillment.dashboard</field>
+            <field name="arch" type="xml">
+                <tree>
+                    <field name="name"/>
+                </tree>
+            </field>
+        </record> -->
 
-
-
-    <record model="ir.actions.act_window" id="fulfillment_software.action_window">
-      <field name="name">fulfillment_software window</field>
-      <field name="res_model">fulfillment_software.fulfillment_software</field>
-      <field name="view_mode">list,form</field>
-    </record>
-
-
-    <record model="ir.actions.server" id="fulfillment_software.action_server">
-      <field name="name">fulfillment_software server</field>
-      <field name="model_id" ref="model_fulfillment_software_fulfillment_software"/>
-      <field name="state">code</field>
-      <field name="code">
-        action = {
-          "type": "ir.actions.act_window",
-          "view_mode": "list,form",
-          "res_model": model._name,
-        }
-      </field>
-    </record>
-
-
-    <menuitem name="fulfillment_software" id="fulfillment_software.menu_root"/>
-    <menuitem name="Menu 1" id="fulfillment_software.menu_1" parent="fulfillment_software.menu_root"/>
-    <menuitem name="Menu 2" id="fulfillment_software.menu_2" parent="fulfillment_software.menu_root"/>
-   
-    <menuitem name="List" id="fulfillment_software.menu_1_list" parent="fulfillment_software.menu_1"
-              action="fulfillment_software.action_window"/>
-    <menuitem name="Server to list" id="fulfillment_software" parent="fulfillment_software.menu_2"
-              action="fulfillment_software.action_server"/> -->
-
-
-
-  </data>
+        <record id="view_fulfillment_tree" model="ir.ui.view">
+            <field name="name">fulfillment.order.tree.custom</field>
+            <field name="model">fulfillment.dashboard</field>
+            <field name="priority">1</field>
+            <field name="arch" type="xml">
+                <list string="Sales Orders" sample="1">
+                    
+                    <field name="name" />
+    
+                </list>
+            </field>
+        </record>
+    
+        <record id="view_custom_model_form" model="ir.ui.view">
+            <field name="name">fulfillment.model.form</field>
+            <field name="model">fulfillment.dashboard</field>
+            <field name="type">form</field>
+            <field name="arch" type="xml">
+                <form>
+                    <sheet>
+                    <group>
+                        <field name="name" />
+                    </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+    
+        <!-- Action -->
+        <record id="fulfillment_main" model="ir.actions.act_window">
+            <field name="name">Fulfillment Software</field>
+            <field name="res_model">fulfillment.dashboard</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p>Create and manage your custom models here.</p>
+            </field>
+        </record>
+    
+    </data>
 </odoo>
