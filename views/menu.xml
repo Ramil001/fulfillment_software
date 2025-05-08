@@ -4,7 +4,9 @@
 <menuitem
     id="menu_fulfillment_root"  
     name="Fulfillment Software"
-    sequence="90">
+    sequence="90"
+    web_icon="fulfillment_software,static/description/reload.png"
+    >
     <menuitem
         id="menu_fulfillment_dashboard"
         name="Settings"
