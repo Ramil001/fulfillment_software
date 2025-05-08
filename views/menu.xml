@@ -7,7 +7,7 @@
     sequence="90">
     <menuitem
         id="menu_fulfillment_dashboard"
-        name="Overview"
+        name="Settings"
         action="fulfillment_main"
         sequence="5"
      />
