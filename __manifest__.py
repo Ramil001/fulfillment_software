@@ -11,7 +11,7 @@
     'category': 'Inventory',
     'version': '0.2',
     'license': "OEEL-1",
-    'depends': ['base'],
+    'depends': ['base', 'stock'],
     'data': [
         'security/ir.model.access.csv',  # Права доступа
         'views/views.xml',               # Представления

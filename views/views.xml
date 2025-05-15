@@ -49,6 +49,50 @@
                 </form>
             </field>
         </record>
+
+
+        <record id="view_fulfillment_form" model="ir.ui.view">
+            <field name="name">fulfillment.dashboard.form</field>
+            <field name="model">fulfillment.dashboard</field>
+            <field name="arch" type="xml">
+                <form string="Fulfillment Dashboard">
+                    <header>
+                      
+                      
+                    </header>
+                    <sheet>
+                        <group>
+                            <separator string="Информация о вашей компании" colspan="2"/>
+                            <label string="Название компании" for="name" />
+                            <field name="name"/>
+                            <label string="Корпоративная почта" for="email" />
+                            <field name="email"/>
+                            <label string="Контакты" for="phone" />
+                            <field name="phone"/>
+                        </group>
+                        <group>
+                            <separator string="" colspan="2"/>
+                            <field name="description"/>
+                        </group>
+                        <notebook>
+                            <page string="Мои склады">
+                                <field name="warehouse_ids"/>
+                            </page>
+                            <page string="Мои подписчики">
+                                <div class="o_form_label">Тут список подписчиков</div>
+
+                            </page>
+                            <page string="Мои подписки">
+                                <div class="o_form_label">Список подписок</div>
+
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        
+        
     
         <!-- Action -->
         <record id="fulfillment_main" model="ir.actions.act_window">
@@ -59,6 +103,17 @@
                 <p>Create and manage your custom models here.</p>
             </field>
         </record>
+
+        <record id="fulfillment_my_account" model="ir.actions.act_window">
+            <field name="name">Fulfillment Software</field>
+            <field name="res_model">fulfillment.dashboard</field>
+            <field name="view_mode">form</field>
+            <field name="view_id" ref="view_fulfillment_form"/>
+        </record>
+        
+
+
+    
     
     </data>
 </odoo>
