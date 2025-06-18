@@ -1,36 +1,33 @@
 <?xml version="1.0"?>
 <odoo>
-
-<menuitem
-    id="menu_fulfillment_root"  
-    name="Fulfillment Software"
-    sequence="90"
-    web_icon="fulfillment_software,static/description/fulfillment.png"
-    >
     <menuitem
-        id="menu_fulfillment_profile"
-        name="My profile"
-        action="fulfillment_my_account"
-        sequence="5"
-     />
+        id="menu_fulfillment_root"  
+        name="Fulfillment Software"
+        sequence="90"
+        web_icon="fulfillment_software,static/description/fulfillment.png">
+        
         <menuitem
-        id="menu_fulfillment_stocks"
-        name="Stocks"
-        action="fulfillment_main"
-        sequence="5"
-    />
+            id="menu_fulfillment_profile"
+            name="My profile"
+            action="fulfillment_my_account"
+            sequence="5"/>
+        
         <menuitem
-        id="menu_fulfillment_partners"
-        name="Partners"
-        action="fulfillment_main"
-        sequence="5"
-        />
+            id="menu_fulfillment_stocks"
+            name="Stocks"
+            action="fulfillment_main"
+            sequence="5"/>
+        
         <menuitem
-        id="menu_fulfillment_settings"
-        name="Settings"
-        action="fulfillment_main"
-        sequence="5"
-        />
-</menuitem>
-
+            id="menu_fulfillment_partners"
+            name="Partners"
+            action="action_subscription_tree"
+            sequence="5"/>
+        
+        <menuitem
+            id="menu_fulfillment_settings"
+            name="Settings"
+            action="fulfillment_main"
+            sequence="5"/>
+    </menuitem>
 </odoo>

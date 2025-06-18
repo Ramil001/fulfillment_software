@@ -1,2 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_fulfillment_dashboard,fulfillment.dashboard,model_fulfillment_dashboard,base.group_user,1,1,1,1
+access_fulfillment_subscription,fulfillment.subscription,model_fulfillment_subscription,base.group_user,1,1,1,1
