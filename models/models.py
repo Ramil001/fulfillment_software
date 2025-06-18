@@ -1,24 +1,35 @@
 from odoo import models, fields, api
+import requests
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class FulfillmentDashboard(models.Model):
     _name = 'fulfillment.dashboard'
     _description = 'Fulfillment Dashboard'
 
     name = fields.Char(string="Name")
-    email = fields.Char(string="Email")
-    phone = fields.Char(string="Phone")
-    description = fields.Text(string="Description")
+    subscriptions = fields.Text(string="Подписки")
 
-    # В вашу модель fulfillment.dashboard добавьте
-    warehouse_ids = fields.Many2many(
-        'stock.warehouse',
-        string='Склады',
-        compute='_compute_warehouse_ids',
-        store=False
-    )
-
-    @api.depends()
-    def _compute_warehouse_ids(self):
-        for record in self:
-            warehouses = self.env['stock.warehouse'].search([])
-            record.warehouse_ids = warehouses
+    @api.model
+    def default_get(self, fields):
+        res = super().default_get(fields)
+        headers = {
+            "X-Fulfillment-API-Key": "e2vlLo1LM6zFBOnv95jCyZ0jlIib04acYLLL1rXmhlQ"
+        }
+        try:
+            response = requests.get(
+                'https://api.fulfillment.software/api/v1/fulfillments',
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json().get("data", [])
+            subscriptions = []
+            for item in data:
+                subscriptions.append(f"{item['name']} ({item['domain']}) - {item['createdAt']}")
+            res['subscriptions'] = '\n'.join(subscriptions) if subscriptions else 'Подписок нет'
+        except Exception as e:
+            _logger.error(f"Ошибка при загрузке подписок: {e}")
+            res['subscriptions'] = f"Ошибка загрузки: {e}"
+        return res

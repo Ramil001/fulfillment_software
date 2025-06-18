@@ -83,8 +83,7 @@
 
                             </page>
                             <page string="Мои подписки">
-                                <div class="o_form_label">Список подписок</div>
-
+                                <field name="subscriptions" nolabel="1" readonly="1"/>
                             </page>
                         </notebook>
                     </sheet>
