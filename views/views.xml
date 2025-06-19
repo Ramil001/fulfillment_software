@@ -23,11 +23,19 @@
         <form string="Fulfillment Profile">
             <sheet>
                 <group>
+                    <separator string="Contact info" colspan="2"/>
                     <field name="name"/>
-                    <field name="address"/>
                     <field name="phone"/>
                     <field name="email"/>
                 </group>
+
+                <group>
+                    <separator string="Address" colspan="2"/>
+                    <field name="country_id"/>
+                    <field name="state_id"/>
+                    <field name="address"/>
+                </group>
+
 
                 <!-- capabilities -->
                 <group string="Capabilities">
@@ -98,7 +106,7 @@
             <field name="target">current</field>
             <field name="context">{'create': False}</field>
         </record>
-        
+
         <record id="action_my_fulfillment_profile" model="ir.actions.server">
             <field name="name">My Fulfillment Profile</field>
             <field name="model_id" ref="model_fulfillment_profile"/>

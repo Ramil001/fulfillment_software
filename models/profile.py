@@ -18,6 +18,12 @@ class FulfillmentProfile(models.Model):
         default=lambda self: self.env.ref('base.de').id
     )
     
+    state_id = fields.Many2one(
+        'res.country.state',
+        string="City/Region",
+        domain="[('country_id', '=', country_id)]"
+    )
+    
     address = fields.Char(string="Address")
     phone = fields.Char(string="Phone number")
     email = fields.Char(string="Email")
