@@ -7,7 +7,6 @@
             <field name="model">fulfillment.dashboard</field>
             <field name="priority">1</field>
             <field name="arch" type="xml">
-                <!-- ИСПРАВЛЕНО: используем <list> вместо <tree> -->
                 <list string="Fulfillment Dashboards">
                     <field name="name"/>
                     <field name="email"/>
@@ -17,67 +16,58 @@
             </field>
         </record>
 
-        <!-- Form View for Dashboard -->
-        <record id="view_fulfillment_form" model="ir.ui.view">
-            <field name="name">fulfillment.dashboard.form</field>
-            <field name="model">fulfillment.dashboard</field>
-            <field name="arch" type="xml">
-                <form string="Fulfillment Dashboard">
-                    <header>
-                        <button name="action_create_subscription" 
-                                type="object"
-                                string="Добавить подписку"
-                                class="oe_highlight"/>
-                    </header>
-                    <sheet>
-                        <group>
-                            <separator string="Информация о вашей компании" colspan="2"/>
-                            <label string="Название компании" for="name" />
-                            <field name="name"/>
-                            <label string="Корпоративная почта" for="email" />
-                            <field name="email"/>
-                            <label string="Контакты" for="phone" />
-                            <field name="phone"/>
-                        </group>
-                        <group>
-                            <separator string="" colspan="2"/>
-                            <field name="description"/>
-                        </group>
-                        <notebook>
-                            <page string="Мои склады">
-                                <field name="warehouse_ids" widget="many2many_tags"/>
-                            </page>
-                            <page string="Мои подписчики">
-                                <div class="o_form_label">Тут список подписчиков</div>
-                            </page>
-                            <page string="Мои подписки">
-                                <field name="subscription_ids" nolabel="1">
-                                    <!-- ИСПРАВЛЕНО: используем <list> для вложенного представления -->
-                                    <list>
-                                        <field name="name"/>
-                                    </list>
-                                </field>
-                            </page>
-                        </notebook>
-                    </sheet>
-                </form>
-            </field>
-        </record>
+<record id="view_fulfillment_profile_form" model="ir.ui.view">
+    <field name="name">fulfillment.profile.form</field>
+    <field name="model">fulfillment.profile</field>
+    <field name="arch" type="xml">
+        <form string="Fulfillment Profile">
+            <sheet>
+                <group>
+                    <field name="name"/>
+                    <field name="address"/>
+                    <field name="phone"/>
+                    <field name="email"/>
+                </group>
 
-        <!-- Tree View for Subscriptions -->
+                <!-- capabilities -->
+                <group string="Capabilities">
+                    <field name="capabilities_id">
+                        <form>
+                            <group>
+                                <field name="version"/>
+                            </group>
+                            <group string="Picking Types">
+                                <field name="picking_outgoing"/>
+                                <field name="picking_returns"/>
+                                <field name="picking_dropshipping"/>
+                                <field name="picking_crossdock"/>
+                                <field name="picking_internal"/>
+                            </group>
+                            <group>
+                                <field name="fulfillment_api_key"/>
+                            </group>
+                        </form>
+                    </field>
+                </group>
+            </sheet>
+        </form>
+    </field>
+</record>
+
+
         <record id="view_subscription_tree" model="ir.ui.view">
             <field name="name">fulfillment.subscription.tree</field>
             <field name="model">fulfillment.subscription</field>
             <field name="arch" type="xml">
-                <!-- ИСПРАВЛЕНО: используем <list> вместо <tree> -->
-                <list string="Subscriptions">
+                
+                <list string="Partners">
+                  
                     <field name="name"/>
                     <field name="dashboard_id"/>
                 </list>
             </field>
         </record>
 
-        <!-- Form View for Subscriptions -->
         <record id="view_subscription_form" model="ir.ui.view">
             <field name="name">fulfillment.subscription.form</field>
             <field name="model">fulfillment.subscription</field>
@@ -93,7 +83,6 @@
             </field>
         </record>
         
-        <!-- Actions -->
         <record id="fulfillment_main" model="ir.actions.act_window">
             <field name="name">Fulfillment Dashboard</field>
             <field name="res_model">fulfillment.dashboard</field>
@@ -103,13 +92,27 @@
 
         <record id="fulfillment_my_account" model="ir.actions.act_window">
             <field name="name">My Fulfillment Account</field>
-            <field name="res_model">fulfillment.dashboard</field>
+            <field name="res_model">fulfillment.profile</field>
             <field name="view_mode">form</field>
-            <field name="view_id" ref="view_fulfillment_form"/>
+            <field name="view_id" ref="view_fulfillment_profile_form"/>
+            <field name="target">current</field>
+            <field name="context">{'create': False}</field>
+        </record>
+        
+        <record id="action_my_fulfillment_profile" model="ir.actions.server">
+            <field name="name">My Fulfillment Profile</field>
+            <field name="model_id" ref="model_fulfillment_profile"/>
+            <field name="binding_model_id" ref="model_fulfillment_profile"/>
+            <field name="state">code</field>
+            <field name="code">
+                action = env['fulfillment.profile'].get_my_profile_action()
+            </field>
         </record>
 
+        
+
         <record id="action_subscription_tree" model="ir.actions.act_window">
-            <field name="name">Subscriptions</field>
+            <field name="name">Partners</field>
             <field name="res_model">fulfillment.subscription</field>
             <field name="view_mode">list,form</field>
             <field name="view_id" ref="view_subscription_tree"/>

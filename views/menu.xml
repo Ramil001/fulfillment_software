@@ -9,7 +9,7 @@
         <menuitem
             id="menu_fulfillment_profile"
             name="My profile"
-            action="fulfillment_my_account"
+            action="action_my_fulfillment_profile"
             sequence="5"/>
         
         <menuitem
