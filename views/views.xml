@@ -15,74 +15,69 @@
                 </list>
             </field>
         </record>
-
-<record id="view_fulfillment_profile_form" model="ir.ui.view">
-    <field name="name">fulfillment.profile.form</field>
-    <field name="model">fulfillment.profile</field>
-    <field name="arch" type="xml">
-        <form string="Fulfillment Profile">
-            
-            <sheet>
-                <group>
-                    <separator string="Contact info" colspan="2"/>
-                    <field name="name"/>
-                    <field name="phone"/>
-                    <field name="email"/>
-                    <field name="update_at"/>
-                </group>
-
-                <group>
-                    <separator string="Address" colspan="2"/>
-                    <field name="country_id"/>
-                    <field name="state_id"/>
-                    <field name="address"/>
-                </group>
-
-                 <group>
-                    <separator string="API integration" colspan="2"/>
-                    <field name="fulfillment_api_key" password="True"/>
-                </group>
-
-
-                <!-- capabilities -->
-                <group string="Capabilities">
-                    <field name="capabilities_id">
-                        <form>
+        <record id="view_fulfillment_profile_form" model="ir.ui.view">
+            <field name="name">fulfillment.profile.form</field>
+            <field name="model">fulfillment.profile</field>
+            <field name="arch" type="xml">
+                <form string="Fulfillment Profile">
+                    <sheet>
+                        <group col="2">
                             <group>
-                                <field name="version"/>
-                            </group>
-                            <group string="Picking Types">
-                                <field name="picking_outgoing"/>
-                                <field name="picking_returns"/>
-                                <field name="picking_dropshipping"/>
-                                <field name="picking_crossdock"/>
-                                <field name="picking_internal"/>
+                                <separator string="Contact info" colspan="2"/>
+                                <field name="name"/>
+                                <field name="phone"/>
+                                <field name="email"/>
                             </group>
                             <group>
-                                <field name="fulfillment_api_key"/>
+                                <separator string="Address" colspan="2"/>
+                                <field name="country_id"/>
+                                <field name="state_id"/>
+                                <field name="address"/>
                             </group>
-                        </form>
-                    </field>
-                </group>
-            </sheet>
-        </form>
-    </field>
-</record>
-
-
+                            <group>
+                                <separator string="API integration" colspan="2"/>
+                                <field name="fulfillment_api_key" password="True"/>
+                            </group>
+                            <group >
+                                <separator string="Connect with Fulfillment Software" colspan="2"/>
+                                <field name="update_at" password="True"/>
+                                <field name="g_fulfillment_id"></field>
+                            </group>
+                        </group>
+                        <!-- capabilities -->
+                        <group string="Capabilities">
+                            <field name="capabilities_id">
+                                <form>
+                                    <group>
+                                        <field name="version"/>
+                                    </group>
+                                    <group string="Picking Types">
+                                        <field name="picking_outgoing"/>
+                                        <field name="picking_returns"/>
+                                        <field name="picking_dropshipping"/>
+                                        <field name="picking_crossdock"/>
+                                        <field name="picking_internal"/>
+                                    </group>
+                                    <group>
+                                        <field name="fulfillment_api_key"/>
+                                    </group>
+                                </form>
+                            </field>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
         <record id="view_subscription_tree" model="ir.ui.view">
             <field name="name">fulfillment.subscription.tree</field>
             <field name="model">fulfillment.subscription</field>
             <field name="arch" type="xml">
-                
                 <list string="Partners">
-                  
                     <field name="name"/>
                     <field name="dashboard_id"/>
                 </list>
             </field>
         </record>
-
         <record id="view_subscription_form" model="ir.ui.view">
             <field name="name">fulfillment.subscription.form</field>
             <field name="model">fulfillment.subscription</field>
@@ -97,14 +92,12 @@
                 </form>
             </field>
         </record>
-        
         <record id="fulfillment_main" model="ir.actions.act_window">
             <field name="name">Fulfillment Dashboard</field>
             <field name="res_model">fulfillment.dashboard</field>
             <field name="view_mode">list,form</field>
             <field name="view_id" ref="view_fulfillment_tree"/>
         </record>
-
         <record id="fulfillment_my_account" model="ir.actions.act_window">
             <field name="name">My Fulfillment Account</field>
             <field name="res_model">fulfillment.profile</field>
@@ -113,7 +106,6 @@
             <field name="target">current</field>
             <field name="context">{'create': False}</field>
         </record>
-
         <record id="action_my_fulfillment_profile" model="ir.actions.server">
             <field name="name">My Fulfillment Profile</field>
             <field name="model_id" ref="model_fulfillment_profile"/>
@@ -123,9 +115,6 @@
                 action = env['fulfillment.profile'].get_my_profile_action()
             </field>
         </record>
-
-        
-
         <record id="action_subscription_tree" model="ir.actions.act_window">
             <field name="name">Partners</field>
             <field name="res_model">fulfillment.subscription</field>
