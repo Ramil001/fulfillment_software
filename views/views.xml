@@ -21,12 +21,14 @@
     <field name="model">fulfillment.profile</field>
     <field name="arch" type="xml">
         <form string="Fulfillment Profile">
+            
             <sheet>
                 <group>
                     <separator string="Contact info" colspan="2"/>
                     <field name="name"/>
                     <field name="phone"/>
                     <field name="email"/>
+                    <field name="update_at"/>
                 </group>
 
                 <group>
@@ -34,6 +36,11 @@
                     <field name="country_id"/>
                     <field name="state_id"/>
                     <field name="address"/>
+                </group>
+
+                 <group>
+                    <separator string="API integration" colspan="2"/>
+                    <field name="fulfillment_api_key" password="True"/>
                 </group>
 
 

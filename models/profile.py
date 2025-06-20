@@ -1,4 +1,5 @@
 from odoo import models, fields, api
+from datetime import datetime
 import requests
 import logging
 
@@ -32,12 +33,25 @@ class FulfillmentProfile(models.Model):
         string= "Capabilities",
         ondelete='cascade'
     )
+    fulfillment_api_key = fields.Char(string="X-Filfillment-API-Key", password=True)
+    update_at = fields.Datetime(string="Last Updated", readonly=True)
+    
+
+    @api.model
+    def create(self, vals):
+        vals['update_at'] = datetime.now()
+        return super(FulfillmentProfile, self).create(vals)
+
+    def write(self, vals):
+        vals['update_at'] = datetime.now()
+        return super(FulfillmentProfile, self).write(vals)
+    
     
     @api.model
     def get_my_profile_action(self):
         profile = self.search([], limit=1)
         if not profile:
-            profile = self.create({'name': 'My Company'})
+            profile = self.create({'name': 'My new fulfillment company'})
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'fulfillment.profile',
