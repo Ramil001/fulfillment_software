@@ -21,8 +21,9 @@
         <menuitem
             id="menu_fulfillment_partners"
             name="Partners"
-            action="action_subscription_tree"
+            action="action_fulfillment_partners"
             sequence="5"/>
+
         
         <menuitem
             id="menu_fulfillment_settings"
