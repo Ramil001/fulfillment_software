@@ -10,9 +10,10 @@
                 <list string="Partners">
                     <header>
                         <button name="button_sync_from_api"
-                        string="Sync from API"
+                        string="Update companies"
                         type="object"
-                        class="oe_highlight"/>
+                        class="oe_highlight"
+                        display="always"/>
                     </header>
                     <field name="name"/>
                 </list>
@@ -28,6 +29,6 @@
             <field name="view_id" ref="view_fulfillment_partners_list"/>
         </record>
 
-        
+
     </data>
 </odoo>
