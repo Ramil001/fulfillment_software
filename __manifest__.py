@@ -15,6 +15,7 @@
     'data': [
         'security/ir.model.access.csv',  # Права доступа
         'views/views.xml',               # Представления
+        'views/fulfillment_partners.xml',
         'views/fulfillment_main.xml',    # Действие
         'views/menu.xml',                # Меню (после действия)
     ],

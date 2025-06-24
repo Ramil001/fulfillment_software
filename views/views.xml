@@ -118,30 +118,5 @@
         </record>
 
 
-
-        <record id="view_fulfillment_partners_list" model="ir.ui.view">
-            <field name="name">fulfillment.partners.list</field>
-            <field name="model">fulfillment.partners</field>
-            <field name="arch" type="xml">
-                <list string="Partners">
-                    <header>
-                        <button name="button_sync_from_api"
-                        string="Sync from API"
-                        type="object"
-                        class="oe_highlight"/>
-                    </header>
-                    <field name="name"/>
-                </list>
-            </field>
-        </record>
-
-
-
-        <record id="action_fulfillment_partners" model="ir.actions.act_window">
-            <field name="name">Partners</field>
-            <field name="res_model">fulfillment.partners</field>
-            <field name="view_mode">list,form</field>
-            <field name="view_id" ref="view_fulfillment_partners_list"/>
-        </record>
     </data>
 </odoo>
