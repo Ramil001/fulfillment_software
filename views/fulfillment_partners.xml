@@ -10,7 +10,7 @@
                 <list string="Partners">
                     <header>
                         <button name="button_sync_from_api"
-                        string="Update companies"
+                        string="Update"
                         type="object"
                         class="oe_highlight"
                         display="always"/>
