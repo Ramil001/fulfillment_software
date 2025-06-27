@@ -23,6 +23,23 @@ class FulfillmentPartners(models.Model):
    user_id = fields.Char(string="User ID")
    fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
 
+
+   def action_send_request_follow(self):
+        # тут любая логика обработки
+        # ...
+
+        # показать сообщение
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Успех',
+                'message': 'Запрос отправлен',
+                'type': 'success',  # также можно 'danger', 'warning', 'info'
+                'sticky': False,    # True = сообщение не исчезает
+            }
+        }
+
    # Разрешаем использование параметра password в поле
    def _valid_field_parameter(self, field, name):
       return name == 'password' or super()._valid_field_parameter(field, name)
