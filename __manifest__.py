@@ -12,6 +12,10 @@
     'version': '0.2',
     'license': "OEEL-1",
     'depends': ['base', 'web','mail', 'stock'],
+    'web.assets_backend': [
+        'fulfillment_software/static/src/js/systray.js',
+        'fulfillment_software/static/src/xml/systray.xml',
+    ],
     'data': [
         'security/ir.model.access.csv',     # Права доступа
         'views/views.xml',                  # Представления

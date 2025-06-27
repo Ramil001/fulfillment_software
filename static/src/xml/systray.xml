@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+   <t t-name="systray" owl="1">
+       <div>
+           <i
+               class="fa fa-star-o"
+               title="My Custom Icon"
+               style="cursor: pointer; font-size: 18px;"
+               t-on-click="showNotification"
+           />
+       </div>
+   </t>
+</templates>

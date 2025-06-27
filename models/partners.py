@@ -15,9 +15,9 @@ class FulfillmentPartners(models.Model):
                               ('unfollow', 'Unfollow')],
                              default='unfollow', tracking=True)
    
-   name = fields.Char(string="Fulfillment Name", required=True)
-   fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True)
-   domain = fields.Char(string="Domain")
+   name = fields.Char(string="Fulfillment Name", required=True, readonly=True)
+   fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
+   domain = fields.Char(string="Domain", readonly=True)
    webhook_url = fields.Char(string="Webhook URL")
    created_at = fields.Datetime(string="Created At")
    user_id = fields.Char(string="User ID")

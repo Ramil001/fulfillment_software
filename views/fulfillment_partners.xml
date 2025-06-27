@@ -52,8 +52,21 @@
         <field name="domain"/>
        </group>
       </group>
+      <notebook>
+      <page string="Services">
+       
+      </page>
+       <page string="Categories">
+       
+      </page>
+       <page string="Services">
+       
+      </page>
+     </notebook>
      </sheet>
+    <!-- Chatter -->
      <chatter/>
+     
     </form>
    </field>
   </record>
