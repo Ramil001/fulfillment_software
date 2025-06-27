@@ -11,13 +11,13 @@
     'category': 'Inventory',
     'version': '0.2',
     'license': "OEEL-1",
-    'depends': ['base', 'stock'],
+    'depends': ['base', 'web','mail', 'stock'],
     'data': [
-        'security/ir.model.access.csv',  # Права доступа
-        'views/views.xml',               # Представления
+        'security/ir.model.access.csv',     # Права доступа
+        'views/views.xml',                  # Представления
         'views/fulfillment_partners.xml',
-        'views/fulfillment_main.xml',    # Действие
-        'views/menu.xml',                # Меню (после действия)
+        'views/fulfillment_main.xml',        # Действие
+        'views/menu.xml',                   # Меню (после действия)
     ],
     'demo': [
         'demo/demo.xml',

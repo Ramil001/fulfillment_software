@@ -9,8 +9,12 @@ _logger = logging.getLogger(__name__)
 class FulfillmentPartners(models.Model):
    _name = 'fulfillment.partners'
    _description = 'Fulfillment Partners'
-   _rec_name = 'name'
-
+   _inherit = ['mail.thread', 'mail.activity.mixin']
+   
+   status = fields.Selection([('follow', 'Follow'),
+                              ('unfollow', 'Unfollow')],
+                             default='unfollow', tracking=True)
+   
    name = fields.Char(string="Fulfillment Name", required=True)
    fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True)
    domain = fields.Char(string="Domain")
