@@ -2,6 +2,8 @@
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component } from "@odoo/owl";
+
+
 class SystrayIcon extends Component {
    setup() {
        super.setup();
@@ -15,7 +17,7 @@ class SystrayIcon extends Component {
        });
    }
 }
-SystrayIcon.template = "systray";
+SystrayIcon.template = "systray_icon";
 export const systrayItem = {
    Component: SystrayIcon,
 };
