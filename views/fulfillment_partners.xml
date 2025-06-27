@@ -7,12 +7,30 @@
         <field name="name">fulfillment.partners.form</field>
         <field name="model">fulfillment.partners</field>
         <field name="arch" type="xml">
+        
            <form string="Partner Details">
+             
             <sheet>
+               <div name="button_box" position="inside">
+                <button class="oe_stat_button" 
+                         type="object" 
+                         icon="fa-plus"           
+                         string="Add a partner"              
+                         name="action_get_vehicles_record">
+                         
+                </button>
+               
+            </div>
                 <group>
+                    <group>
                     <field name="name"/>
                     <field name="domain"/>
                     </group>
+                     <group>
+                    <field name="name"/>
+                    <field name="domain"/>
+                    </group>
+                  </group>  
             </sheet>
 
            <chatter/>
