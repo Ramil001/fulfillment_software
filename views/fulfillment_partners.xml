@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
  <data>
+
+  <!-- Форма партнёра -->
   <record id="view_fulfillment_partners_form" model="ir.ui.view">
    <field name="name">fulfillment.partners.form</field>
    <field name="model">fulfillment.partners</field>
    <field name="arch" type="xml">
-    <form string="Partner Details">
+    <form string="Partner Details" create="False">
      <sheet>
       <header>
        <button class="oe_stat_button" 
                          type="object" 
                          icon="fa-plus"           
                          string="Follow"              
-                         name="action_get_vehicles_record">
+                         name="action_send_request_follow">
                          
                 </button>
       <field name="status" widget="statusbar"  statusbar_visible="follow,unfollow"  statusbar_colors='{"follow":"red","unfollow":"blue"}'/>
@@ -55,11 +57,14 @@
     </form>
    </field>
   </record>
+
+
+  <!-- Список партнёров -->
   <record id="view_fulfillment_partners_list" model="ir.ui.view">
    <field name="name">fulfillment.partners.list</field>
    <field name="model">fulfillment.partners</field>
    <field name="arch" type="xml">
-    <list string="Partners">
+    <list string="Partners" create="False">
      <header>
       <button name="button_sync_from_api"
                         string="Update"
@@ -72,6 +77,8 @@
     </list>
    </field>
   </record>
+
+
   <record id="action_fulfillment_partners" model="ir.actions.act_window">
    <field name="name">Partners</field>
    <field name="res_model">fulfillment.partners</field>

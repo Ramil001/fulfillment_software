@@ -39,7 +39,17 @@ class FulfillmentPartners(models.Model):
                 'sticky': False,    # True = сообщение не исчезает
             }
         }
-
+   def action_get_vehicles_record(self):
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Запрос отправлен',
+                'message': 'Вы нажали на кнопку',
+                'type': 'success',
+                'sticky': False,
+            }
+        }
    # Разрешаем использование параметра password в поле
    def _valid_field_parameter(self, field, name):
       return name == 'password' or super()._valid_field_parameter(field, name)
