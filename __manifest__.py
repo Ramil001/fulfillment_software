@@ -14,8 +14,9 @@
     'depends': ['base', 'web','mail', 'stock'],
     'assets': {
         'web.assets_backend': [
-            'systray_menu_favourites/static/src/js/systray.js',
-            'systray_menu_favourites/static/src/xml/systray_templates.xml',
+            'fulfillment_software/static/src/js/systray.js',
+            'fulfillment_software/static/src/xml/systray.xml',
+            'fulfillment_software/static/src/xml/systray.css',
         ],
     },
     'data': [
