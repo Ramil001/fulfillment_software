@@ -6,25 +6,41 @@ import { Component, useState } from "@odoo/owl";
 
 class SystrayIcon extends Component {
     setup() {
-        this.notification = useService("notification");
+        this.action = useService("action");
         this.state = useState({
-            shake: false,
+            menuOpen: false,
         });
     }
 
-    showNotification() {
-        this.notification.add("Hello! This is a notification", {
-            title: "Systray Notification",
-            type: "info",
-            sticky: false,
-        });
-        this.state.shake = true;
-
-        // Авто-выключаем тряску через 2 секунды
-        setTimeout(() => {
-            this.state.shake = false;
-        }, 12000);
+    toggleMenu() {
+        this.state.menuOpen = !this.state.menuOpen;
     }
+
+    openAction(action) {
+        this.action.doAction(action);
+        this.state.menuOpen = false;
+    }
+
+    openProfiles() {
+        this.openAction({
+            type: 'ir.actions.act_window',
+            res_model: 'fulfillment.profile',
+            views: [[false, 'list'], [false, 'form']],
+            target: 'current',
+            name: 'Profiles Fulfillment',
+        });
+    }
+
+    openPartners() {
+        this.openAction({
+            type: 'ir.actions.act_window',
+            res_model: 'fulfillment.partners',
+            views: [[false, 'list'], [false, 'form']],
+            target: 'current',
+            name: 'Partners Fulfillment',
+        });
+    }
+
 }
 
 SystrayIcon.template = "systray_icon";
