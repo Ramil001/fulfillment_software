@@ -16,14 +16,13 @@
         'web.assets_backend': [
             'fulfillment_software/static/src/js/systray.js',
             'fulfillment_software/static/src/xml/systray.xml',
-            'fulfillment_software/static/src/xml/systray.css',
         ],
     },
     'data': [
         'security/ir.model.access.csv',     # Права доступа
         'views/views.xml',                  # Представления
-        'views/fulfillment_partners.xml',
-        'views/fulfillment_main.xml',        # Действие
+        'views/fulfillment_partners.xml',   # Предстваление старницы партнёра
+        'views/fulfillment_main.xml',       # Действие
         'views/menu.xml',                   # Меню (после действия)
     ],
     'demo': [
