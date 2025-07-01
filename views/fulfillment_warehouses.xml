@@ -7,8 +7,9 @@
         <field name="arch" type="xml">
             <xpath expr="//page[@name='warehouse_config']" position="inside">
                 <group>
+                    <separator string="Fulfillment Software" colspan="2"/>
                     <field name="is_fulfillment"/>
-                    <field name="linked_partner_id"/>
+                    <field name="fulfillment_owner_id"/>
                 </group>
             </xpath>
         </field>

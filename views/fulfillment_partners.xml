@@ -80,7 +80,7 @@
     <list string="Partners" create="False">
      <header>
       <button name="button_sync_from_api"
-                        string="Update"
+                        string="Update partners"
                         type="object"
                         class="oe_highlight"
                         display="always"/>
