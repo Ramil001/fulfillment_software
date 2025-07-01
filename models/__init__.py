@@ -3,3 +3,4 @@
 from . import models
 from . import partners
 from . import profile
+from . import warehouses
