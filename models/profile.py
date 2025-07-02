@@ -17,6 +17,8 @@ class FulfillmentProfile(models.Model):
     email = fields.Char(string="Email")
     capabilities_id = fields.Many2one('fulfillment.profile.capabilities', string="Capabilities", ondelete='cascade')
     
+    
+    
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key", password=True)
     update_at = fields.Datetime(string="Last Updated")  # УБРАН readonly
     g_fulfillment_id = fields.Char(string="gFulfillment ID", readonly=True)
