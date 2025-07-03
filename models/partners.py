@@ -191,6 +191,7 @@ class FulfillmentPartners(models.Model):
         vals = {
             'name': item.get('name') or 'Без имени',
             'domain': item.get('domain'),
+            'fulfillment_id': item.get('fulfillment_id'),
             'webhook_url': item.get('webHookUrl'),
             'created_at': created_at,
             'user_id': item.get('userId'),

@@ -8,8 +8,14 @@
             <xpath expr="//page[@name='warehouse_config']" position="inside">
                 <group>
                     <separator string="Fulfillment Software" colspan="2"/>
-                    <field name="is_fulfillment"/>
-                    <field name="fulfillment_owner_id"/>
+                    <group string="Info">
+                        <field name="fulfillment_warehouse_id"/>
+
+                    </group>
+                    <group string="Settings">
+                        <field name="is_fulfillment" />
+                        <field name="fulfillment_owner_id" />
+                    </group>
                 </group>
             </xpath>
         </field>

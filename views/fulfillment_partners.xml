@@ -45,7 +45,7 @@
       <group>
        <group>
         <field name="name"/>
-        <field name="domain"/>
+        <field name="fulfillment_id"/>
        </group>
        <group>
         <field name="name"/>
