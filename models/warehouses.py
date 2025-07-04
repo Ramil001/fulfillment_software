@@ -54,15 +54,12 @@ class FulfillmentWarehouses(models.Model):
             
             # Проверяем есть ли фулфиллмент ид и является ли запись.
             if record.is_fulfillment and not record.fulfillment_warehouse_id:
-                if not profile.domain:
-                    domain = requests.httprequest.host
-                    url = f"https://{domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses"
-                else:
-                    url = f"https://{profile.domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses"
+                url = f"https://{profile.domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses"
+            
             
                 try:
                     response = requests.post(url, json=payload, headers=headers, timeout=10)
-                    _logger.info(f"API response: {response.status_code} | {response.text} | {response}")
+                    _logger.info(f"API response: | {url} | {response.status_code} | {response.text} | {response}")
                 except requests.RequestException as e:
                     _logger.error(f"API call failed: {e}")
 
