@@ -59,6 +59,11 @@ class FulfillmentWarehouses(models.Model):
             
                 try:
                     response = requests.post(url, json=payload, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        response_json = response.json()
+                        data = response_json('data', {})
+                        fulfillment_id = data.get('fulfillmentId') or data.get('id')
+                        vals['fulfillment_warehouse_id'] = fulfillment_id
                     _logger.info(f"API response: | {url} | {response.status_code} | {response.text} | {response}")
                 except requests.RequestException as e:
                     _logger.error(f"API call failed: {e}")
