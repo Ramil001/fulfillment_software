@@ -10,11 +10,10 @@
                     <separator string="Fulfillment Software" colspan="2"/>
                     <group string="Info">
                         <field name="fulfillment_warehouse_id"/>
-
                     </group>
                     <group string="Settings">
                         <field name="is_fulfillment" />
-                        <field name="fulfillment_owner_id" />
+                        <field name="fulfillment_client_id" />
                     </group>
                 </group>
             </xpath>

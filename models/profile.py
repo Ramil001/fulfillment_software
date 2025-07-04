@@ -16,13 +16,11 @@ class FulfillmentProfile(models.Model):
     phone = fields.Char(string="Phone number")
     email = fields.Char(string="Email")
     capabilities_id = fields.Many2one('fulfillment.profile.capabilities', string="Capabilities", ondelete='cascade')
-    
-    
-    
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key", password=True)
-    update_at = fields.Datetime(string="Last Updated")  # УБРАН readonly
-    g_fulfillment_id = fields.Char(string="gFulfillment ID", readonly=True)
-    domain = fields.Char(string="Domain", default="software.com")
+    update_at = fields.Datetime(string="Last Updated", readonly=True) 
+    fulfillment_profile_id = fields.Char(string="Fulfillment Profile ID", readonly=True)
+    domain = fields.Char(string="my.domain.com", default="fulfillment.software.com")
+
 
     @api.model
     def create(self, vals):
@@ -54,14 +52,14 @@ class FulfillmentProfile(models.Model):
             }
 
             try:
-                if record.g_fulfillment_id:
-                    url = f"https://api.fulfillment.software/api/v1/fulfillments/{record.g_fulfillment_id}"
+                if record.fulfillment_profile_id:
+                    url = f"https://api.fulfillment.software/api/v1/fulfillments/{record.fulfillment_profile_id}"
                     response = requests.patch(url, json=payload, headers=headers, timeout=10)
                     response.raise_for_status()
                     result = response.json()
 
                     if result.get("status") == "OK":
-                        _logger.info("Fulfillment %s обновлён через PATCH", record.g_fulfillment_id)
+                        _logger.info("Fulfillment %s обновлён через PATCH", record.fulfillment_profile_id)
                     else:
                         _logger.warning("PATCH — неожиданный ответ: %s", result)
                 else:
@@ -73,7 +71,7 @@ class FulfillmentProfile(models.Model):
                     if result.get("status") == "OK" and "data" in result:
                         data = result["data"]
                         record.write({
-                            "g_fulfillment_id": data.get("fulfillmentId"),
+                            "fulfillment_profile_id": data.get("fulfillmentId"),
                             "name": data.get("name", record.name),
                             "domain": data.get("domain", record.domain)
                            

@@ -22,9 +22,11 @@ class FulfillmentPartners(models.Model):
     webhook_url = fields.Char(string="Webhook URL")
     created_at = fields.Datetime(string="Created At")
     user_id = fields.Char(string="User ID")
+    profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
-    profile_id = fields.Many2one('fulfillment.profile')
-
+    
+    
+    
     def action_send_request_follow(self):
         return {
             'type': 'ir.actions.client',
@@ -127,12 +129,12 @@ class FulfillmentPartners(models.Model):
             raise UserError("No active profile with API key configured")
         return profile
 
-    def _fetch_api_data(self, api_key):
+    def _fetch_api_data(self, fulfillment_api_key):
         """Получаем данные из API"""
         url = "https://api.fulfillment.software/api/v1/fulfillments/"
         headers = {
             "Content-Type": "application/json",
-            "X-Fulfillment-API-Key": api_key
+            "X-Fulfillment-API-Key": fulfillment_api_key
         }
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -148,12 +150,12 @@ class FulfillmentPartners(models.Model):
             _logger.error("❌ API request error: %s", str(e))
             raise UserError(f"API request failed: {str(e)}")
 
-    def _fetch_warehouses(self, fulfillment_id, api_key):
+    def _fetch_warehouses(self, fulfillment_id, fulfillment_api_key):
         """Получаем склады из API по fulfillment_id"""
         url = f"https://api.fulfillment.software/api/v1/fulfillments/{fulfillment_id}/warehouses"
         headers = {
             "Content-Type": "application/json",
-            "X-Fulfillment-API-Key": api_key
+            "X-Fulfillment-API-Key": fulfillment_api_key
         }
         try:
             response = requests.get(url, headers=headers, timeout=10)
@@ -178,12 +180,12 @@ class FulfillmentPartners(models.Model):
         else:
             return f"❌ HTTP Error {error.response.status_code}: {str(error)}"
 
-    def _process_api_data(self, data, api_key):
+    def _process_api_data(self, data, fulfillment_api_key):
         """Обработка полученных данных и обновление партнеров и складов"""
         for item in data:
-            self._create_or_update_partner(item, api_key)
+            self._create_or_update_partner(item, fulfillment_api_key)
 
-    def _create_or_update_partner(self, item, api_key):
+    def _create_or_update_partner(self, item, fulfillment_api_key):
         """Создание или обновление партнера и складов"""
         existing = self.search([('fulfillment_id', '=', item['fulfillmentId'])], limit=1)
         created_at = self._normalize_datetime(item.get('createdAt'))
@@ -195,7 +197,7 @@ class FulfillmentPartners(models.Model):
             'webhook_url': item.get('webHookUrl'),
             'created_at': created_at,
             'user_id': item.get('userId'),
-            'fulfillment_api_key': api_key,
+            'fulfillment_api_key': fulfillment_api_key,
         }
 
         if existing:
@@ -206,7 +208,7 @@ class FulfillmentPartners(models.Model):
             partner = self.create(vals)
 
         # Обновляем склады партнера
-        warehouses_data = self._fetch_warehouses(item['fulfillmentId'], api_key)
+        warehouses_data = self._fetch_warehouses(item['fulfillmentId'], fulfillment_api_key)
         self.env['stock.warehouse'].synchronize_warehouses(partner, warehouses_data)
 
     def _normalize_datetime(self, dt_str):

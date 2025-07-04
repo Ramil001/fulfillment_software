@@ -38,12 +38,13 @@
                             </group>
                             <group>
                                 <separator string="API integration" colspan="2"/>
+                                <field name="domain" />
                                 <field name="fulfillment_api_key" password="True"/>
                             </group>
                             <group >
                                 <separator string="Connect with Fulfillment Software" colspan="2"/>
                                 <field name="update_at" password="True"/>
-                                <field name="g_fulfillment_id"></field>
+                                <field name="fulfillment_profile_id"></field>
                             </group>
                         </group>
                         <!-- capabilities -->
