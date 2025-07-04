@@ -19,7 +19,7 @@ class FulfillmentProfile(models.Model):
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key", password=True)
     update_at = fields.Datetime(string="Last Updated", readonly=True) 
     fulfillment_profile_id = fields.Char(string="Fulfillment Profile ID", readonly=True)
-    domain = fields.Char(string="my.domain.com", default="fulfillment.software.com")
+    domain = fields.Char(string="API domain", default="api.fulfillment.software")
 
 
     @api.model

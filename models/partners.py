@@ -209,7 +209,7 @@ class FulfillmentPartners(models.Model):
 
         # Обновляем склады партнера
         warehouses_data = self._fetch_warehouses(item['fulfillmentId'], fulfillment_api_key)
-        self.env['stock.warehouse'].synchronize_warehouses(partner, warehouses_data)
+        self.env['stock.warehouse'].reload_warehouses(partner, warehouses_data)
 
     def _normalize_datetime(self, dt_str):
         """Нормализация формата даты"""
