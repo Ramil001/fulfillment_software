@@ -48,7 +48,7 @@ class FulfillmentProfile(models.Model):
 
             payload = {
                 "name": record.name or "Default Name",
-                "domain": record.domain or "software.com",
+                "domain": record.domain or "api.fulfillment.software",
             }
 
             try:
@@ -71,12 +71,12 @@ class FulfillmentProfile(models.Model):
                     if result.get("status") == "OK" and "data" in result:
                         data = result["data"]
                         record.write({
-                            "fulfillment_profile_id": data.get("fulfillmentId"),
+                            "fulfillment_profile_id": data.get("fulfillment_id"),
                             "name": data.get("name", record.name),
                             "domain": data.get("domain", record.domain)
                            
                         })
-                        _logger.info("Fulfillment создан через POST с ID %s", data.get("fulfillmentId"))
+                        _logger.info("Fulfillment создан через POST с ID %s", data.get("fulfillment_id"))
                     else:
                         _logger.warning("POST — неожиданный ответ: %s", result)
 

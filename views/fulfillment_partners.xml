@@ -10,47 +10,13 @@
     <form string="Partner Details" create="False">
      <sheet>
       <header>
-       <button class="oe_stat_button" 
-                         type="object" 
-                         icon="fa-plus"           
-                         string="Follow"              
-                         name="action_send_request_follow">
-                         
-                </button>
-      <field name="status" widget="statusbar"  statusbar_visible="follow,unfollow"  statusbar_colors='{"follow":"red","unfollow":"blue"}'/>
+        <field name="status" widget="statusbar"  statusbar_visible="follow,unfollow"  statusbar_colors='{"follow":"red","unfollow":"blue"}'/>
       </header>
-      <div name="button_box" position="inside">
-       <button class="oe_stat_button" 
-                         type="object" 
-                         icon="fa-home"           
-                         string="19 warehouses"              
-                         name="action_get_vehicles_record">
-                         
-        </button>
-        <button class="oe_stat_button" 
-                         type="object" 
-                         icon="fa-money"           
-                         string="0.50$ per/package"              
-                         name="action_get_vehicles_record">
-                         
-        </button>
-          <button class="oe_stat_button" 
-                         type="object" 
-                         icon="fa-users"           
-                         string="246 followers"              
-                         name="action_get_vehicles_record">
-                         
-        </button>
-      </div>
-      <group>
-       <group>
         <field name="name"/>
         <field name="fulfillment_id"/>
-       </group>
        <group>
         <field name="name"/>
         <field name="domain"/>
-       </group>
       </group>
       <notebook>
       <page string="Services">

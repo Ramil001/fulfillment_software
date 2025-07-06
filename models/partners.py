@@ -25,31 +25,8 @@ class FulfillmentPartners(models.Model):
     profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
     
-    
-    
-    def action_send_request_follow(self):
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Успех',
-                'message': 'Запрос отправлен',
-                'type': 'success',
-                'sticky': False,
-            }
-        }
 
-    def action_get_vehicles_record(self):
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': 'Запрос отправлен',
-                'message': 'Вы нажали на кнопку',
-                'type': 'success',
-                'sticky': False,
-            }
-        }
+   
 
     # Разрешаем использование параметра password в поле
     def _valid_field_parameter(self, field, name):
@@ -84,7 +61,7 @@ class FulfillmentPartners(models.Model):
                 'res_model': 'fulfillment.partners',
                 'view_mode': 'tree,form',
                 'views': [
-                    (self.env.ref('fulfillment_software.view_fulfillment_partners_tree').id, 'tree'),
+                    (self.env.ref('fulfillment_software.view_fulfillment_partners_list').id, 'tree'),
                     (False, 'form')
                 ],
                 'target': 'current'
@@ -150,26 +127,6 @@ class FulfillmentPartners(models.Model):
             _logger.error("❌ API request error: %s", str(e))
             raise UserError(f"API request failed: {str(e)}")
 
-    def _fetch_warehouses(self, fulfillment_id, fulfillment_api_key):
-        """Получаем склады из API по fulfillment_id"""
-        url = f"https://api.fulfillment.software/api/v1/fulfillments/{fulfillment_id}/warehouses"
-        headers = {
-            "Content-Type": "application/json",
-            "X-Fulfillment-API-Key": fulfillment_api_key
-        }
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-            data = response.json().get("data", [])
-            _logger.info(f"✅ Received {len(data)} warehouses for fulfillment {fulfillment_id}")
-            return data
-        except requests.exceptions.HTTPError as e:
-            error_msg = self._handle_http_error(e)
-            _logger.error(error_msg)
-            raise UserError(error_msg)
-        except Exception as e:
-            _logger.error(f"❌ Warehouse API request error: {str(e)}")
-            raise UserError(f"Warehouse API request failed: {str(e)}")
 
     def _handle_http_error(self, error):
         """Обработка HTTP ошибок"""
@@ -187,29 +144,27 @@ class FulfillmentPartners(models.Model):
 
     def _create_or_update_partner(self, item, fulfillment_api_key):
         """Создание или обновление партнера и складов"""
-        existing = self.search([('fulfillment_id', '=', item['fulfillmentId'])], limit=1)
-        created_at = self._normalize_datetime(item.get('createdAt'))
+        existing = self.search([('fulfillment_id', '=', item['fulfillment_id'])], limit=1)
+        created_at = self._normalize_datetime(item.get('created_at'))
 
         vals = {
             'name': item.get('name') or 'Без имени',
             'domain': item.get('domain'),
             'fulfillment_id': item.get('fulfillment_id'),
-            'webhook_url': item.get('webHookUrl'),
+            'webhook_url': item.get('webhook_url'),
             'created_at': created_at,
-            'user_id': item.get('userId'),
+            'user_id': item.get('user_id'),
             'fulfillment_api_key': fulfillment_api_key,
         }
 
         if existing:
             existing.write(vals)
-            partner = existing
+           
         else:
-            vals['fulfillment_id'] = item['fulfillmentId']
-            partner = self.create(vals)
-
+            vals['fulfillment_id'] = item['fulfillment_id']
+            self.create(vals)
         # Обновляем склады партнера
-        warehouses_data = self._fetch_warehouses(item['fulfillmentId'], fulfillment_api_key)
-        self.env['stock.warehouse'].reload_warehouses(partner, warehouses_data)
+        self.env['stock.warehouse'].reload_warehouses()
 
     def _normalize_datetime(self, dt_str):
         """Нормализация формата даты"""

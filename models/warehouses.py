@@ -83,18 +83,5 @@ class FulfillmentWarehouses(models.Model):
 
     # Метод синхронизации складов и обновления складов.
     @api.model
-    def reload_warehouses(self, partner, warehouses_data):
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        
-        # headers = {
-        #     'Content-Type': 'application/json',
-        #     'X-Fulfillment-API-Key': profile.fulfillment_api_key
-        # }
-        
-        url = f"https://{profile.domain}/api/v1/fulfillments/{profile.fulfillment_profile_id}/warehouses"
-        
-        for record in self:
-            _logger.info(f"[:: Warehouse ::] -> {record.name}")
-                               
-        _logger.info(f"[::Warehouese::] {partner} | {warehouses_data} | URL: {url}")  
- 
+    def reload_warehouses(self):
+        return True
