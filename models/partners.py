@@ -54,7 +54,7 @@ class FulfillmentPartners(models.Model):
                 return False  # Error already logged and notified
 
             self._process_api_data(data, profile.fulfillment_api_key)
-
+            self.env['stock.warehouse'].reload_warehouses()
             return {
                 'type': 'ir.actions.act_window',
                 'name': 'Partners',
@@ -141,6 +141,7 @@ class FulfillmentPartners(models.Model):
         """Обработка полученных данных и обновление партнеров и складов"""
         for item in data:
             self._create_or_update_partner(item, fulfillment_api_key)
+        
 
     def _create_or_update_partner(self, item, fulfillment_api_key):
         """Создание или обновление партнера и складов"""
@@ -163,8 +164,7 @@ class FulfillmentPartners(models.Model):
         else:
             vals['fulfillment_id'] = item['fulfillment_id']
             self.create(vals)
-        # Обновляем склады партнера
-        self.env['stock.warehouse'].reload_warehouses()
+       
 
     def _normalize_datetime(self, dt_str):
         """Нормализация формата даты"""
