@@ -16,7 +16,7 @@ class FulfillmentWarehouses(models.Model):
     # ID конечного пользователя скалада.
     fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client ID")
     # Внуренний ID склада fulfillment software
-    fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True) 
+    fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
 
 
     
@@ -61,7 +61,7 @@ class FulfillmentWarehouses(models.Model):
                     if response.status_code == 200:
                         response_json = response.json()
                         data = response_json.get('data', {})
-                        fulfillment_warehouse_id = data.get('id') 
+                        fulfillment_warehouse_id = data.get('warehouse_id') 
                         vals['fulfillment_warehouse_id'] = fulfillment_warehouse_id
                     _logger.info(f"API response: | {url} | {response.status_code} | {response.text} | {response}")
                 except requests.RequestException as e:
@@ -74,7 +74,7 @@ class FulfillmentWarehouses(models.Model):
                     if response.status_code == 200:
                         response_json = response.json()
                         data = response_json.get('data', {})
-                        fulfillment_warehouse_id = data.get('id') 
+                        fulfillment_warehouse_id = data.get('warehouse_id') 
                         vals['fulfillment_warehouse_id'] = fulfillment_warehouse_id
                     _logger.info(f"API response: ::Patch:: | {url} | {response.status_code} | {response.text} | {response}")
                 except requests.RequestException as e:
@@ -85,6 +85,10 @@ class FulfillmentWarehouses(models.Model):
     @api.model
     def reload_warehouses(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.error("[Fulfillment] Profile not found")
+            return False
+            
         headers = {
             'Content-Type': 'application/json',
             'X-Fulfillment-API-Key': profile.fulfillment_api_key
@@ -106,32 +110,36 @@ class FulfillmentWarehouses(models.Model):
                 _logger.info("[Fulfillment] No warehouses received from API")
                 return True
 
-            # Решение для проблемы дублирования имен складов
-            existing_names = {
-                name: id for name, id in 
-                self.search_read([('company_id', '=', self.env.company.id)], ['name'])
-            }
-
-            # Получаем все fulfillment-склады для сравнения
+            # Страна по умолчанию - Украина
+            default_country = self.env.ref('base.ua')
             existing_warehouses = self.search([('is_fulfillment', '=', True)])
             external_id_map = {w.fulfillment_warehouse_id: w for w in existing_warehouses}
-            processed_warehouses = set()
+            processed_ids = set()
 
             for wh_data in warehouses_data:
-                external_id = str(wh_data.get('id'))
+                external_id = str(wh_data.get('warehouse_id'))
                 warehouse = external_id_map.get(external_id)
-                
-                # Генерация уникального имени склада
                 base_name = wh_data.get('name', 'Unknown Warehouse')
+                
+                # Генерация уникального имени
                 unique_name = base_name
                 suffix = 1
-                
-                # Проверка на уникальность имени в рамках компании
-                while unique_name in existing_names and existing_names[unique_name] != (warehouse.id if warehouse else False):
+                while self.search_count([('name', '=', unique_name), ('company_id', '=', self.env.company.id)]):
                     unique_name = f"{base_name} [{wh_data.get('code', '')}-{suffix}]"
                     suffix += 1
                 
-                # Подготовка значений для создания/обновления
+                # Определение страны
+                country_code = wh_data.get('location', 'UA')
+                country = self.env['res.country'].search([('code', '=', country_code)], limit=1) or default_country
+                
+                # Подготовка данных партнера
+                partner_vals = {
+                    'name': unique_name,
+                    'country_id': country.id,
+                    'is_company': True,
+                }
+                
+                # Основные данные склада
                 vals = {
                     'name': unique_name,
                     'code': wh_data.get('code', ''),
@@ -139,29 +147,33 @@ class FulfillmentWarehouses(models.Model):
                     'fulfillment_warehouse_id': external_id,
                 }
                 
-                # Решение для проблемы внешнего ключа - добавляем только необходимые поля
-                location_fields = ['location']
-                for field in location_fields:
-                    if field in wh_data:
-                        vals[field] = wh_data[field]
-                
+                # Работа с партнером
                 if warehouse:
+                    # Обновление существующего партнера
+                    if warehouse.partner_id:
+                        warehouse.partner_id.write(partner_vals)
+                    else:
+                        # Создание партнера если отсутствует
+                        vals['partner_id'] = self.env['res.partner'].create(partner_vals).id
+                        
                     warehouse.write(vals)
-                    processed_warehouses.add(warehouse.id)
+                    processed_ids.add(warehouse.id)
                 else:
+                    # Создание нового склада с партнером
+                    partner_vals['type'] = 'delivery'  # Для лучшей идентификации
+                    vals['partner_id'] = self.env['res.partner'].create(partner_vals).id
+                    
                     try:
                         new_warehouse = self.create(vals)
-                        processed_warehouses.add(new_warehouse.id)
-                        existing_names[unique_name] = new_warehouse.id
+                        processed_ids.add(new_warehouse.id)
                         _logger.info(f"[Fulfillment] Created warehouse: {new_warehouse.name}")
                     except Exception as e:
                         _logger.error(f"[Fulfillment] Failed to create warehouse: {str(e)}")
-                        # Откат изменений для этой конкретной записи
                         self.env.cr.rollback()
                         continue
 
-            # Деактивировать склады, которые больше не существуют в API
-            to_deactivate = existing_warehouses.filtered(lambda w: w.id not in processed_warehouses)
+            # Деактивация устаревших складов
+            to_deactivate = existing_warehouses.filtered(lambda w: w.id not in processed_ids)
             if to_deactivate:
                 to_deactivate.write({'active': False})
                 _logger.info(f"[Fulfillment] Deactivated {len(to_deactivate)} obsolete warehouses")
