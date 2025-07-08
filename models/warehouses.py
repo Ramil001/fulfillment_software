@@ -19,7 +19,7 @@ class FulfillmentWarehouses(models.Model):
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
 
 
-    
+    # [Update] Обновляет запись.
     @api.model
     def write(self, vals):
         super().write(vals)
@@ -52,35 +52,66 @@ class FulfillmentWarehouses(models.Model):
             }
                         
             
-            # Проверяем есть ли фулфиллмент ид и является ли запись.
-            if record.is_fulfillment and not record.fulfillment_warehouse_id:
-                url = f"https://{profile.domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses"
-            
-                try:
-                    response = requests.post(url, json=payload, headers=headers, timeout=10)
-                    if response.status_code == 200:
-                        response_json = response.json()
-                        data = response_json.get('data', {})
-                        fulfillment_warehouse_id = data.get('warehouse_id') 
-                        vals['fulfillment_warehouse_id'] = fulfillment_warehouse_id
-                    _logger.info(f"API response: | {url} | {response.status_code} | {response.text} | {response}")
-                except requests.RequestException as e:
-                    _logger.error(f"API call failed: {e}")
             #Если есть и чекбокс и номер склада
-            elif record.is_fulfillment and record.fulfillment_warehouse_id:
-                url = f"https://{profile.domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses/{self.fulfillment_warehouse_id}"
-                try:
-                    response = requests.patch(url, json=payload, headers=headers, timeout=10)
-                    if response.status_code == 200:
-                        response_json = response.json()
-                        data = response_json.get('data', {})
-                        fulfillment_warehouse_id = data.get('warehouse_id') 
-                        vals['fulfillment_warehouse_id'] = fulfillment_warehouse_id
-                    _logger.info(f"API response: ::Patch:: | {url} | {response.status_code} | {response.text} | {response}")
-                except requests.RequestException as e:
-                    _logger.error(f"API call failed: {e}")
+            url = f"https://{profile.domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses/{self.fulfillment_warehouse_id}"
+            try:
+                response = requests.patch(url, json=payload, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    response_json = response.json()
+                    data = response_json.get('data', {})
+                    fulfillment_warehouse_id = data.get('warehouse_id') 
+                    vals['fulfillment_warehouse_id'] = fulfillment_warehouse_id
+                _logger.info(f"API response: ::Patch:: | {url} | {response.status_code} | {response.text} | {response}")
+            except requests.RequestException as e:
+                _logger.error(f"API call failed: {e}")
                 
 
+    # [CREATE] Создания новой записи.
+    @api.model
+    def create(self, vals):
+        # 1. Создаём склад стандартным способом
+        warehouse = super().create(vals)
+
+        # 2. Берём профиль фулфилмента
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found on create")
+            return warehouse
+
+        # 3. Если склад - fulfillment
+        if warehouse.is_fulfillment:
+            payload = {
+                'name': warehouse.name,
+                'code': warehouse.code,
+                "location": "UKR"
+            }
+            headers = {
+                'Content-Type': 'application/json',
+                'X-Fulfillment-API-Key': profile.fulfillment_api_key
+            }
+
+            if warehouse.fulfillment_client_id:
+                fulfillment_id = warehouse.fulfillment_client_id.fulfillment_id
+            else:
+                fulfillment_id = profile.fulfillment_profile_id
+
+            url = f"https://{profile.domain}/api/v1/fulfillments/{fulfillment_id}/warehouses"
+
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=10)
+                response.raise_for_status()
+                response_json = response.json()
+                data = response_json.get('data', {})
+                fulfillment_warehouse_id = data.get('warehouse_id')
+                if fulfillment_warehouse_id:
+                    warehouse.fulfillment_warehouse_id = fulfillment_warehouse_id
+                _logger.info(f"[Fulfillment][Create] Created warehouse via API: {warehouse.name} | {response.status_code} | {response.text}")
+            except requests.RequestException as e:
+                _logger.error(f"[Fulfillment][Create] API call failed: {e}")
+
+        return warehouse
+          
+            
     # Метод синхронизации складов и обновления складов.
     @api.model
     def reload_warehouses(self):
