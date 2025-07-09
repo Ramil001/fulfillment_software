@@ -16,7 +16,7 @@
         <field name="fulfillment_id"/>
        <group>
         <field name="name"/>
-        <field name="domain"/>
+        <field name="domain_api"/>
       </group>
       <notebook>
       <page string="Services">
@@ -52,7 +52,7 @@
                         display="always"/>
      </header>
      <field name="name"/>
-     <field name="domain"/>
+     <field name="domain_api"/>
     </list>
    </field>
   </record>

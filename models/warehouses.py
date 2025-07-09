@@ -1,8 +1,10 @@
 import logging
 import requests
 from odoo import models, fields, api
+from ..services.client import FulfillmentAPIClient
 
 _logger = logging.getLogger(__name__)
+
 
 
 class FulfillmentWarehouses(models.Model):
@@ -19,96 +21,50 @@ class FulfillmentWarehouses(models.Model):
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
 
 
-    # [Update] Обновляет запись.
+    #[Update]
     @api.model
     def write(self, vals):
-        super().write(vals)
-        for record in self:
-            profile = self.env['fulfillment.profile'].search([], limit=1)
-            if profile:
-                _logger.info(f"[Fulfillment Profile]: {profile.name}")
-            else:
-                _logger.info("[Fulfillment Profile]: Not found")
+            super().write(vals)
+            for record in self:
+                if not record.is_fulfillment:
+                    continue
 
-            if record.fulfillment_client_id:
-                _logger.info(f"[Fulfillment Warehouse Client ID]: {record.fulfillment_client_id.name}")
-            else:
-                _logger.info("[Fulfillment Warehouse Client ID]: No client")
-
-            _logger.info(f"[Fulfillment Software][DEBGU]: {record.name} | {record.code} | {profile.fulfillment_api_key}")
-            
-            # Подготовка запроса
-            payload = {
-                'name': record.name,
-                'code': record.code,
-                "location": "UKR"
-            }
-            
-            # Подготовка авторизации
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'X-Fulfillment-API-Key': profile.fulfillment_api_key
-            }
-                        
-            
-            #Если есть и чекбокс и номер склада
-            url = f"https://{profile.domain}/api/v1/fulfillments/{self.fulfillment_client_id.fulfillment_id}/warehouses/{self.fulfillment_warehouse_id}"
-            try:
-                response = requests.patch(url, json=payload, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    response_json = response.json()
-                    data = response_json.get('data', {})
-                    fulfillment_warehouse_id = data.get('warehouse_id') 
-                    vals['fulfillment_warehouse_id'] = fulfillment_warehouse_id
-                _logger.info(f"API response: ::Patch:: | {url} | {response.status_code} | {response.text} | {response}")
-            except requests.RequestException as e:
-                _logger.error(f"API call failed: {e}")
+                profile = self.env['fulfillment.profile'].search([], limit=1)
+                client = FulfillmentAPIClient(profile)
+                payload = {
+                    'name': record.name,
+                    'code': record.code,
+                    "location": "UKR"
+                }
+                fulfillment_id = record.fulfillment_client_id.fulfillment_id
+                try:
+                    response = client.update_warehouse(fulfillment_id, record.fulfillment_warehouse_id, payload)
+                    record.fulfillment_warehouse_id = response['data'].get('warehouse_id')
+                except Exception:
+                    pass
                 
 
     # [CREATE] Создания новой записи.
     @api.model
     def create(self, vals):
-        # 1. Создаём склад стандартным способом
         warehouse = super().create(vals)
-
-        # 2. Берём профиль фулфилмента
         profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            _logger.warning("[Fulfillment] Profile not found on create")
+        if not profile or not warehouse.is_fulfillment:
             return warehouse
 
-        # 3. Если склад - fulfillment
-        if warehouse.is_fulfillment:
-            payload = {
-                'name': warehouse.name,
-                'code': warehouse.code,
-                "location": "UKR"
-            }
-            headers = {
-                'Content-Type': 'application/json',
-                'X-Fulfillment-API-Key': profile.fulfillment_api_key
-            }
+        client = FulfillmentAPIClient(profile)
 
-            if warehouse.fulfillment_client_id:
-                fulfillment_id = warehouse.fulfillment_client_id.fulfillment_id
-            else:
-                fulfillment_id = profile.fulfillment_profile_id
-
-            url = f"https://{profile.domain}/api/v1/fulfillments/{fulfillment_id}/warehouses"
-
-            try:
-                response = requests.post(url, json=payload, headers=headers, timeout=10)
-                response.raise_for_status()
-                response_json = response.json()
-                data = response_json.get('data', {})
-                fulfillment_warehouse_id = data.get('warehouse_id')
-                if fulfillment_warehouse_id:
-                    warehouse.fulfillment_warehouse_id = fulfillment_warehouse_id
-                _logger.info(f"[Fulfillment][Create] Created warehouse via API: {warehouse.name} | {response.status_code} | {response.text}")
-            except requests.RequestException as e:
-                _logger.error(f"[Fulfillment][Create] API call failed: {e}")
-
+        payload = {
+            'name': warehouse.name,
+            'code': warehouse.code,
+            "location": "UKR"
+        }
+        fulfillment_id = warehouse.fulfillment_client_id.fulfillment_id or profile.fulfillment_profile_id
+        try:
+            response = client.create_warehouse(fulfillment_id, payload)
+            warehouse.fulfillment_warehouse_id = response['data'].get('warehouse_id')
+        except Exception:
+            pass
         return warehouse
           
             

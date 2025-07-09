@@ -18,7 +18,7 @@ class FulfillmentPartners(models.Model):
 
     name = fields.Char(string="Fulfillment Name", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
-    domain = fields.Char(string="Domain", readonly=True)
+    domain_api = fields.Char(string="Domain", readonly=True)
     webhook_url = fields.Char(string="Webhook URL")
     created_at = fields.Datetime(string="Created At")
     user_id = fields.Char(string="User ID")
@@ -151,7 +151,7 @@ class FulfillmentPartners(models.Model):
 
         vals = {
             'name': item.get('name') or 'Без имени',
-            'domain': item.get('domain'),
+            'domain_api': item.get('domain'),
             'fulfillment_id': item.get('fulfillment_id'),
             'webhook_url': item.get('webhook_url'),
             'created_at': created_at,
