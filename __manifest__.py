@@ -11,7 +11,7 @@
     'category': 'Inventory',
     'version': '0.2',
     'license': "OEEL-1",
-    'depends': ['base', 'web','mail', 'stock'],
+    'depends': ['base', 'web','mail', 'stock', 'product'],
     'assets': {
         'web.assets_backend': [
             'fulfillment_software/static/src/js/systray.js',
@@ -23,6 +23,7 @@
         'views/views.xml',                  # Представления
         'views/fulfillment_warehouses.xml', # Представление для изменения страницы создания скалада
         'views/fulfillment_partners.xml',   # Предстваление старницы партнёра
+        'views/fulfillment_products.xml',
         'views/fulfillment_main.xml',       # Действие
         'views/menu.xml',                   # Меню (после действия)
     ],
