@@ -11,7 +11,7 @@
     'category': 'Inventory',
     'version': '0.2',
     'license': "OEEL-1",
-    'depends': ['base', 'web','mail', 'stock', 'product'],
+    'depends': ['base', 'web','mail', 'stock', 'product', 'sale_management'],
     'assets': {
         'web.assets_backend': [
             'fulfillment_software/static/src/js/systray.js',

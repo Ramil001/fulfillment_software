@@ -2,6 +2,8 @@ import logging
 import requests
 from odoo import models, fields, api
 from ..services.client import FulfillmentAPIClient
+import time
+from datetime import datetime, timezone
 
 _logger = logging.getLogger(__name__)
 
@@ -14,16 +16,19 @@ class FulfillmentWarehouses(models.Model):
     is_fulfillment = fields.Boolean(string="Is this for client storage?")
     # ID того кто создал склад.
     fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Fulfillment client ID")
-
     # ID конечного пользователя скалада.
     fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client ID")
     # Внуренний ID склада fulfillment software
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
+    
+    last_update = fields.Datetime(string='Last Update', readonly=True)
 
 
-    #[Update]
+
+    # [Update]
     @api.model
     def write(self, vals):
+            vals['last_update'] = datetime.now(timezone.utc)
             super().write(vals)
             for record in self:
                 if not record.is_fulfillment:
@@ -40,6 +45,7 @@ class FulfillmentWarehouses(models.Model):
                 try:
                     response = client.update_warehouse(fulfillment_id, record.fulfillment_warehouse_id, payload)
                     record.fulfillment_warehouse_id = response['data'].get('warehouse_id')
+                    
                 except Exception:
                     pass
                 
@@ -47,6 +53,7 @@ class FulfillmentWarehouses(models.Model):
     # [CREATE] Создания новой записи.
     @api.model
     def create(self, vals):
+        vals['last_update'] = datetime.now(timezone.utc)
         warehouse = super().create(vals)
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile or not warehouse.is_fulfillment:
@@ -63,6 +70,7 @@ class FulfillmentWarehouses(models.Model):
         try:
             response = client.create_warehouse(fulfillment_id, payload)
             warehouse.fulfillment_warehouse_id = response['data'].get('warehouse_id')
+            vals['last_update'] = datetime.now()
         except Exception:
             pass
         return warehouse
