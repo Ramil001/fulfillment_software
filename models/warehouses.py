@@ -2,8 +2,7 @@ import logging
 import requests
 from odoo import models, fields, api
 from ..services.client import FulfillmentAPIClient
-import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 _logger = logging.getLogger(__name__)
 
@@ -28,32 +27,35 @@ class FulfillmentWarehouses(models.Model):
     # [Update]
     @api.model
     def write(self, vals):
-            vals['last_update'] = datetime.now(timezone.utc)
-            super().write(vals)
             for record in self:
-                if not record.is_fulfillment:
+                is_fulfillment = vals.get('is_fulfillment', record.is_fulfillment)
+                if not is_fulfillment:
                     continue
-
+                
+                _logger.info(f"[LOG][record]: {record}")
                 profile = self.env['fulfillment.profile'].search([], limit=1)
                 client = FulfillmentAPIClient(profile)
+                
                 payload = {
                     'name': record.name,
                     'code': record.code,
                     "location": "UKR"
                 }
                 fulfillment_id = record.fulfillment_client_id.fulfillment_id
+                _logger.info(f"[Fulfillment][var][fulfillment_id]: {fulfillment_id}")
                 try:
                     response = client.update_warehouse(fulfillment_id, record.fulfillment_warehouse_id, payload)
                     record.fulfillment_warehouse_id = response['data'].get('warehouse_id')
-                    
                 except Exception:
                     pass
-                
+            vals['last_update'] = datetime.now()
+            return super().write(vals)
+                    
 
     # [CREATE] Создания новой записи.
     @api.model
     def create(self, vals):
-        vals['last_update'] = datetime.now(timezone.utc)
+        vals['last_update'] = datetime.now()
         warehouse = super().create(vals)
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile or not warehouse.is_fulfillment:
