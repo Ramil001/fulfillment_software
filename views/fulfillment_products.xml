@@ -6,8 +6,18 @@
     <field name="inherit_id" ref="product.product_template_only_form_view"/>
     <field name="arch" type="xml">
         <xpath expr="//sheet/notebook" position="inside">
-           <page string="Fulfillment">
-             
+           <page string="Фулфиллмент">
+           <separator string="Покупка" colspan="2"/>
+                 <field name="sale_fulfillment_partner_ids"
+       widget="many2many"
+       domain="[('status','=','follow')]"/>
+
+          
+           <separator string="Продажи" colspan="2"/>
+                 <field name="sale_fulfillment_partner_ids"
+       widget="many2many"
+       domain="[('status','=','follow')]"/>
+
            </page>
         </xpath>
     </field>

@@ -35,19 +35,22 @@ class FulfillmentWarehouses(models.Model):
                 _logger.info(f"[LOG][record]: {record}")
                 profile = self.env['fulfillment.profile'].search([], limit=1)
                 client = FulfillmentAPIClient(profile)
-                
+              
                 payload = {
                     'name': record.name,
                     'code': record.code,
                     "location": "UKR"
                 }
+                
                 fulfillment_id = record.fulfillment_client_id.fulfillment_id
                 _logger.info(f"[Fulfillment][var][fulfillment_id]: {fulfillment_id}")
+                
                 try:
                     response = client.update_warehouse(fulfillment_id, record.fulfillment_warehouse_id, payload)
                     record.fulfillment_warehouse_id = response['data'].get('warehouse_id')
                 except Exception:
                     pass
+                
             vals['last_update'] = datetime.now()
             return super().write(vals)
                     

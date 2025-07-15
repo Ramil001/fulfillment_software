@@ -15,6 +15,8 @@ class FulfillmentPartners(models.Model):
         ('follow', 'Follow'),
         ('unfollow', 'Unfollow')],
         default='unfollow', tracking=True)
+    
+
 
     name = fields.Char(string="Fulfillment Name", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
