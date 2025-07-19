@@ -40,33 +40,8 @@ class SystrayIcon extends Component {
             name: 'Partners Fulfillment',
         });
     }
-    
-    async syncFulfillment() {
-        try {
-            await rpc.query({
-                model: 'stock.picking',
-                method: 'create_fulfillment_receipt',
-                args: [],
-            });
-            this.notification.add({
-                title: "Fulfillment",
-                message: "Синхронизация выполнена успешно",
-                type: "success",
-            });
-        } catch (e) {
-            this.notification.add({
-                title: "Fulfillment",
-                message: `Ошибка при синхронизации: ${e.message || e}`,
-                type: "danger",
-            });
-        }
-        this.state.menuOpen = false;
-    }
 
 }
-
-
-
 
 SystrayIcon.template = "systray_icon";
 

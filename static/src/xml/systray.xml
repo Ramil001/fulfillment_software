@@ -7,26 +7,22 @@
       title="Fulfillment Software"
       style="cursor:pointer; font-size:19px;margin:auto; padding: 0 5px; margin-top:3px; display:flex;"
       t-on-click="toggleMenu"
-    >
-      <div style="border-radius:50%; width:5px;height:5px; background-color:#e74c3c;"></div>
-    </i>
 
+    >
+    <div style="border-radius:50%; width:5px;height:5px; background-color:#e74c3c;"></div>
+   </i>
     <div t-attf-class="dropdown-menu #{state.menuOpen ? 'show' : ''}"
          style="position: absolute; right: 0; background: white; border: 1px solid #ccc; padding: 5px; min-width: 180px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); z-index: 1000;">
-      
-      <a href="#" t-on-click.prevent="openProfiles" style="display:block; padding: 4px 8px; cursor:pointer;">
-        Profiles Fulfillment
-      </a>
-      
-      <a href="#" t-on-click.prevent="openPartners" style="display:block; padding: 4px 8px; cursor:pointer;">
-        Partners Fulfillment
-      </a>
-      
-      <a href="#" t-on-click.prevent="syncFulfillment" style="display:block; padding: 4px 8px; cursor:pointer;">
-         Синхронизировать поступления
-      </a>
-      
+   <a href="#" t-on-click.prevent="openProfiles" style="display:block; padding: 4px 8px; cursor:pointer;">
+    Profiles Fulfillment
+   </a>
+   <a href="#" t-on-click.prevent="openPartners" style="display:block; padding: 4px 8px; cursor:pointer;">
+       Partners Fulfillment
+   </a>
+
     </div>
   </div>
 </t>
+
+
 </templates>

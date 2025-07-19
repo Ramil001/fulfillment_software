@@ -56,7 +56,9 @@ class FulfillmentPartners(models.Model):
                 return False  # Error already logged and notified
 
             self._process_api_data(data, profile.fulfillment_api_key)
+            
             self.env['stock.warehouse'].sudo().reload_warehouses()
+            self.env['stock.picking'].sudo().create_fulfillment_receipt()
             
             return {
                 'type': 'ir.actions.act_window',
