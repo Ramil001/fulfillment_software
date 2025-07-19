@@ -6,3 +6,4 @@ from . import profile
 from . import warehouses
 from . import products
 from . import purchase
+from . import transfers
