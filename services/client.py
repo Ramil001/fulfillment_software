@@ -28,6 +28,11 @@ class FulfillmentAPIClient:
         url = f"https://{self.domain}/api/v1/fulfillments/{self.profile_id}/warehouses"
         return self._request('GET', url)
 
+
+    def get_purchase_orders(self):
+        url = f"https://{self.domain}/api/v1/purchase/{self.profile_id}"
+        return self._request('GET', url)
+
     def _request(self, method, url, payload=None):
         try:
             _logger.info(f"[Fulfillment API] {method} {url} payload={payload}")
@@ -44,3 +49,5 @@ class FulfillmentAPIClient:
         except requests.RequestException as e:
             _logger.error(f"[Fulfillment API] {method} {url} failed: {e}")
             raise
+
+
