@@ -17,18 +17,26 @@ class FulfillmentTransfers(models.Model):
             return False
 
         client = FulfillmentAPIClient(profile)
-
         try:
             purchases = client.get_purchase_orders()
+            _logger.info(f"[PURCHASES]: {purchases}")
         except Exception as e:
             raise ValidationError(_("Fulfillment API error: %s") % str(e))
 
+        partner = self.env['res.partner'].search([], limit=1)
+        if not partner:
+            partner = self.env['res.partner'].create({'name': 'Fulfillment Partner'})
+
+        picking_type = self.env.ref('stock.picking_type_in', raise_if_not_found=False)
+        location_suppliers = self.env.ref('stock.stock_location_suppliers', raise_if_not_found=False)
+        location_stock = self.env.ref('stock.stock_location_stock', raise_if_not_found=False)
+
         for purchase in purchases:
             picking = self.env['stock.picking'].create({
-                'partner_id': self.env.ref('base.res_partner_1').id,
-                'picking_type_id': self.env.ref('stock.picking_type_in').id,
-                'location_id': self.env.ref('stock.stock_location_suppliers').id,
-                'location_dest_id': self.env.ref('stock.stock_location_stock').id,
+                'partner_id': partner.id,
+                'picking_type_id': picking_type.id if picking_type else False,
+                'location_id': location_suppliers.id if location_suppliers else False,
+                'location_dest_id': location_stock.id if location_stock else False,
                 'origin': purchase['name'],
             })
 
@@ -58,3 +66,6 @@ class FulfillmentTransfers(models.Model):
 
             picking.action_confirm()
             _logger.info(f"[Fulfillment] Created picking {picking.name} from purchase {purchase['name']}")
+
+        return True
+
