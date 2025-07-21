@@ -40,25 +40,30 @@ class FulfillmentTransfers(models.Model):
                 'origin': purchase['name'],
             })
 
-            for order in purchase.get('orders', []):
-                product_code = f"FULFILL-{order['product_id']}"
-                product = self.env['product.product'].search([
+            for product_info in purchase.get('products', []):
+                product_code = f"FULFILL-{product_info['product_id']}"
+
+                # Ищем или создаём product.template
+                product_template = self.env['product.template'].search([
                     ('default_code', '=', product_code)
                 ], limit=1)
 
-                if not product:
-                    product = self.env['product.product'].create({
-                        'name': f"Fulfillment Product {order['product_id']}",
+                if not product_template:
+                    product_template = self.env['product.template'].create({
+                        'name': product_info['product_name'],
                         'default_code': product_code,
-                        'type': 'product',
+                        'type': 'consu',
                     })
-                    _logger.info(f"[Fulfillment] Created product {product.name}")
+                    _logger.info(f"[Fulfillment] Created product template {product_template.name}")
+
+                # Получаем связанный вариант продукта (product.product)
+                product_variant = product_template.product_variant_id
 
                 self.env['stock.move'].create({
-                    'product_id': product.id,
+                    'product_id': product_variant.id,
                     'name': purchase['name'],
-                    'product_uom_qty': order['quantity'],
-                    'product_uom': product.uom_id.id,
+                    'product_uom_qty': product_info['quantity'],
+                    'product_uom': product_variant.uom_id.id,
                     'picking_id': picking.id,
                     'location_id': picking.location_id.id,
                     'location_dest_id': picking.location_dest_id.id,
@@ -68,4 +73,3 @@ class FulfillmentTransfers(models.Model):
             _logger.info(f"[Fulfillment] Created picking {picking.name} from purchase {purchase['name']}")
 
         return True
-
