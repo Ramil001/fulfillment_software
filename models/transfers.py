@@ -40,36 +40,48 @@ class FulfillmentTransfers(models.Model):
                 'origin': purchase['name'],
             })
 
-            for product_info in purchase.get('products', []):
-                product_code = f"FULFILL-{product_info['product_id']}"
-
-                # Ищем или создаём product.template
-                product_template = self.env['product.template'].search([
-                    ('default_code', '=', product_code)
-                ], limit=1)
-
-                if not product_template:
-                    product_template = self.env['product.template'].create({
-                        'name': product_info['product_name'],
-                        'default_code': product_code,
-                        'type': 'consu',
-                    })
-                    _logger.info(f"[Fulfillment] Created product template {product_template.name}")
-
-                # Получаем связанный вариант продукта (product.product)
-                product_variant = product_template.product_variant_id
-
-                self.env['stock.move'].create({
-                    'product_id': product_variant.id,
-                    'name': purchase['name'],
-                    'product_uom_qty': product_info['quantity'],
-                    'product_uom': product_variant.uom_id.id,
-                    'picking_id': picking.id,
-                    'location_id': picking.location_id.id,
-                    'location_dest_id': picking.location_dest_id.id,
+            for purchase in purchases:
+                picking = self.env['stock.picking'].create({
+                    'partner_id': partner.id,
+                    'picking_type_id': picking_type.id if picking_type else False,
+                    'location_id': location_suppliers.id if location_suppliers else False,
+                    'location_dest_id': location_stock.id if location_stock else False,
+                    'origin': purchase['name'],
                 })
 
-            picking.action_confirm()
-            _logger.info(f"[Fulfillment] Created picking {picking.name} from purchase {purchase['name']}")
+                for order_line in purchase.get('orders', []):
+                    product_info = order_line.get('product')
+                    if not product_info:
+                        continue
+
+                    product_code = f"FULFILL-{product_info['id']}"
+
+                    product_template = self.env['product.template'].search([
+                        ('default_code', '=', product_code)
+                    ], limit=1)
+
+                    if not product_template:
+                        product_template = self.env['product.template'].create({
+                            'name': product_info['name'],
+                            'default_code': product_code,
+                            'type': 'consu',
+                        })
+                        _logger.info(f"[Fulfillment] Created product template {product_template.name}")
+
+                    product_variant = product_template.product_variant_id
+
+                    self.env['stock.move'].create({
+                        'product_id': product_variant.id,
+                        'name': purchase['name'],
+                        'product_uom_qty': order_line.get('quantity', 0),
+                        'product_uom': product_variant.uom_id.id,
+                        'picking_id': picking.id,
+                        'location_id': picking.location_id.id,
+                        'location_dest_id': picking.location_dest_id.id,
+                    })
+
+                picking.action_confirm()
+                _logger.info(f"[Fulfillment] Created picking {picking.name} from purchase {purchase['name']}")
+
 
         return True
