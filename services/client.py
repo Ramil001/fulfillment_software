@@ -34,9 +34,9 @@ class FulfillmentAPIClient:
         return self._request('GET', url)
     
     
-    def create_purchase_order(self, payload, fulfillment_id=None):
-        fid = fulfillment_id
-        url = f"https://self.domain/api/v1/purchase/{fid}"
+    def create_purchase_order(self, payload, warehouse_id=None):
+        whId = warehouse_id
+        url = f"https://{self.domain}/api/v1/purchase/{whId}"
         return self._request('POST', url, payload)
 
     def _request(self, method, url, payload=None):
