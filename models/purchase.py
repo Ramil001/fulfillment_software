@@ -10,8 +10,9 @@ class FulfillmentPurchase(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         profile = self.env['fulfillment.profile'].search([], limit=1)
-        client = FulfillmentAPIClient(profile)
-
+        fulfillmentApiClient = FulfillmentAPIClient(profile)
+        
+        fulfillmentApiClient.warehouse.delete("fulfillment_id12321", "warehouse_id12323")
         for vals in vals_list:
             _logger.info(f"[CREATE OVERRIDE]: {vals}")
 
@@ -68,7 +69,7 @@ class FulfillmentPurchase(models.Model):
 
             # Вызов API
             try:
-                client.purchase.post(payload, fulfillment_warehouse_id)
+                fulfillmentApiClient.purchase.create(payload, fulfillment_warehouse_id)
                 _logger.info(f"[CREATE] Payload sent to fulfillment API with warehouse_id={warehouse_id}")
             except Exception as e:
                 _logger.error(f"[CREATE] API Call FAILED: {e}")

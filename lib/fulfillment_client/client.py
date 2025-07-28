@@ -2,9 +2,20 @@ import requests
 import logging
 from .warehouse import WarehouseAPI
 from .purchase import PurchaseAPI
+
 _logger = logging.getLogger(__name__)
 
+class FulfillmentAPIError(Exception):
+    """Custom exception for Fulfillment API errors."""
+    pass
+
+
 class FulfillmentAPIClient:
+    """
+    Main client for interacting with Fulfillment API.
+    Initializes endpoint modules like warehouse and purchase.
+    """
+
     def __init__(self, profile):
         self.api_key = profile.fulfillment_api_key
         self.domain = profile.domain
@@ -12,8 +23,8 @@ class FulfillmentAPIClient:
 
         self.warehouse = WarehouseAPI(self)
         self.purchase = PurchaseAPI(self)
-        
-        _logger.info(f"[FULFILLMENT]: [[ Client loading...  ]]")
+
+        _logger.info(f"[FULFILLMENT] Client initialized for domain: {self.domain}")
 
     def _headers(self):
         return {
@@ -23,17 +34,23 @@ class FulfillmentAPIClient:
 
     def _request(self, method, url, payload=None):
         try:
-            _logger.info(f"[Fulfillment API] {method} {url} payload={payload}")
-            if  method == 'GET':
+            _logger.info(f"[Fulfillment API] {method} {url} | Payload: {payload}")
+            if method == 'GET':
                 response = requests.get(url, headers=self._headers(), timeout=10)
             elif method == 'POST':
                 response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             elif method == 'PATCH':
                 response = requests.patch(url, json=payload, headers=self._headers(), timeout=10)
+            elif method == 'PUT':
+                response = requests.put(url, json=payload, headers=self._headers(), timeout=10)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=self._headers(), timeout=10)
             else:
-                raise ValueError(f"Unsupported method: {method}")
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            _logger.debug(f"[Fulfillment API] Response [{response.status_code}]: {response.text}")
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
             _logger.error(f"[Fulfillment API] {method} {url} failed: {e}")
-            raise
+            raise FulfillmentAPIError(f"{method} {url} failed: {str(e)}")
