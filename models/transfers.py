@@ -33,8 +33,6 @@ class FulfillmentTransfers(models.Model):
         location_suppliers = self.env.ref('stock.stock_location_suppliers', raise_if_not_found=False)
         location_stock = self.env.ref('stock.stock_location_stock', raise_if_not_found=False)
 
-    
-
         for purchase in purchases:
             picking = self.env['stock.picking'].create({
                 'partner_id': partner.id,
@@ -49,7 +47,7 @@ class FulfillmentTransfers(models.Model):
                 if not product_info:
                     continue
 
-                product_code = f"FULFILL-{product_info['id']}"
+                product_code = f"FULFILL-[{product_info['id']}]"
 
                 product_template = self.env['product.template'].search([
                     ('default_code', '=', product_code)
