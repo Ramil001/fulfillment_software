@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+from .client import FulfillmentAPIClient
+from .warehouses import WarehousesAPI
+from .purchase_orders import PurchaseOrdersAPI
 
-from . import client
-
+__all__ = [
+    'FulfillmentAPIClient',
+    'WarehousesAPI',
+    'PurchaseOrdersAPI',
+]
