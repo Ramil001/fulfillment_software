@@ -1,6 +1,7 @@
 from odoo import models, api
 import logging
-from ..services.client import FulfillmentAPIClient
+from ..lib.fulfillment_api_client import FulfillmentAPIClient
+
 
 _logger = logging.getLogger(__name__)
 

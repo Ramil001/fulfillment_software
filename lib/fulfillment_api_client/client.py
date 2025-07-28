@@ -1,6 +1,7 @@
 import requests
 import logging
-
+from .warehouses import WarehouseAPI
+from .purchase import PurchaseAPI
 _logger = logging.getLogger(__name__)
 
 class FulfillmentAPIClient:
@@ -8,6 +9,9 @@ class FulfillmentAPIClient:
         self.api_key = profile.fulfillment_api_key
         self.domain = profile.domain
         self.profile_id = profile.fulfillment_profile_id
+
+        self.warehouse = WarehouseAPI(self)
+        self.purchase = PurchaseAPI(self)
 
     def _headers(self):
         return {
