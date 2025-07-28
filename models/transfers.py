@@ -1,4 +1,4 @@
-from odoo import models, api, _
+from odoo import models, api, fields , _
 from odoo.exceptions import ValidationError
 import logging
 from ..lib.fulfillment_client import FulfillmentAPIClient
@@ -8,6 +8,8 @@ _logger = logging.getLogger(__name__)
 
 class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
+    
+    fulfillment_transfer_id = fields.Char(string="Fulfillment Transfer ID", default="Empty", readonly=True)
 
     @api.model
     def create_fulfillment_receipt(self):
