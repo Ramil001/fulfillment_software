@@ -12,14 +12,14 @@ class FulfillmentPurchase(models.Model):
         profile = self.env['fulfillment.profile'].search([], limit=1)
         fulfillmentApiClient = FulfillmentAPIClient(profile)
         
-        fulfillmentApiClient.warehouse.delete("fulfillment_id12321", "warehouse_id12323")
         for vals in vals_list:
-            _logger.info(f"[CREATE OVERRIDE]: {vals}")
+            _logger.info(f"[PURCHASE CREATE]: {vals}")
 
             # Получаем склад через picking_type
             picking_type_id = vals.get('picking_type_id')
             warehouse_id = None
             fulfillment_warehouse_id = None
+            
             if picking_type_id:
                 if isinstance(picking_type_id, list):
                     picking_type_id = picking_type_id[0]
