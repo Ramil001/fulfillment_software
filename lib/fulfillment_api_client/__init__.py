@@ -1,9 +1,9 @@
 from .client import FulfillmentAPIClient
-from .warehouses import WarehousesAPI
-from .purchase_orders import PurchaseOrdersAPI
+from .warehouse import WarehouseAPI
+from .purchase import PurchaseAPI
 
 __all__ = [
     'FulfillmentAPIClient',
-    'WarehousesAPI',
-    'PurchaseOrdersAPI',
+    'WarehouseAPI',
+    'PurchaseAPI',
 ]

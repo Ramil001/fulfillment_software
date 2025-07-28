@@ -1,6 +1,6 @@
 import requests
 import logging
-from .warehouses import WarehouseAPI
+from .warehouse import WarehouseAPI
 from .purchase import PurchaseAPI
 _logger = logging.getLogger(__name__)
 
