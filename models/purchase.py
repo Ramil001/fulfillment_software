@@ -1,7 +1,6 @@
 from odoo import models, api
 import logging
-from ..lib.fulfillment_api_client import FulfillmentAPIClient
-
+from ..lib.fulfillment_client import FulfillmentAPIClient
 
 _logger = logging.getLogger(__name__)
 
@@ -69,7 +68,7 @@ class FulfillmentPurchase(models.Model):
 
             # Вызов API
             try:
-                client.create_purchase_order(payload, fulfillment_warehouse_id)
+                client.purchase.post(payload, fulfillment_warehouse_id)
                 _logger.info(f"[CREATE] Payload sent to fulfillment API with warehouse_id={warehouse_id}")
             except Exception as e:
                 _logger.error(f"[CREATE] API Call FAILED: {e}")

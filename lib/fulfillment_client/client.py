@@ -12,6 +12,8 @@ class FulfillmentAPIClient:
 
         self.warehouse = WarehouseAPI(self)
         self.purchase = PurchaseAPI(self)
+        
+        _logger.info(f"[FULFILLMENT]: [[ Client loading...  ]]")
 
     def _headers(self):
         return {
@@ -22,7 +24,7 @@ class FulfillmentAPIClient:
     def _request(self, method, url, payload=None):
         try:
             _logger.info(f"[Fulfillment API] {method} {url} payload={payload}")
-            if method == 'GET':
+            if  method == 'GET':
                 response = requests.get(url, headers=self._headers(), timeout=10)
             elif method == 'POST':
                 response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
