@@ -9,7 +9,7 @@ _logger = logging.getLogger(__name__)
 class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
     
-    fulfillment_transfer_id = fields.Char(string="Fulfillment Transfer ID", default="Empty", readonly=True)
+    fulfillment_transfer_id = fields.Char(string="Fulfillment Transfer ID", default="Empty", help="Fulfillemnt ID for API" ,readonly=True)
 
     @api.model
     def create_fulfillment_receipt(self):
