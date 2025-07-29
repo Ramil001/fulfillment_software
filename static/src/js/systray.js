@@ -9,6 +9,8 @@ class SystrayIcon extends Component {
         this.action = useService("action");
         this.state = useState({
             menuOpen: false,
+            syncing: false,
+            statusMessage: "Ожидание действия...",
         });
     }
 
@@ -20,6 +22,8 @@ class SystrayIcon extends Component {
         this.action.doAction(action);
         this.state.menuOpen = false;
     }
+
+
 
     openProfiles() {
         this.openAction({
