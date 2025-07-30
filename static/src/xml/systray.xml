@@ -9,19 +9,19 @@
       t-on-click="toggleMenu"
 
     >
-    <div style="border-radius:50%; width:5px;height:5px; background-color:#e74c3c;"></div>
+   
    </i>
     <div t-attf-class="dropdown-menu #{state.menuOpen ? 'show' : ''}"
          style="position: absolute; right: 0; background: white; border: 1px solid #ccc; padding: 5px; min-width: 180px; box-shadow: 0 2px 10px rgba(0,0,0,0.15); z-index: 1000;">
-   
-  <div class="text-muted small mb-2" style="min-height:1.2em;">
-    <t t-esc="state.statusMessage"/>
+
+         
+  <hr style="margin: 6px 0;"/>        
+  <div class="text-muted systray_notification small mb-2" style="min-height:1.2em;">
+  <a href="Link of the page" target="_blank"><button class="btn-fulfillment">Fulfillment Upddate</button></a>
+  <div class="fulfillment-small-text">Last update: 18.02.2025 | 20:19</div>
   </div>
 
-  <div class="status-bar">
-   Status sync...
-  </div>
-
+  
   <hr style="margin: 6px 0;"/>
   <a href="#" t-on-click.prevent="openProfiles" style="display:block; padding: 4px 8px; cursor:pointer;">
     Profiles Fulfillment
@@ -29,7 +29,7 @@
    <a href="#" t-on-click.prevent="openPartners" style="display:block; padding: 4px 8px; cursor:pointer;">
        Partners Fulfillment
    </a>
-
+  
     </div>
   </div>
 </t>
