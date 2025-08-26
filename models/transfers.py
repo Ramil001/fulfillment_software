@@ -1,7 +1,7 @@
 from odoo import models, api, fields , _
 from odoo.exceptions import ValidationError
 import logging
-from ..lib.fulfillment_client import FulfillmentAPIClient
+from ..lib.api_client import FulfillmentAPIClient
 
 _logger = logging.getLogger(__name__)
 

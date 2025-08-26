@@ -17,6 +17,7 @@
             'fulfillment_software/static/src/js/systray.js',
             'fulfillment_software/static/src/css/systray.css',
             'fulfillment_software/static/src/xml/systray.xml',
+            'fulfillment_software_api/static/src/js/notification.js',
         ],
     },
     'data': [

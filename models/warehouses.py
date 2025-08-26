@@ -1,7 +1,7 @@
 import logging
 import requests
 from odoo import models, fields, api
-from ..lib.fulfillment_client import FulfillmentAPIClient
+from ..lib.api_client import FulfillmentAPIClient
 from datetime import datetime
 
 _logger = logging.getLogger(__name__)
