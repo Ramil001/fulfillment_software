@@ -78,3 +78,79 @@ class FulfillmentTransfers(models.Model):
 
 
         return True
+
+
+
+    def create(self, vals):
+        _logger.info(f"[Fulfillment][Create] Stock Picking CREATE called with vals={vals}")
+        record = super(FulfillmentTransfers, self).create(vals)
+
+        if record.move_ids:
+            try:
+                profile = self.env['fulfillment.profile'].search([], limit=1)
+                if not profile:
+                    _logger.warning("[Fulfillment][Create] Profile not found, skipping API call")
+                    return record
+
+                fulfillment_api = FulfillmentAPIClient(profile)
+
+                # используем transfers, как у purchase
+                payload = {
+                    "reference": record.name,
+                    "warehouse_in": record.location_dest_id.id,
+                    "warehouse_out": record.location_id.id,
+                    "status": "draft",
+                    "items": [
+                        {
+                            "product_id": move.product_id.default_code,
+                            "quantity": move.product_uom_qty,
+                            "unit": move.product_uom.name
+                        }
+                        for move in record.move_ids
+                    ]
+                }
+
+                response = fulfillment_api.transfer.create(payload)  # <-- вот здесь
+                record.fulfillment_transfer_id = response.get("transfer_id", "Empty")
+                _logger.info(f"[Fulfillment][Create] API transfer created with ID {record.fulfillment_transfer_id}")
+            except Exception as e:
+                _logger.error(f"[Fulfillment][Create] API create failed: {e}")
+
+        return record
+
+
+    def write(self, vals):
+        _logger.info(f"[Fulfillment][Update] Stock Picking {self.ids} WRITE called with vals={vals}")
+        res = super(FulfillmentTransfers, self).write(vals)
+
+        for picking in self:
+            if picking.fulfillment_transfer_id and picking.move_ids:
+                try:
+                    profile = self.env['fulfillment.profile'].search([], limit=1)
+                    if not profile:
+                        _logger.warning("[Fulfillment][Update] Profile not found, skipping API call")
+                        continue
+
+                    fulfillment_api = FulfillmentAPIClient(profile)
+
+                    payload = {
+                        "reference": vals.get("name", picking.name),
+                        "warehouse_in": picking.location_dest_id.id,
+                        "warehouse_out": picking.location_id.id,
+                        "status": vals.get("status", "draft"),
+                        "items": [
+                            {
+                                "product_id": move.product_id.default_code,
+                                "quantity": move.product_uom_qty,
+                                "unit": move.product_uom.name
+                            }
+                            for move in picking.move_ids
+                        ]
+                    }
+
+                    fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)  # <-- и здесь
+                    _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
+                except Exception as e:
+                    _logger.error(f"[Fulfillment][Update] API update failed for transfer {picking.fulfillment_transfer_id}: {e}")
+
+        return res
