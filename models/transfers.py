@@ -119,6 +119,8 @@ class FulfillmentTransfers(models.Model):
         return record
 
 
+
+
     def write(self, vals):
         _logger.info(f"[Fulfillment][Update] Stock Picking {self.ids} WRITE called with vals={vals}")
         res = super(FulfillmentTransfers, self).write(vals)
@@ -133,24 +135,51 @@ class FulfillmentTransfers(models.Model):
 
                     fulfillment_api = FulfillmentAPIClient(profile)
 
+                    items = []
+                    for move in picking.move_ids:
+                        tmpl = move.product_id.product_tmpl_id
+                        # Проверка: есть ли поле fulfillment_product_id в модели
+                        if 'fulfillment_product_id' not in tmpl._fields:
+                            _logger.error(
+                                f"[Fulfillment][Check] Model product.template has no field 'fulfillment_product_id'. "
+                                f"Product '{tmpl.name}' (tmpl_id={tmpl.id})"
+                            )
+                            continue
+
+                        # Если поле есть → проверяем его значение
+                        if tmpl.fulfillment_product_id:
+                            _logger.info(
+                                f"[Fulfillment][Check] Product '{tmpl.name}' (tmpl_id={tmpl.id}) "
+                                f"fulfillment_product_id={tmpl.fulfillment_product_id}"
+                            )
+                        else:
+                            _logger.warning(
+                                f"[Fulfillment][Check] Product '{tmpl.name}' (tmpl_id={tmpl.id}) "
+                                f"has EMPTY fulfillment_product_id"
+                            )
+
+                        items.append({
+                            "name": move.product_id.name,
+                            "product_id": move.product_id.default_code,
+                            "quantity": move.product_uom_qty,
+                            "unit": move.product_uom.name
+                        })
+
                     payload = {
                         "reference": vals.get("name", picking.name),
                         "warehouse_in": picking.location_dest_id.id,
                         "warehouse_out": picking.location_id.id,
                         "status": vals.get("status", "draft"),
-                        "items": [
-                            {
-                                "product_id": move.product_id.default_code,
-                                "quantity": move.product_uom_qty,
-                                "unit": move.product_uom.name
-                            }
-                            for move in picking.move_ids
-                        ]
+                        "items": items
                     }
 
-                    fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)  # <-- и здесь
+                    fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
                     _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
+
                 except Exception as e:
-                    _logger.error(f"[Fulfillment][Update] API update failed for transfer {picking.fulfillment_transfer_id}: {e}")
+                    _logger.error(
+                        f"[Fulfillment][Update] API update failed for transfer "
+                        f"{picking.fulfillment_transfer_id}: {e}"
+                    )
 
         return res

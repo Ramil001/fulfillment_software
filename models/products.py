@@ -9,6 +9,11 @@ class FulfillmentProducts(models.Model):
     _inherit = 'product.template'
 
 
+    fulfillment_product_id = fields.Char(string="Fulfillment Product ID", index=True, readonly=True)
+    
+    
+    
+    
     sale_fulfillment_partner_ids = fields.Many2many(
             'fulfillment.partners',
             'product_sale_fulfillment_rel',

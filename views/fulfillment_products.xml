@@ -1,26 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <record id="view_products_form_inherit_fulfillment" model="ir.ui.view">
-    <field name="name">product.template.product.form</field>
-    <field name="model">product.template</field>
-    <field name="inherit_id" ref="product.product_template_only_form_view"/>
-    <field name="arch" type="xml">
-        <xpath expr="//sheet/notebook" position="inside">
-           <page string="Фулфиллмент">
-           <separator string="Покупка" colspan="2"/>
-                 <field name="sale_fulfillment_partner_ids"
-       widget="many2many"
-       domain="[('status','=','follow')]"/>
-
-          
-           <separator string="Продажи" colspan="2"/>
-                 <field name="sale_fulfillment_partner_ids"
-       widget="many2many"
-       domain="[('status','=','follow')]"/>
-
-           </page>
-        </xpath>
-    </field>
-</record>
-
+    <record id="view_products_form_inherit_fulfillment" model="ir.ui.view">
+        <field name="name">product.template.product.form</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_only_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/notebook" position="inside">
+                <page string="Fulfillment" name="fulfillment">
+                    <group>
+                        <group>
+                            <field name="fulfillment_product_id" />
+                        </group>
+                        <group>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
 </odoo>
