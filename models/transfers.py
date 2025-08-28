@@ -79,33 +79,44 @@ class FulfillmentTransfers(models.Model):
 
         return True
 
-    def _get_or_create_fulfillment_warehouse(self, warehouse):
+    def _get_or_create_fulfillment_warehouse(self, location):
+        """Возвращает fulfillment_warehouse_id по location. Если нет — создаёт."""
+        if not location:
+            return None
+
+        warehouse = location.warehouse_id  # из stock.location получаем warehouse
+        if not warehouse:
+            _logger.warning(f"[Fulfillment] No warehouse linked to location {location.name}")
+            return None
+
+        # Если уже есть fulfillment_warehouse_id, возвращаем
         if warehouse.fulfillment_warehouse_id:
             return warehouse.fulfillment_warehouse_id
 
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            _logger.error("[Fulfillment] Profile not found")
-            return None
-
-        fulfillment_api = FulfillmentAPIClient(profile)
-
+        # Иначе создаём через API
         payload = {
             "name": warehouse.name,
-            "code": warehouse.code,
+            "code": warehouse.code or f"WH-{warehouse.id}"
         }
 
-        try:
-            response = fulfillment_api.warehouse.create(profile.profile_id, payload)
-            if response and "id" in response:
-                warehouse.fulfillment_warehouse_id = response["id"]
-                _logger.info(f"[Fulfillment] Created new warehouse {warehouse.name} → {response['id']}")
-                return response["id"]
-        except Exception as e:
-            _logger.error(f"[Fulfillment] Failed to create warehouse {warehouse.name}: {e}")
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found, cannot create warehouse")
             return None
 
+        client = FulfillmentAPIClient(profile)
+        try:
+            response = client.warehouse.create(profile.id, payload)
+            fulfillment_id = response.get("id")
+            if fulfillment_id:
+                warehouse.fulfillment_warehouse_id = fulfillment_id
+                _logger.info(f"[Fulfillment] Created fulfillment warehouse {warehouse.name} → {fulfillment_id}")
+                return fulfillment_id
+        except Exception as e:
+            _logger.error(f"[Fulfillment] Failed to create fulfillment warehouse: {e}")
+
         return None
+
 
 
     def _get_fulfillment_warehouse_id(self, location):
@@ -199,8 +210,8 @@ class FulfillmentTransfers(models.Model):
 
                 payload = {
                     "reference": vals.get("name", picking.name),
-                    "warehouse_in": "91e682ba-4f5d-49bf-9fa1-496e3e5d5f88",
-                    "warehouse_out": "cf5e9e1f-b8a5-4a6f-b8d3-3b4c9a723a12",
+                    "warehouse_in": self._get_or_create_fulfillment_warehouse(picking.location_dest_id),
+                    "warehouse_out": self._get_or_create_fulfillment_warehouse(picking.location_id),
                     "status": vals.get("status", picking.state or "draft"),
                     "items": items
                 }
