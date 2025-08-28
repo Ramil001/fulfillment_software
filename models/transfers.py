@@ -79,45 +79,47 @@ class FulfillmentTransfers(models.Model):
 
         return True
 
+    def _get_or_create_fulfillment_warehouse(self, warehouse):
+        if warehouse.fulfillment_warehouse_id:
+            return warehouse.fulfillment_warehouse_id
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.error("[Fulfillment] Profile not found")
+            return None
+
+        fulfillment_api = FulfillmentAPIClient(profile)
+
+        payload = {
+            "name": warehouse.name,
+            "code": warehouse.code,
+        }
+
+        try:
+            response = fulfillment_api.warehouse.create(profile.profile_id, payload)
+            if response and "id" in response:
+                warehouse.fulfillment_warehouse_id = response["id"]
+                _logger.info(f"[Fulfillment] Created new warehouse {warehouse.name} → {response['id']}")
+                return response["id"]
+        except Exception as e:
+            _logger.error(f"[Fulfillment] Failed to create warehouse {warehouse.name}: {e}")
+            return None
+
+        return None
 
 
-    def create(self, vals):
-        _logger.info(f"[Fulfillment][Create] Stock Picking CREATE called with vals={vals}")
-        record = super(FulfillmentTransfers, self).create(vals)
+    def _get_fulfillment_warehouse_id(self, location):
+        if not location:
+            return None
 
-        if record.move_ids:
-            try:
-                profile = self.env['fulfillment.profile'].search([], limit=1)
-                if not profile:
-                    _logger.warning("[Fulfillment][Create] Profile not found, skipping API call")
-                    return record
+        warehouse = self.env['stock.warehouse'].search([
+            ('lot_stock_id', '=', location.id)
+        ], limit=1)
 
-                fulfillment_api = FulfillmentAPIClient(profile)
+        if not warehouse:
+            return None
 
-                # используем transfers, как у purchase
-                payload = {
-                    "reference": record.name,
-                    "warehouse_in": record.location_dest_id.id,
-                    "warehouse_out": record.location_id.id,
-                    "status": "draft",
-                    "items": [
-                        {
-                            "product_id": move.product_id.default_code,
-                            "quantity": move.product_uom_qty,
-                            "unit": move.product_uom.name
-                        }
-                        for move in record.move_ids
-                    ]
-                }
-
-                response = fulfillment_api.transfer.create(payload)  # <-- вот здесь
-                record.fulfillment_transfer_id = response.get("transfer_id", "Empty")
-                _logger.info(f"[Fulfillment][Create] API transfer created with ID {record.fulfillment_transfer_id}")
-            except Exception as e:
-                _logger.error(f"[Fulfillment][Create] API create failed: {e}")
-
-        return record
-
+        return self._get_or_create_fulfillment_warehouse(warehouse)
 
 
 
@@ -126,90 +128,95 @@ class FulfillmentTransfers(models.Model):
         res = super(FulfillmentTransfers, self).write(vals)
 
         for picking in self:
-            if picking.fulfillment_transfer_id and picking.move_ids:
-                try:
-                    profile = self.env['fulfillment.profile'].search([], limit=1)
-                    if not profile:
-                        _logger.warning("[Fulfillment][Update] Profile not found, skipping API call")
+            if not picking.move_ids:
+                continue
+
+            try:
+                profile = self.env['fulfillment.profile'].search([], limit=1)
+                if not profile:
+                    _logger.warning("[Fulfillment][Update] Profile not found, skipping API call")
+                    continue
+
+                fulfillment_api = FulfillmentAPIClient(profile)
+
+                # собираем items
+                items = []
+                for move in picking.move_ids:
+                    tmpl = move.product_id.product_tmpl_id
+
+                    # проверяем поле
+                    if 'fulfillment_product_id' not in tmpl._fields:
+                        _logger.error(
+                            f"[Fulfillment][Check] Model product.template has no field 'fulfillment_product_id'. "
+                            f"Product '{tmpl.name}' (tmpl_id={tmpl.id})"
+                        )
                         continue
 
-                    fulfillment_api = FulfillmentAPIClient(profile)
+                    # создаём продукт в API если ещё нет
+                    if not tmpl.fulfillment_product_id:
+                        _logger.warning(
+                            f"[Fulfillment][Check] Product '{tmpl.name}' (tmpl_id={tmpl.id}) "
+                            f"has EMPTY fulfillment_product_id → creating in API"
+                        )
 
-                    items = []
-                    for move in picking.move_ids:
-                        tmpl = move.product_id.product_tmpl_id
-
-                        
-                        if 'fulfillment_product_id' not in tmpl._fields:
-                            _logger.error(
-                                f"[Fulfillment][Check] Model product.template has no field 'fulfillment_product_id'. "
-                                f"Product '{tmpl.name}' (tmpl_id={tmpl.id})"
-                            )
-                            continue
-
-                        
-                        if not tmpl.fulfillment_product_id:
-                            _logger.warning(
-                                f"[Fulfillment][Check] Product '{tmpl.name}' (tmpl_id={tmpl.id}) "
-                                f"has EMPTY fulfillment_product_id → creating in API"
-                            )
-
-                            product_payload = {
-                                "name": tmpl.name,
-                                "sku": tmpl.default_code or f"SKU-{tmpl.id}",
-                                "barcode": tmpl.barcode or str(tmpl.id).zfill(6)
-                            }
-
-                            try:
-                                response = fulfillment_api.product.create(product_payload)
-                                if response.get("status") == "success":
-                                    product_id = response["data"]["product_id"]
-                                    tmpl.fulfillment_product_id = product_id  # сохраняем в Odoo
-                                    _logger.info(
-                                        f"[Fulfillment][Create] Product '{tmpl.name}' created in API "
-                                        f"with id={product_id} and saved to Odoo"
-                                    )
-                                else:
-                                    _logger.error(
-                                        f"[Fulfillment][Create] API response error for product '{tmpl.name}': {response}"
-                                    )
-                                    continue
-                            except Exception as e:
-                                _logger.error(
-                                    f"[Fulfillment][Create] API product creation failed for '{tmpl.name}': {e}"
-                                )
-                                continue
-                        else:
-                            _logger.info(
-                                f"[Fulfillment][Check] Product '{tmpl.name}' already linked "
-                                f"fulfillment_product_id={tmpl.fulfillment_product_id}"
-                            )
-
-                        # Формируем item
-                        items.append({
-                            "name": move.product_id.name,
-                            "product_id": tmpl.fulfillment_product_id,  # теперь всегда есть
-                            "quantity": move.product_uom_qty,
-                            "unit": move.product_uom.name
-                        })
-
-                    
-                    if items:
-                        payload = {
-                            "reference": vals.get("name", picking.name),
-                            "warehouse_in": picking.location_dest_id.id,
-                            "warehouse_out": picking.location_id.id,
-                            "status": vals.get("status", "draft"),
-                            "items": items
+                        product_payload = {
+                            "name": tmpl.name,
+                            "sku": tmpl.default_code or f"SKU-{tmpl.id}",
+                            "barcode": tmpl.barcode or str(tmpl.id).zfill(6)
                         }
 
-                        fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
-                        _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
+                        try:
+                            response = fulfillment_api.product.create(product_payload)
+                            if response.get("status") == "success":
+                                product_id = response["data"]["product_id"]
+                                tmpl.fulfillment_product_id = product_id
+                                _logger.info(
+                                    f"[Fulfillment][Create] Product '{tmpl.name}' created in API "
+                                    f"with id={product_id} and saved to Odoo"
+                                )
+                            else:
+                                _logger.error(f"[Fulfillment][Create] API response error: {response}")
+                                continue
+                        except Exception as e:
+                            _logger.error(f"[Fulfillment][Create] API product creation failed for '{tmpl.name}': {e}")
+                            continue
+                    else:
+                        _logger.info(
+                            f"[Fulfillment][Check] Product '{tmpl.name}' already linked "
+                            f"fulfillment_product_id={tmpl.fulfillment_product_id}"
+                        )
 
-                except Exception as e:
-                    _logger.error(
-                        f"[Fulfillment][Update] API update failed for transfer "
-                        f"{picking.fulfillment_transfer_id}: {e}"
-                    )
+                    items.append({
+                        "name": move.product_id.name,
+                        "product_id": tmpl.fulfillment_product_id,
+                        "quantity": move.product_uom_qty,
+                        "unit": move.product_uom.name
+                    })
+
+                if not items:
+                    continue
+
+
+                payload = {
+                    "reference": vals.get("name", picking.name),
+                    "warehouse_in": "91e682ba-4f5d-49bf-9fa1-496e3e5d5f88",
+                    "warehouse_out": "cf5e9e1f-b8a5-4a6f-b8d3-3b4c9a723a12",
+                    "status": vals.get("status", picking.state or "draft"),
+                    "items": items
+                }
+
+                # проверяем transfer_id
+                if not picking.fulfillment_transfer_id or picking.fulfillment_transfer_id == "Empty":
+                    # создаём новый
+                    response = fulfillment_api.transfer.create(payload)
+                    picking.fulfillment_transfer_id = response.get("transfer_id", "Empty")
+                    _logger.info(f"[Fulfillment][Create] API transfer created with ID {picking.fulfillment_transfer_id}")
+                else:
+                    # обновляем существующий
+                    fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
+                    _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
+
+            except Exception as e:
+                _logger.error(f"[Fulfillment][Update] API update failed for transfer {picking.fulfillment_transfer_id}: {e}")
 
         return res
