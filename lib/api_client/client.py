@@ -2,6 +2,8 @@ import requests
 import logging
 from .warehouse import WarehouseAPI
 from .purchase import PurchaseAPI
+from .transfer import TransferAPI
+from .product import ProductAPI
 
 _logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ class FulfillmentAPIClient:
 
         self.warehouse = WarehouseAPI(self)
         self.purchase = PurchaseAPI(self)
+        self.transfer = TransferAPI(self)
+        self.product = ProductAPI(self)
 
         _logger.info(f"[FULFILLMENT] Client initialized for domain: {self.domain}")
 
