@@ -138,7 +138,8 @@ class FulfillmentTransfers(models.Model):
                     items = []
                     for move in picking.move_ids:
                         tmpl = move.product_id.product_tmpl_id
-                        # Проверка: есть ли поле fulfillment_product_id в модели
+
+                        
                         if 'fulfillment_product_id' not in tmpl._fields:
                             _logger.error(
                                 f"[Fulfillment][Check] Model product.template has no field 'fulfillment_product_id'. "
@@ -146,35 +147,64 @@ class FulfillmentTransfers(models.Model):
                             )
                             continue
 
-                        # Если поле есть → проверяем его значение
-                        if tmpl.fulfillment_product_id:
-                            _logger.info(
-                                f"[Fulfillment][Check] Product '{tmpl.name}' (tmpl_id={tmpl.id}) "
-                                f"fulfillment_product_id={tmpl.fulfillment_product_id}"
-                            )
-                        else:
+                        
+                        if not tmpl.fulfillment_product_id:
                             _logger.warning(
                                 f"[Fulfillment][Check] Product '{tmpl.name}' (tmpl_id={tmpl.id}) "
-                                f"has EMPTY fulfillment_product_id"
+                                f"has EMPTY fulfillment_product_id → creating in API"
                             )
 
+                            product_payload = {
+                                "name": tmpl.name,
+                                "sku": tmpl.default_code or f"SKU-{tmpl.id}",
+                                "barcode": tmpl.barcode or str(tmpl.id).zfill(6)
+                            }
+
+                            try:
+                                response = fulfillment_api.product.create(product_payload)
+                                if response.get("status") == "success":
+                                    product_id = response["data"]["product_id"]
+                                    tmpl.fulfillment_product_id = product_id  # сохраняем в Odoo
+                                    _logger.info(
+                                        f"[Fulfillment][Create] Product '{tmpl.name}' created in API "
+                                        f"with id={product_id} and saved to Odoo"
+                                    )
+                                else:
+                                    _logger.error(
+                                        f"[Fulfillment][Create] API response error for product '{tmpl.name}': {response}"
+                                    )
+                                    continue
+                            except Exception as e:
+                                _logger.error(
+                                    f"[Fulfillment][Create] API product creation failed for '{tmpl.name}': {e}"
+                                )
+                                continue
+                        else:
+                            _logger.info(
+                                f"[Fulfillment][Check] Product '{tmpl.name}' already linked "
+                                f"fulfillment_product_id={tmpl.fulfillment_product_id}"
+                            )
+
+                        # Формируем item
                         items.append({
                             "name": move.product_id.name,
-                            "product_id": move.product_id.default_code,
+                            "product_id": tmpl.fulfillment_product_id,  # теперь всегда есть
                             "quantity": move.product_uom_qty,
                             "unit": move.product_uom.name
                         })
 
-                    payload = {
-                        "reference": vals.get("name", picking.name),
-                        "warehouse_in": picking.location_dest_id.id,
-                        "warehouse_out": picking.location_id.id,
-                        "status": vals.get("status", "draft"),
-                        "items": items
-                    }
+                    
+                    if items:
+                        payload = {
+                            "reference": vals.get("name", picking.name),
+                            "warehouse_in": picking.location_dest_id.id,
+                            "warehouse_out": picking.location_id.id,
+                            "status": vals.get("status", "draft"),
+                            "items": items
+                        }
 
-                    fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
-                    _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
+                        fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
+                        _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
 
                 except Exception as e:
                     _logger.error(
