@@ -18,7 +18,7 @@ class FulfillmentProfile(models.Model):
     capabilities_id = fields.Many2one('fulfillment.profile.capabilities', string="Capabilities", ondelete='cascade')
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key", password=True)
     update_at = fields.Datetime(string="Last Updated", readonly=True) 
-    fulfillment_profile_id = fields.Char(string="Fulfillment Profile ID", readonly=True)
+    fulfillment_profile_id = fields.Char(string="Fulfillment Application Key", readonly=True)
     domain = fields.Char(string="API domain", default="api.fulfillment.software")
 
 
@@ -58,7 +58,7 @@ class FulfillmentProfile(models.Model):
                     response.raise_for_status()
                     result = response.json()
 
-                    if result.get("status") == "OK":
+                    if result.get("status") == "success":
                         _logger.info("Fulfillment %s обновлён через PATCH", record.fulfillment_profile_id)
                     else:
                         _logger.warning("PATCH — неожиданный ответ: %s", result)
@@ -68,7 +68,7 @@ class FulfillmentProfile(models.Model):
                     response.raise_for_status()
                     result = response.json()
 
-                    if result.get("status") == "OK" and "data" in result:
+                    if result.get("status") == "success" and "data" in result:
                         data = result["data"]
                         record.write({
                             "fulfillment_profile_id": data.get("fulfillment_id"),

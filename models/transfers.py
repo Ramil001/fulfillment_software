@@ -96,7 +96,8 @@ class FulfillmentTransfers(models.Model):
         # Иначе создаём через API
         payload = {
             "name": warehouse.name,
-            "code": warehouse.code or f"WH-{warehouse.id}"
+            "code": warehouse.code or f"WH-{warehouse.id}",
+            "location": warehouse.lot_stock_id.name
         }
 
         profile = self.env['fulfillment.profile'].search([], limit=1)
