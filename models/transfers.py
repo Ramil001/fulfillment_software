@@ -220,8 +220,8 @@ class FulfillmentTransfers(models.Model):
 
                 payload = {
                     "reference": vals.get("name", picking.name),
-                    "warehouse_in": self._get_or_create_fulfillment_warehouse(picking.location_dest_id),
                     "warehouse_out": self._get_or_create_fulfillment_warehouse(picking.location_id),
+                    "warehouse_in": self._get_or_create_fulfillment_warehouse(picking.location_dest_id),
                     "status": vals.get("status", picking.state or "draft"),
                     "items": items
                 }
