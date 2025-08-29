@@ -108,6 +108,7 @@ class FulfillmentWarehouses(models.Model):
                 vals = {
                     'name': unique_name,
                     'code': code,
+                    'short_name': code,
                     'is_fulfillment': True,
                     'fulfillment_warehouse_id': ext_id,
                 }

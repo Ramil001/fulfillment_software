@@ -96,7 +96,7 @@ class FulfillmentTransfers(models.Model):
         # Иначе создаём через API
         payload = {
             "name": warehouse.name,
-            "code": warehouse.code or f"WH-{warehouse.id}",
+            "code": warehouse.code or f"WH-{warehouse.id}", 
             "location": warehouse.lot_stock_id.name
         }
 
@@ -107,12 +107,21 @@ class FulfillmentTransfers(models.Model):
 
         client = FulfillmentAPIClient(profile)
         try:
-            response = client.warehouse.create(profile.id, payload)
-            fulfillment_id = response.get("id")
-            if fulfillment_id:
-                warehouse.fulfillment_warehouse_id = fulfillment_id
-                _logger.info(f"[Fulfillment] Created fulfillment warehouse {warehouse.name} → {fulfillment_id}")
-                return fulfillment_id
+            response = client.warehouse.create(profile.fulfillment_profile_id, payload)
+            data = response.get("data", {})
+            
+            warehouse_id = data.get("warehouse_id")
+            
+            if warehouse_id:
+                warehouse.fulfillment_warehouse_id = warehouse_id
+                _logger.info(
+                    f"[Fulfillment] Created fulfillment warehouse {warehouse.name} → {warehouse_id}"
+                )
+                return warehouse_id
+            else:
+                _logger.warning(
+                    f"[Fulfillment] API did not return warehouse_id, response={response}"
+                )
         except Exception as e:
             _logger.error(f"[Fulfillment] Failed to create fulfillment warehouse: {e}")
 
