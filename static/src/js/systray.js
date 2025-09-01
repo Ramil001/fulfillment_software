@@ -3,50 +3,37 @@
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState } from "@odoo/owl";
+import { Dropdown } from "@web/core/dropdown/dropdown";
+import { DropdownItem } from "@web/core/dropdown/dropdown_item";
 
 class SystrayIcon extends Component {
     setup() {
         this.action = useService("action");
-        this.state = useState({
-            menuOpen: false,
-            syncing: false,
-            statusMessage: "Ожидание действия...",
-        });
+        this.state = useState({});
     }
-
-    toggleMenu() {
-        this.state.menuOpen = !this.state.menuOpen;
-    }
-
-    openAction(action) {
-        this.action.doAction(action);
-        this.state.menuOpen = false;
-    }
-
-
 
     openProfiles() {
-        this.openAction({
-            type: 'ir.actions.act_window',
-            res_model: 'fulfillment.profile',
-            views: [[false, 'list'], [false, 'form']],
-            target: 'current',
-            name: 'Profiles Fulfillment',
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "fulfillment.profile",
+            views: [[false, "list"], [false, "form"]],
+            target: "new", // <<< откроет как диалог (popup)
+            name: "Profiles Fulfillment",
         });
     }
 
     openPartners() {
-        this.openAction({
-            type: 'ir.actions.act_window',
-            res_model: 'fulfillment.partners',
-            views: [[false, 'list'], [false, 'form']],
-            target: 'current',
-            name: 'Partners Fulfillment',
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "fulfillment.partners",
+            views: [[false, "list"], [false, "form"]],
+            target: "new", // <<< тоже в диалоге
+            name: "Partners Fulfillment",
         });
     }
-
 }
 
+SystrayIcon.components = { Dropdown, DropdownItem };
 SystrayIcon.template = "systray_icon";
 
 export const systrayItem = {
