@@ -112,7 +112,7 @@ class FulfillmentTransfers(models.Model):
 
         return res
 
-
+    # test
     def create_fulfillment_receipt(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
