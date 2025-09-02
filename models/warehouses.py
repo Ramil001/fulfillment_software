@@ -75,6 +75,7 @@ class FulfillmentWarehouses(models.Model):
 
         try:
             response = client.warehouse.get()
+            
             data = response.get('data', [])
             if not data:
                 _logger.info("[Fulfillment] No warehouses received from API")
@@ -108,7 +109,6 @@ class FulfillmentWarehouses(models.Model):
                 vals = {
                     'name': unique_name,
                     'code': code,
-                    'short_name': code,
                     'is_fulfillment': True,
                     'fulfillment_warehouse_id': ext_id,
                 }

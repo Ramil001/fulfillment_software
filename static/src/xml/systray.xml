@@ -8,18 +8,21 @@
             <i
               class="fa fa-cube"
               title="Fulfillment Software"
-              style="cursor:pointer; font-size:19px; margin:auto; padding:0 5px; margin-top:3px; display:flex;"
+              style="cursor:pointer; font-size:18px; margin:auto; display:flex;"
             />
           </div>
         </div>
       </div>
       <t t-set-slot="content">
+
         <DropdownItem onSelected="() => this.openProfiles()">
           Profiles
         </DropdownItem>
+
         <DropdownItem onSelected="() => this.openPartners()">
           Partners
         </DropdownItem>
+        
       </t>
     </Dropdown>
   </t>

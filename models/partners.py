@@ -58,8 +58,10 @@ class FulfillmentPartners(models.Model):
 
             self._process_api_data(data, profile.fulfillment_api_key)
             
-            self.env['stock.warehouse'].sudo().reload_warehouses()
             self.env['stock.picking'].sudo().create_fulfillment_receipt()
+            
+            # Вызывает закцикливание
+            self.env['stock.warehouse'].sudo().reload_warehouses()
             
             return {
                 'type': 'ir.actions.act_window',
@@ -88,6 +90,7 @@ class FulfillmentPartners(models.Model):
 
     def button_sync_from_api(self):
         success = self.sync_from_api()
+
         if not success:
             return {
                 'type': 'ir.actions.client',
@@ -99,10 +102,19 @@ class FulfillmentPartners(models.Model):
                     'sticky': True,
                 }
             }
+
         return {
             'type': 'ir.actions.client',
-            'tag': 'reload',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Синхронизация',
+                'message': 'Обновление включилось!',
+                'type': 'success',
+                'sticky': False,
+                'next': {'type': 'ir.actions.client', 'tag': 'reload'}  # такой хак
+            }
         }
+
 
     def _get_active_profile(self):
         """Получаем активный профиль с API ключом"""
