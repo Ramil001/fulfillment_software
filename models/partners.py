@@ -34,6 +34,7 @@ class FulfillmentPartners(models.Model):
     def _valid_field_parameter(self, field, name):
         return name == 'password' or super()._valid_field_parameter(field, name)
 
+    # Синхронизация с API
     @api.model
     def sync_from_api(self):
         """Sync data from API and return proper action"""
