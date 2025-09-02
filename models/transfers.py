@@ -112,7 +112,7 @@ class FulfillmentTransfers(models.Model):
 
         return res
 
-    # test
+
     def create_fulfillment_receipt(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
@@ -179,6 +179,114 @@ class FulfillmentTransfers(models.Model):
 
 
         return True
+    
+    def load_transfers(self, warehouse_id=None):
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.error("[Fulfillment] Profile not found")
+            return False
+
+        fulfillment_api = FulfillmentAPIClient(profile)
+
+        try:
+            # если warehouse_id передан → грузим только его, иначе грузим все
+            if warehouse_id:
+                response = fulfillment_api.get_warehouse_transfers(warehouse_id)
+            else:
+                # тут можно сделать обход всех складов Odoo и загрузить по каждому
+                warehouses = self.env['stock.warehouse'].search([])
+                response = []
+                for wh in warehouses:
+                    if not wh.fulfillment_warehouse_id:
+                        continue
+                    transfers = fulfillment_api.get_warehouse_transfers(wh.fulfillment_warehouse_id)
+                    if transfers.get("status") == "success":
+                        response.extend(transfers.get("data", []))
+
+            if not response:
+                _logger.info("[Fulfillment] No transfers found in API")
+                return True
+
+            # тип перемещения (внутренние перемещения)
+            picking_type_internal = self.env.ref('stock.picking_type_internal', raise_if_not_found=False)
+
+            for transfer in response.get("data", []):
+                # Проверяем, не существует ли уже этот трансфер
+                picking = self.env['stock.picking'].search([
+                    ('fulfillment_transfer_id', '=', transfer['transfer_id'])
+                ], limit=1)
+
+                if picking:
+                    _logger.info(f"[Fulfillment][Skip] Transfer {transfer['transfer_id']} already exists in Odoo")
+                    continue
+
+                # Находим склады
+                warehouse_out = self.env['stock.warehouse'].search([
+                    ('fulfillment_warehouse_id', '=', transfer['warehouse_out'])
+                ], limit=1)
+
+                warehouse_in = self.env['stock.warehouse'].search([
+                    ('fulfillment_warehouse_id', '=', transfer['warehouse_in'])
+                ], limit=1)
+
+                if not warehouse_out or not warehouse_in:
+                    _logger.warning(f"[Fulfillment] Skip transfer {transfer['transfer_id']} — warehouse not found")
+                    continue
+
+                # Создаём picking
+                picking_vals = {
+                    'picking_type_id': picking_type_internal.id if picking_type_internal else False,
+                    'location_id': warehouse_out.lot_stock_id.id,
+                    'location_dest_id': warehouse_in.lot_stock_id.id,
+                    'origin': transfer['reference'],
+                    'fulfillment_transfer_id': transfer['transfer_id'],
+                }
+
+                picking = self.env['stock.picking'].create(picking_vals)
+
+                # Создаём move для каждой позиции
+                for item in transfer.get('items', []):
+                    product_info = item.get('product')
+                    if not product_info:
+                        continue
+
+                    # создаём/ищем продукт
+                    product_code = product_info.get('sku') or f"FULFILL-{product_info['id']}"
+
+                    product_template = self.env['product.template'].search([
+                        ('default_code', '=', product_code)
+                    ], limit=1)
+
+                    if not product_template:
+                        product_template = self.env['product.template'].create({
+                            'name': product_info['name'],
+                            'default_code': product_code,
+                            'type': 'product',
+                        })
+                        _logger.info(f"[Fulfillment] Created product template {product_template.name}")
+
+                    product_variant = product_template.product_variant_id
+
+                    move_vals = {
+                        'product_id': product_variant.id,
+                        'name': transfer['reference'],
+                        'product_uom_qty': item.get('quantity', 0),
+                        'product_uom': product_variant.uom_id.id,
+                        'picking_id': picking.id,
+                        'location_id': picking.location_id.id,
+                        'location_dest_id': picking.location_dest_id.id,
+                    }
+
+                    self.env['stock.move'].create(move_vals)
+
+                _logger.info(f"[Fulfillment] Created picking {picking.name} from transfer {transfer['transfer_id']}")
+
+            return True
+
+        except Exception as e:
+            _logger.error(f"[Fulfillment] Failed to load transfers: {e}")
+            return False
+
 
     # Приватные методы 
     def _get_or_create_fulfillment_warehouse(self, location):

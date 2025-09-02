@@ -22,6 +22,11 @@ class FulfillmentWarehouses(models.Model):
             if not is_fulfillment:
                 continue
 
+            # Если контекст содержит skip_api_sync, пропускаем вызов API
+            if self.env.context.get('skip_api_sync'):
+                _logger.info(f"[SKIP PATCH] Warehouse {record.id} обновлён локально без API sync")
+                continue
+
             profile = self.env['fulfillment.profile'].search([], limit=1)
             client = FulfillmentAPIClient(profile)
 
@@ -32,12 +37,18 @@ class FulfillmentWarehouses(models.Model):
             }
             fulfillment_id = record.fulfillment_client_id.fulfillment_id
             try:
-                response = client.warehouse.update(fulfillment_id, record.fulfillment_warehouse_id, payload)
+                response = client.warehouse.update(
+                    fulfillment_id, 
+                    record.fulfillment_warehouse_id, 
+                    payload
+                )
                 record.fulfillment_warehouse_id = response['data'].get('warehouse_id')
             except Exception as e:
                 _logger.warning(f"Warehouse update failed: {e}")
+
         vals['last_update'] = datetime.now()
         return super().write(vals)
+
 
     @api.model
     def create(self, vals):
@@ -75,10 +86,10 @@ class FulfillmentWarehouses(models.Model):
 
         try:
             response = client.warehouse.get()
-            
             data = response.get('data', [])
+            _logger.info(f"[Fulfillment][response = client.warehouse.get()]: {response}")
             if not data:
-                _logger.info("[Fulfillment] No warehouses received from API")
+                _logger.info("[Fulfillment] No warehouses received from API ")
                 return True
 
             default_country = self.env.ref('base.ua')
@@ -115,15 +126,16 @@ class FulfillmentWarehouses(models.Model):
 
                 if warehouse:
                     if warehouse.partner_id:
-                        warehouse.partner_id.write(partner_vals)
+                        warehouse.partner_id.with_context(skip_api_sync=True).write(partner_vals)
                     else:
                         vals['partner_id'] = self.env['res.partner'].create(partner_vals).id
-                    warehouse.write(vals)
+                    warehouse.with_context(skip_api_sync=True).write(vals)
                     processed_ids.add(warehouse.id)
+
                 else:
                     vals['partner_id'] = self.env['res.partner'].create(partner_vals).id
                     try:
-                        new_warehouse = self.create(vals)
+                        new_warehouse = self.with_context(skip_api_sync=True).create(vals)
                         processed_ids.add(new_warehouse.id)
                         _logger.info(f"[Fulfillment] Created warehouse: {new_warehouse.name}")
                     except Exception as e:

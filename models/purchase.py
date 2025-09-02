@@ -1,4 +1,4 @@
-from odoo import models, api
+from odoo import models, fields ,api
 import logging
 from ..lib.api_client import FulfillmentAPIClient
 
@@ -6,6 +6,7 @@ _logger = logging.getLogger(__name__)
 
 class FulfillmentPurchase(models.Model):
     _inherit = 'purchase.order'
+    fulfillment_purchase_id = fields.Char(string="Fulfillment purchase_id", readonly=True)
 
     @api.model_create_multi
     def create(self, vals_list):
