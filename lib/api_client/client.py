@@ -4,6 +4,7 @@ from .warehouse import WarehouseAPI
 from .purchase import PurchaseAPI
 from .transfer import TransferAPI
 from .product import ProductAPI
+from .fulfillment import FulfillmentAPI
 
 _logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class FulfillmentAPIClient:
         self.purchase = PurchaseAPI(self)
         self.transfer = TransferAPI(self)
         self.product = ProductAPI(self)
+        self.fulfillment = FulfillmentAPI(self)
 
         _logger.info(f"[FULFILLMENT] Client initialized for domain: {self.domain}")
 
@@ -36,11 +38,11 @@ class FulfillmentAPIClient:
             'X-Fulfillment-API-Key': self.api_key
         }
 
-    def _request(self, method, url, payload=None):
+    def _request(self, method, url, payload=None, params=None):
         try:
-            _logger.info(f"[Fulfillment API] {method} {url} | Payload: {payload}")
+            _logger.info(f"[Fulfillment API] {method} {url} | Payload: {payload} | Params: {params}")
             if method == 'GET':
-                response = requests.get(url, headers=self._headers(), timeout=10)
+                response = requests.get(url, headers=self._headers(), params=params, timeout=10)
             elif method == 'POST':
                 response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             elif method == 'PATCH':
@@ -58,3 +60,4 @@ class FulfillmentAPIClient:
         except requests.RequestException as e:
             _logger.error(f"[Fulfillment API] {method} {url} failed: {e}")
             raise FulfillmentAPIError(f"{method} {url} failed: {str(e)}")
+

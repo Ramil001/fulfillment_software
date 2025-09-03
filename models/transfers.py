@@ -123,6 +123,12 @@ class FulfillmentTransfers(models.Model):
         try:
             purchases = fulfillmentApiClient.purchase.get()
             _logger.info(f"[PURCHASES]: {purchases}")
+
+            # Добавляем проверку, чтобы не было NoneType
+            if not purchases:
+                _logger.warning("[Fulfillment] No purchases returned from API")
+                return False
+
         except Exception as e:
             raise ValidationError(_("Fulfillment API error: %s") % str(e))
 
@@ -135,13 +141,16 @@ class FulfillmentTransfers(models.Model):
         location_stock = self.env.ref('stock.stock_location_stock', raise_if_not_found=False)
 
         for purchase in purchases:
+            if not purchase:
+                continue  # безопасно пропускаем пустые записи
             picking = self.env['stock.picking'].create({
                 'partner_id': partner.id,
                 'picking_type_id': picking_type.id if picking_type else False,
                 'location_id': location_suppliers.id if location_suppliers else False,
                 'location_dest_id': location_stock.id if location_stock else False,
-                'origin': purchase['name'],
+                'origin': purchase.get('name', 'Unknown'),
             })
+
 
             for order_line in purchase.get('orders', []):
                 product_info = order_line.get('product')
@@ -180,7 +189,7 @@ class FulfillmentTransfers(models.Model):
 
         return True
     
-    def load_transfers(self, warehouse_id=None):
+    def load_transfers(self, fulfillment_id=None, page=1, limit=100):
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.error("[Fulfillment] Profile not found")
@@ -189,35 +198,36 @@ class FulfillmentTransfers(models.Model):
         fulfillment_api = FulfillmentAPIClient(profile)
 
         try:
-            # если warehouse_id передан → грузим только его, иначе грузим все
-            if warehouse_id:
-                response = fulfillment_api.get_warehouse_transfers(warehouse_id)
-            else:
-                # тут можно сделать обход всех складов Odoo и загрузить по каждому
-                warehouses = self.env['stock.warehouse'].search([])
-                response = []
-                for wh in warehouses:
-                    if not wh.fulfillment_warehouse_id:
-                        continue
-                    transfers = fulfillment_api.get_warehouse_transfers(wh.fulfillment_warehouse_id)
-                    if transfers.get("status") == "success":
-                        response.extend(transfers.get("data", []))
+            if not fulfillment_id:
+                fulfillment_id = profile.fulfillment_profile_id
 
-            if not response:
-                _logger.info("[Fulfillment] No transfers found in API")
+            params = {"page": page, "limit": limit}
+            response = fulfillment_api.fulfillment.get_transfers_by_fulfillment(fulfillment_id, params=params)
+
+
+            if response.get("status") != "success":
+                _logger.warning(f"[Fulfillment] API returned error: {response}")
+                return False
+
+            transfers = response.get("data", [])
+            if not transfers:
+                _logger.info(f"[Fulfillment] No transfers found for fulfillment {fulfillment_id}")
                 return True
 
-            # тип перемещения (внутренние перемещения)
             picking_type_internal = self.env.ref('stock.picking_type_internal', raise_if_not_found=False)
 
-            for transfer in response.get("data", []):
-                # Проверяем, не существует ли уже этот трансфер
+            for transfer in transfers:
+                # Проверяем существование
                 picking = self.env['stock.picking'].search([
                     ('fulfillment_transfer_id', '=', transfer['transfer_id'])
                 ], limit=1)
 
                 if picking:
-                    _logger.info(f"[Fulfillment][Skip] Transfer {transfer['transfer_id']} already exists in Odoo")
+                    _logger.info(f"[Fulfillment][Update] Transfer {transfer['transfer_id']} already exists, updating...")
+                    picking.write({
+                        "origin": transfer["reference"],
+                        "state": transfer.get("status", "draft"),
+                    })
                     continue
 
                 # Находим склады
@@ -233,24 +243,22 @@ class FulfillmentTransfers(models.Model):
                     _logger.warning(f"[Fulfillment] Skip transfer {transfer['transfer_id']} — warehouse not found")
                     continue
 
-                # Создаём picking
                 picking_vals = {
                     'picking_type_id': picking_type_internal.id if picking_type_internal else False,
                     'location_id': warehouse_out.lot_stock_id.id,
                     'location_dest_id': warehouse_in.lot_stock_id.id,
                     'origin': transfer['reference'],
                     'fulfillment_transfer_id': transfer['transfer_id'],
+                    'state': transfer.get("status", "draft"),
                 }
 
                 picking = self.env['stock.picking'].create(picking_vals)
 
-                # Создаём move для каждой позиции
                 for item in transfer.get('items', []):
                     product_info = item.get('product')
                     if not product_info:
                         continue
 
-                    # создаём/ищем продукт
                     product_code = product_info.get('sku') or f"FULFILL-{product_info['id']}"
 
                     product_template = self.env['product.template'].search([
@@ -267,7 +275,7 @@ class FulfillmentTransfers(models.Model):
 
                     product_variant = product_template.product_variant_id
 
-                    move_vals = {
+                    self.env['stock.move'].create({
                         'product_id': product_variant.id,
                         'name': transfer['reference'],
                         'product_uom_qty': item.get('quantity', 0),
@@ -275,9 +283,7 @@ class FulfillmentTransfers(models.Model):
                         'picking_id': picking.id,
                         'location_id': picking.location_id.id,
                         'location_dest_id': picking.location_dest_id.id,
-                    }
-
-                    self.env['stock.move'].create(move_vals)
+                    })
 
                 _logger.info(f"[Fulfillment] Created picking {picking.name} from transfer {transfer['transfer_id']}")
 
@@ -287,55 +293,54 @@ class FulfillmentTransfers(models.Model):
             _logger.error(f"[Fulfillment] Failed to load transfers: {e}")
             return False
 
-
     # Приватные методы 
-    def _get_or_create_fulfillment_warehouse(self, location):
-        """Возвращает fulfillment_warehouse_id по location. Если нет — создаёт."""
+    def _get_or_create_fulfillment_warehouse(self, location, client=None, cache=None):
         if not location:
             return None
 
-        warehouse = location.warehouse_id  # из stock.location получаем warehouse
+        warehouse = location.warehouse_id
         if not warehouse:
             _logger.warning(f"[Fulfillment] No warehouse linked to location {location.name}")
             return None
 
-        # Если уже есть fulfillment_warehouse_id, возвращаем
         if warehouse.fulfillment_warehouse_id:
             return warehouse.fulfillment_warehouse_id
 
-        # Иначе создаём через API
+        # Используем кэш
+        if cache is None:
+            cache = {}
+        if warehouse.id in cache:
+            return cache[warehouse.id]
+
+        # Создаём через API
+        if not client:
+            profile = self.env['fulfillment.profile'].search([], limit=1)
+            if not profile:
+                _logger.warning("[Fulfillment] Profile not found, cannot create warehouse")
+                return None
+            client = FulfillmentAPIClient(profile)
+
         payload = {
             "name": warehouse.name,
-            "code": warehouse.code or f"WH-{warehouse.id}", 
+            "code": warehouse.code or f"WH-{warehouse.id}",
             "location": warehouse.lot_stock_id.name
         }
 
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            _logger.warning("[Fulfillment] Profile not found, cannot create warehouse")
-            return None
-
-        client = FulfillmentAPIClient(profile)
         try:
             response = client.warehouse.create(profile.fulfillment_profile_id, payload)
-            data = response.get("data", {})
-            
-            warehouse_id = data.get("warehouse_id")
-            
+            warehouse_id = response.get("data", {}).get("warehouse_id")
             if warehouse_id:
                 warehouse.fulfillment_warehouse_id = warehouse_id
-                _logger.info(
-                    f"[Fulfillment] Created fulfillment warehouse {warehouse.name} → {warehouse_id}"
-                )
+                cache[warehouse.id] = warehouse_id
+                _logger.info(f"[Fulfillment] Created fulfillment warehouse {warehouse.name} → {warehouse_id}")
                 return warehouse_id
             else:
-                _logger.warning(
-                    f"[Fulfillment] API did not return warehouse_id, response={response}"
-                )
+                _logger.warning(f"[Fulfillment] API did not return warehouse_id, response={response}")
         except Exception as e:
             _logger.error(f"[Fulfillment] Failed to create fulfillment warehouse: {e}")
 
         return None
+
 
 
     def _get_fulfillment_warehouse_id(self, location):

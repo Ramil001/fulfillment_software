@@ -63,7 +63,25 @@ class FulfillmentPartners(models.Model):
             self._process_api_data(data, profile.fulfillment_api_key)
             self.env['stock.picking'].sudo().create_fulfillment_receipt()
             self.env['stock.warehouse'].sudo().reload_warehouses()
-            
+
+        
+            for item in data:
+                fulfillment_id = item.get("fulfillment_id")
+                if fulfillment_id:
+                    page = 1
+                    limit = 100
+                    while True:
+                        success = self.env['stock.picking'].sudo().load_transfers(
+                            fulfillment_id=fulfillment_id,
+                            page=page,
+                            limit=limit
+                        )
+                        # если метод вернул False или меньше limit записей → выходим
+                        if not success or success < limit:
+                            break
+                        page += 1
+
+
             return {
                 'type': 'ir.actions.act_window',
                 'name': 'Partners',
