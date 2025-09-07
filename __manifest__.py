@@ -23,11 +23,11 @@
     'data': [
         'security/ir.model.access.csv',     # Права доступа
         'views/views.xml',                  # Представления
-        'views/fulfillment_warehouses.xml', # Представление для изменения страницы создания скалада
-        'views/fulfillment_transfers.xml', # Представление для изменения страницы создания скалада
-        'views/fulfillment_partners.xml',   # Предстваление старницы партнёра
+        'views/fulfillment_warehouses.xml',  # Представление для изменения страницы создания скалада
+        'views/fulfillment_transfers.xml',   # Представление для изменения страницы создания скалада
+        'views/fulfillment_partners.xml',    # Предстваление старницы партнёра
         'views/fulfillment_products.xml',
-        'views/fulfillment_main.xml',       # Действие
+        'views/fulfillment_main.xml',        # Действие
         'views/menu.xml',                   # Меню (после действия)
     ],
     'demo': [
