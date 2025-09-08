@@ -1,5 +1,4 @@
 import logging
-import requests
 from odoo import models, fields, api
 from ..lib.api_client import FulfillmentAPIClient
 from datetime import datetime
@@ -27,7 +26,12 @@ class FulfillmentWarehouses(models.Model):
                 _logger.info(f"[SKIP PATCH] Warehouse {record.id} обновлён локально без API sync")
                 continue
 
+            # ищем профиль напрямую
             profile = self.env['fulfillment.profile'].search([], limit=1)
+            if not profile:
+                _logger.warning("[Fulfillment] Profile not found, API sync пропущен")
+                continue
+
             client = FulfillmentAPIClient(profile)
 
             payload = {
@@ -35,11 +39,12 @@ class FulfillmentWarehouses(models.Model):
                 'code': record.code,
                 'location': 'UKR',
             }
+
             fulfillment_id = record.fulfillment_client_id.fulfillment_id
             try:
                 response = client.warehouse.update(
-                    fulfillment_id, 
-                    record.fulfillment_warehouse_id, 
+                    fulfillment_id,
+                    record.fulfillment_warehouse_id,
                     payload
                 )
                 record.fulfillment_warehouse_id = response['data'].get('warehouse_id')
@@ -50,17 +55,26 @@ class FulfillmentWarehouses(models.Model):
         return super().write(vals)
 
 
+
     @api.model
     def create(self, vals):
+        # Если контекст содержит skip_api_sync, пропускаем вызов API
+        if self.env.context.get('skip_api_sync'):
+            _logger.info(f"[SKIP CREATE] Warehouse {vals.get('name')} создан локально без API sync")
+            vals['last_update'] = datetime.now()
+            return super().create(vals)
+
         vals['last_update'] = datetime.now()
         warehouse = super().create(vals)
 
-        # Если склад не fulfillment или явно указан skip_api_sync — не трогаем API
-        if not warehouse.is_fulfillment or self.env.context.get('skip_api_sync'):
-            _logger.info(f"[SKIP CREATE] Warehouse {warehouse.id} создан локально без API sync")
+        if not warehouse.is_fulfillment:
             return warehouse
 
         profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found, API create пропущен")
+            return warehouse
+
         client = FulfillmentAPIClient(profile)
 
         payload = {
@@ -78,8 +92,6 @@ class FulfillmentWarehouses(models.Model):
         return warehouse
 
 
-
-    
     @api.model
     def reload_warehouses(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
