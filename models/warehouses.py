@@ -55,7 +55,9 @@ class FulfillmentWarehouses(models.Model):
         vals['last_update'] = datetime.now()
         warehouse = super().create(vals)
 
-        if not warehouse.is_fulfillment:
+        # Если склад не fulfillment или явно указан skip_api_sync — не трогаем API
+        if not warehouse.is_fulfillment or self.env.context.get('skip_api_sync'):
+            _logger.info(f"[SKIP CREATE] Warehouse {warehouse.id} создан локально без API sync")
             return warehouse
 
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -75,6 +77,9 @@ class FulfillmentWarehouses(models.Model):
 
         return warehouse
 
+
+
+    
     @api.model
     def reload_warehouses(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)

@@ -20,6 +20,7 @@ class FulfillmentAPIClient:
     """
 
     def __init__(self, profile):
+        
         self.api_key = profile.fulfillment_api_key
         self.domain = profile.domain
         self.profile_id = profile.fulfillment_profile_id
