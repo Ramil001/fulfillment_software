@@ -139,6 +139,7 @@ class FulfillmentWarehouses(models.Model):
                     'code': code,
                     'is_fulfillment': True,
                     'fulfillment_warehouse_id': ext_id,
+                    'company_id': self.env.company.id,
                 }
 
                 if warehouse:
