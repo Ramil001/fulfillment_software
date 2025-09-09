@@ -220,15 +220,10 @@ class FulfillmentTransfers(models.Model):
         picking_type_internal = self.env.ref("stock.picking_type_internal", raise_if_not_found=False)
 
         for transfer in transfers:
-            # Проверка на существование
-            picking = self.search([
-                ("fulfillment_transfer_id", "=", transfer["transfer_id"])
-            ], limit=1)
+            # Пытаемся найти существующий трансфер
+            picking = self.search([("fulfillment_transfer_id", "=", transfer["transfer_id"])], limit=1)
 
-            if picking:
-                _logger.info(f"[Fulfillment] Transfer {transfer['transfer_id']} уже существует ({picking.name})")
-                continue
-
+            # --- Склады (создаём при необходимости) ---
             warehouse_out = self.env["stock.warehouse"].search([
                 ("fulfillment_warehouse_id", "=", transfer["warehouse_out"])
             ], limit=1)
@@ -238,7 +233,6 @@ class FulfillmentTransfers(models.Model):
                     "code": f"OUT-{transfer['warehouse_out'][:3]}",
                     "fulfillment_warehouse_id": transfer["warehouse_out"],
                 })
-                _logger.info(f"[Fulfillment] Создан новый склад OUT {warehouse_out.name} для transfer {transfer['transfer_id']}")
 
             warehouse_in = self.env["stock.warehouse"].search([
                 ("fulfillment_warehouse_id", "=", transfer["warehouse_in"])
@@ -249,45 +243,73 @@ class FulfillmentTransfers(models.Model):
                     "code": f"IN-{transfer['warehouse_in'][:3]}",
                     "fulfillment_warehouse_id": transfer["warehouse_in"],
                 })
-                _logger.info(f"[Fulfillment] Создан новый склад IN {warehouse_in.name} для transfer {transfer['transfer_id']}")
 
+            # --- Создание или обновление transfer ---
+            if not picking:
+                picking = self.create({
+                    "picking_type_id": picking_type_internal.id if picking_type_internal else False,
+                    "location_id": warehouse_out.lot_stock_id.id,
+                    "location_dest_id": warehouse_in.lot_stock_id.id,
+                    "origin": transfer["reference"],
+                    "fulfillment_transfer_id": transfer["transfer_id"],
+                    "state": transfer.get("status", "draft"),
+                })
+                _logger.info(f"[Fulfillment] Создан новый transfer {picking.name} ({transfer['transfer_id']})")
+            else:
+                _logger.info(f"[Fulfillment] Обновляем существующий transfer {picking.name} ({transfer['transfer_id']})")
+                picking.move_ids.unlink()
+                picking.state = transfer.get("status", picking.state)
 
-            if not warehouse_out or not warehouse_in:
-                _logger.warning(f"[Fulfillment] Пропуск {transfer['transfer_id']} — склад не найден")
-                continue
-
-            # Создаем перемещение
-            picking = self.create({
-                "picking_type_id": picking_type_internal.id if picking_type_internal else False,
-                "location_id": warehouse_out.lot_stock_id.id,
-                "location_dest_id": warehouse_in.lot_stock_id.id,
-                "origin": transfer["reference"],
-                "fulfillment_transfer_id": transfer["transfer_id"],
-                "state": transfer.get("status", "draft"),
-            })
-
-            # Добавляем позиции
+            # --- Обработка товаров ---
             for item in transfer.get("items", []):
                 product_info = item.get("product")
                 if not product_info:
+                    _logger.warning(f"[Fulfillment] Item {item.get('id')} без product → пропуск")
                     continue
 
-                # Пробуем найти продукт
-                product_code = product_info.get("sku") or f"FULFILL-{product_info['id']}"
+                product_code = product_info.get("sku") or f"FULFILL-{product_info['product_id']}"
+                product_barcode = product_info.get("barcode")
+
+                # Ищем продукт
                 product_template = self.env["product.template"].search([
-                    ("default_code", "=", product_code)
+                    "|", "|",
+                    ("fulfillment_product_id", "=", product_info["product_id"]),
+                    ("default_code", "=", product_code),
+                    ("barcode", "=", product_barcode)
                 ], limit=1)
 
                 if not product_template:
+                    # Создаём новый продукт
+                    uom_unit = self.env.ref("uom.product_uom_unit")
                     product_template = self.env["product.template"].create({
-                        "name": product_info["name"],
+                        "name": product_info.get("name", "Unnamed Product"),
                         "default_code": product_code,
-                        "type": "product",
+                        "barcode": product_barcode,
+                        "type": "consu",
+                        "uom_id": uom_unit.id,
+                        "uom_po_id": uom_unit.id,
+                        "fulfillment_product_id": product_info["product_id"],
                     })
-                    _logger.info(f"[Fulfillment] Создан продукт {product_template.name}")
+                    _logger.info(f"[Fulfillment] Создан новый продукт {product_template.name}")
+                else:
+                    # Обновляем, если есть расхождения
+                    if not product_template.fulfillment_product_id:
+                        product_template.fulfillment_product_id = product_info["product_id"]
+
+                    vals_update = {}
+                    if product_info.get("name") and product_template.name != product_info["name"]:
+                        vals_update["name"] = product_info["name"]
+                    if product_code and product_template.default_code != product_code:
+                        vals_update["default_code"] = product_code
+                    if product_barcode and product_template.barcode != product_barcode:
+                        vals_update["barcode"] = product_barcode
+                    if vals_update:
+                        product_template.write(vals_update)
+                        _logger.info(f"[Fulfillment] Обновлён продукт {product_template.name}")
 
                 product_variant = product_template.product_variant_id
 
+                # Создаём движение
                 self.env["stock.move"].create({
                     "product_id": product_variant.id,
                     "name": transfer["reference"],
@@ -298,11 +320,7 @@ class FulfillmentTransfers(models.Model):
                     "location_dest_id": picking.location_dest_id.id,
                 })
 
-            _logger.info(f"[Fulfillment] Создан transfer {picking.name} ({transfer['transfer_id']})")
-
-        return True
-    
-    
+        
     
     
     # Приватные методы 
