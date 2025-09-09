@@ -189,110 +189,122 @@ class FulfillmentTransfers(models.Model):
 
         return True
     
+    
     def load_transfers(self, fulfillment_id=None, page=1, limit=100):
-        profile = self.env['fulfillment.profile'].search([], limit=1)
+        """
+        Загружает трансферы из Fulfillment API и создает внутренние перемещения в Odoo.
+        """
+        profile = self.env["fulfillment.profile"].search([], limit=1)
         if not profile:
-            _logger.error("[Fulfillment] Profile not found")
-            return False
+            raise ValidationError(_("Fulfillment profile not found"))
 
-        fulfillment_api = FulfillmentAPIClient(profile)
+        client = FulfillmentAPIClient(profile)
+        fulfillment_id = fulfillment_id or profile.fulfillment_profile_id
 
         try:
-            if not fulfillment_id:
-                fulfillment_id = profile.fulfillment_profile_id
-
-            params = {"page": page, "limit": limit}
-            response = fulfillment_api.fulfillment.get_transfers_by_fulfillment(fulfillment_id, params=params)
-
-
-            if response.get("status") != "success":
-                _logger.warning(f"[Fulfillment] API returned error: {response}")
-                return False
-
-            transfers = response.get("data", [])
-            if not transfers:
-                _logger.info(f"[Fulfillment] No transfers found for fulfillment {fulfillment_id}")
-                return True
-
-            picking_type_internal = self.env.ref('stock.picking_type_internal', raise_if_not_found=False)
-
-            for transfer in transfers:
-                # Проверяем существование
-                picking = self.env['stock.picking'].search([
-                    ('fulfillment_transfer_id', '=', transfer['transfer_id'])
-                ], limit=1)
-
-                if picking:
-                    _logger.info(f"[Fulfillment][Update] Transfer {transfer['transfer_id']} already exists, updating...")
-                    picking.write({
-                        "origin": transfer["reference"],
-                        "state": transfer.get("status", "draft"),
-                    })
-                    continue
-
-                # Находим склады
-                warehouse_out = self.env['stock.warehouse'].search([
-                    ('fulfillment_warehouse_id', '=', transfer['warehouse_out'])
-                ], limit=1)
-
-                warehouse_in = self.env['stock.warehouse'].search([
-                    ('fulfillment_warehouse_id', '=', transfer['warehouse_in'])
-                ], limit=1)
-
-                if not warehouse_out or not warehouse_in:
-                    _logger.warning(f"[Fulfillment] Skip transfer {transfer['transfer_id']} — warehouse not found")
-                    continue
-
-                picking_vals = {
-                    'picking_type_id': picking_type_internal.id if picking_type_internal else False,
-                    'location_id': warehouse_out.lot_stock_id.id,
-                    'location_dest_id': warehouse_in.lot_stock_id.id,
-                    'origin': transfer['reference'],
-                    'fulfillment_transfer_id': transfer['transfer_id'],
-                    'state': transfer.get("status", "draft"),
-                }
-
-                picking = self.env['stock.picking'].create(picking_vals)
-
-                for item in transfer.get('items', []):
-                    product_info = item.get('product')
-                    if not product_info:
-                        continue
-
-                    product_code = product_info.get('sku') or f"FULFILL-{product_info['id']}"
-
-                    product_template = self.env['product.template'].search([
-                        ('default_code', '=', product_code)
-                    ], limit=1)
-
-                    if not product_template:
-                        product_template = self.env['product.template'].create({
-                            'name': product_info['name'],
-                            'default_code': product_code,
-                            'type': 'product',
-                        })
-                        _logger.info(f"[Fulfillment] Created product template {product_template.name}")
-
-                    product_variant = product_template.product_variant_id
-
-                    self.env['stock.move'].create({
-                        'product_id': product_variant.id,
-                        'name': transfer['reference'],
-                        'product_uom_qty': item.get('quantity', 0),
-                        'product_uom': product_variant.uom_id.id,
-                        'picking_id': picking.id,
-                        'location_id': picking.location_id.id,
-                        'location_dest_id': picking.location_dest_id.id,
-                    })
-
-                _logger.info(f"[Fulfillment] Created picking {picking.name} from transfer {transfer['transfer_id']}")
-
-            return True
-
+            response = client.fulfillment.get_transfers_by_fulfillment(
+                fulfillment_id, params={"page": page, "limit": limit}
+            )
         except Exception as e:
-            _logger.error(f"[Fulfillment] Failed to load transfers: {e}")
+            raise ValidationError(_("Fulfillment API error: %s") % str(e))
+
+        if response.get("status") != "success":
+            _logger.warning(f"[Fulfillment] Ошибка API: {response}")
             return False
 
+        transfers = response.get("data", [])
+        if not transfers:
+            _logger.info("[Fulfillment] Нет трансферов для загрузки")
+            return True
+
+        picking_type_internal = self.env.ref("stock.picking_type_internal", raise_if_not_found=False)
+
+        for transfer in transfers:
+            # Проверка на существование
+            picking = self.search([
+                ("fulfillment_transfer_id", "=", transfer["transfer_id"])
+            ], limit=1)
+
+            if picking:
+                _logger.info(f"[Fulfillment] Transfer {transfer['transfer_id']} уже существует ({picking.name})")
+                continue
+
+            warehouse_out = self.env["stock.warehouse"].search([
+                ("fulfillment_warehouse_id", "=", transfer["warehouse_out"])
+            ], limit=1)
+            if not warehouse_out:
+                warehouse_out = self.env["stock.warehouse"].create({
+                    "name": f"WH OUT {transfer['warehouse_out'][:6]}",
+                    "code": f"OUT-{transfer['warehouse_out'][:3]}",
+                    "fulfillment_warehouse_id": transfer["warehouse_out"],
+                })
+                _logger.info(f"[Fulfillment] Создан новый склад OUT {warehouse_out.name} для transfer {transfer['transfer_id']}")
+
+            warehouse_in = self.env["stock.warehouse"].search([
+                ("fulfillment_warehouse_id", "=", transfer["warehouse_in"])
+            ], limit=1)
+            if not warehouse_in:
+                warehouse_in = self.env["stock.warehouse"].create({
+                    "name": f"WH IN {transfer['warehouse_in'][:6]}",
+                    "code": f"IN-{transfer['warehouse_in'][:3]}",
+                    "fulfillment_warehouse_id": transfer["warehouse_in"],
+                })
+                _logger.info(f"[Fulfillment] Создан новый склад IN {warehouse_in.name} для transfer {transfer['transfer_id']}")
+
+
+            if not warehouse_out or not warehouse_in:
+                _logger.warning(f"[Fulfillment] Пропуск {transfer['transfer_id']} — склад не найден")
+                continue
+
+            # Создаем перемещение
+            picking = self.create({
+                "picking_type_id": picking_type_internal.id if picking_type_internal else False,
+                "location_id": warehouse_out.lot_stock_id.id,
+                "location_dest_id": warehouse_in.lot_stock_id.id,
+                "origin": transfer["reference"],
+                "fulfillment_transfer_id": transfer["transfer_id"],
+                "state": transfer.get("status", "draft"),
+            })
+
+            # Добавляем позиции
+            for item in transfer.get("items", []):
+                product_info = item.get("product")
+                if not product_info:
+                    continue
+
+                # Пробуем найти продукт
+                product_code = product_info.get("sku") or f"FULFILL-{product_info['id']}"
+                product_template = self.env["product.template"].search([
+                    ("default_code", "=", product_code)
+                ], limit=1)
+
+                if not product_template:
+                    product_template = self.env["product.template"].create({
+                        "name": product_info["name"],
+                        "default_code": product_code,
+                        "type": "product",
+                    })
+                    _logger.info(f"[Fulfillment] Создан продукт {product_template.name}")
+
+                product_variant = product_template.product_variant_id
+
+                self.env["stock.move"].create({
+                    "product_id": product_variant.id,
+                    "name": transfer["reference"],
+                    "product_uom_qty": item.get("quantity", 0),
+                    "product_uom": product_variant.uom_id.id,
+                    "picking_id": picking.id,
+                    "location_id": picking.location_id.id,
+                    "location_dest_id": picking.location_dest_id.id,
+                })
+
+            _logger.info(f"[Fulfillment] Создан transfer {picking.name} ({transfer['transfer_id']})")
+
+        return True
+    
+    
+    
+    
     # Приватные методы 
     def _get_or_create_fulfillment_warehouse(self, location, client=None, cache=None):
         if not location:
