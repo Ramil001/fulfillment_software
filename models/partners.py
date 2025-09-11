@@ -39,11 +39,10 @@ class FulfillmentPartners(models.Model):
 
     # Синхронизация с API
     @api.model
-    def sync_from_api(self):
-        
+    def sync_from_api(self, profile=None):
+
         """Sync data from API and return proper action"""
         try:
-            profile = self._get_active_profile()
             if not profile:
                 return {
                     'type': 'ir.actions.client',
