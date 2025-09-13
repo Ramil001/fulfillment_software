@@ -2,6 +2,7 @@ from odoo import models, fields, api
 from datetime import datetime
 import requests
 import logging
+from .helpers import get_default_domain_host
 
 _logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class FulfillmentProfile(models.Model):
     update_at = fields.Datetime(string="Last Updated", readonly=True) 
     fulfillment_profile_id = fields.Char(string="Fulfillment Application Key", readonly=True)
     domain = fields.Char(string="API domain", default="api.fulfillment.software")
+    domain_host = fields.Char(string="Host domain", default=lambda self: get_default_domain_host(self.env))
 
 
     @api.model
