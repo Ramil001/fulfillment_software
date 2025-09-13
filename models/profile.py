@@ -10,19 +10,53 @@ class FulfillmentProfile(models.Model):
     _name = 'fulfillment.profile'
     _description = 'Fulfillment Profile'
 
-    name = fields.Char(string="Fulfillment name")
-    country_id = fields.Many2one('res.country', string="Country", default=lambda self: self.env.ref('base.de').id)
-    state_id = fields.Many2one('res.country.state', string="City/Region", domain="[('country_id', '=', country_id)]")
-    address = fields.Char(string="Address")
-    phone = fields.Char(string="Phone number")
-    email = fields.Char(string="Email")
-    capabilities_id = fields.Many2one('fulfillment.profile.capabilities', string="Capabilities", ondelete='cascade')
-    fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key", password=True)
-    update_at = fields.Datetime(string="Last Updated", readonly=True) 
-    fulfillment_profile_id = fields.Char(string="Fulfillment Application Key", readonly=True)
-    domain = fields.Char(string="API domain", default="api.fulfillment.software")
-    domain_host = fields.Char(string="Host domain", default=lambda self: get_default_domain_host(self.env))
 
+    address = fields.Char(string="Address")
+    capabilities_id = fields.Many2one(
+        'fulfillment.profile.capabilities',
+        string="Capabilities",
+        ondelete='cascade'
+    )
+    country_id = fields.Many2one(
+        'res.country',
+        string="Country",
+        default=lambda self: self.env.ref('base.de').id
+    )
+    domain = fields.Char(
+        string="API domain",
+        default="api.fulfillment.software"
+    )
+    domain_host = fields.Char(
+        string="Host domain",
+        help="This field use for get odoo domain instance. Use for webhook.",
+        readonly=True,
+        default=lambda self: get_default_domain_host(self.env)
+    )
+    email = fields.Char(string="Email")
+    fulfillment_api_key = fields.Char(
+        string="X-Fulfillment-API-Key",
+        password=True
+    )
+    fulfillment_profile_id = fields.Char(
+        string="Fulfillment Application Key",
+        readonly=True
+    )
+    name = fields.Char(string="Fulfillment name")
+    phone = fields.Char(string="Phone number")
+    state_id = fields.Many2one(
+        'res.country.state',
+        string="City/Region",
+        domain="[('country_id', '=', country_id)]"
+    )
+    verification_account = fields.Selection([
+        ('verification', 'Verification'),
+        ('not_verification', 'Not verification')],
+        default='not_verification', tracking=True)
+
+    update_at = fields.Datetime(
+        string="Last Updated",
+        readonly=True
+    )
 
     @api.model
     def create(self, vals):

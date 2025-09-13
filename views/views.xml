@@ -29,6 +29,11 @@
                                 <field name="name"/>
                                 <field name="phone"/>
                                 <field name="email"/>
+                                <field name="verification_account" widget="badge"
+                                    options="{'classes': {
+                                        'verification': 'badge rounded-pill text-bg-success',
+                                        'not_verification': 'badge rounded-pill text-bg-danger'
+                                    }}"/>
                             </group>
                             <group>
                                 <separator string="Address" colspan="2"/>
@@ -38,8 +43,8 @@
                             </group>
                             <group>
                                 <separator string="API integration" colspan="2"/>
-                                <field name="domain" />
                                 <field name="domain_host" />
+                                <field name="domain" />
                                 <field name="fulfillment_api_key" password="True"/>
                             </group>
                             <group >
