@@ -4,33 +4,48 @@ import json
 
 class FulfillmentWebHookAPI(http.Controller):
 
-    @http.route('/fulfillment/api/v1/updates', type='http', auth='public', methods=['POST'], csrf=False)
-    def trigger_sync(self, **kwargs):
-        api_key = request.httprequest.headers.get("X-Fulfillment-API-Key")
-
-        profile = request.env["fulfillment.profile"].sudo().search([
-            ("fulfillment_api_key", "=", api_key)
-        ], limit=1)
-
-        if not profile:
-            return http.Response(
-                json.dumps({"status": "error", "message": "Invalid API Key"}),
-                content_type="application/json",
-                status=401
-            )
-
-        profile_id = kwargs.get("profile_id")
-        partners_model = request.env['fulfillment.partners'].sudo()
-        
+    # Route который принимает параметры для вызова обновления с fulfillment API.
+    @http.route(
+        'fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
+        type='http', auth='public', methods=['POST'], csrf=False
+    )
+    
+    def trigger_sync(self, fulfillment_id, resource, **kwargs):
         try:
-            partners_model.sync_from_api(profile)
+            profile = request.env["fulfillment.profile"].sudo().search([
+                ("fulfillment_id", "=", fulfillment_id)
+            ], limit=1)
+
+            if not profile:
+                return http.Response(
+                    json.dumps({"status": "error", "message": "Invalid fulfillment_id"}),
+                    content_type="application/json",
+                    status=401
+                )
+
+            data = request.jsonrequest or {}
+
+            if resource == "transfer":
+                # вызов метода синхронизации трансферов
+                request.env['inventory.transfer'].sudo().sync_from_api(profile, data)
+            elif resource == "warehouse":
+                request.env['warehouse'].sudo().sync_from_api(profile, data)
+            else:
+                return http.Response(
+                    json.dumps({"status": "error", "message": f"Unknown resource '{resource}'"}),
+                    content_type="application/json",
+                    status=400
+                )
+
             return http.Response(
                 json.dumps({
                     "status": "ok",
-                    "message": f"Синхронизация выполнена для профиля {profile.name}, profile_id={profile_id}"
+                    "message": f"Синхронизация выполнена ({resource}) для профиля {profile.name}",
+                    "data": data
                 }),
                 content_type="application/json"
             )
+
         except Exception as e:
             return http.Response(
                 json.dumps({"status": "error", "message": f"Sync failed: {str(e)}"}),
