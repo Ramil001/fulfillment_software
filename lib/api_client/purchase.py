@@ -14,7 +14,7 @@ class PurchaseAPI:
         Безопасный вызов GET /purchases.
         Если API вернул ошибку, логируем и возвращаем None.
         """
-        url = f"https://{self.client.domain}/api/v1/purchases/{self.client.profile_id}"
+        url = f"https://{self.client.api_domain}/api/v1/purchases/{self.client.profile_id}"
         try:
             return self.client._request('GET', url)
         except Exception as e:
@@ -26,7 +26,7 @@ class PurchaseAPI:
         Безопасный вызов POST /purchases.
         """
         fulfillment_warehouse_id = warehouse_id
-        url = f"https://{self.client.domain}/api/v1/purchases/{fulfillment_warehouse_id}"
+        url = f"https://{self.client.api_domain}/api/v1/purchases/{fulfillment_warehouse_id}"
         try:
             return self.client._request('POST', url, payload)
         except Exception as e:

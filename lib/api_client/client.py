@@ -22,7 +22,7 @@ class FulfillmentAPIClient:
     def __init__(self, profile):
         
         self.api_key = profile.fulfillment_api_key
-        self.domain = profile.domain
+        self.api_domain = profile.api_domain
         self.profile_id = profile.fulfillment_profile_id
 
         self.warehouse = WarehouseAPI(self)
@@ -31,7 +31,7 @@ class FulfillmentAPIClient:
         self.product = ProductAPI(self)
         self.fulfillment = FulfillmentAPI(self)
 
-        _logger.info(f"[FULFILLMENT] Client initialized for domain: {self.domain}")
+        _logger.info(f"[FULFILLMENT] Client initialized for api_domain: {self.api_domain}")
 
     def _headers(self):
         return {

@@ -7,7 +7,7 @@ _logger = logging.getLogger(__name__)
 
 class FulfillmentWebHookAPI(http.Controller):
 
-    # Общий принцип: у нас есть endpoint на стороне odoo который принимает данные которые нужно обновить по push to action, odoo1 ->
+    # Общий принцип: у нас есть endpoint на стороне odoo который принимает данные которые нужно обновить по action push, odoo1 -> api -> odoo2
     # Тут указываю какие ресурсы доступны для обнволения через API
     VALID_RESOURCES = {"transfers", "warehouses", "purchase"}
 
@@ -19,9 +19,9 @@ class FulfillmentWebHookAPI(http.Controller):
     def update_resource(self, fulfillment_id, resource, **kwargs): 
         
         try:
-            body = request.httprequest.get_json(force=True, silent=True)
+            data = request.httprequest.get_json(force=True, silent=True)
         except Exception:
-            body = request.httprequest.data.decode("utf-8")
+            data = request.httprequest.data.decode("utf-8")
 
         if resource not in self.VALID_RESOURCES:
             return request.make_json_response(
@@ -38,7 +38,7 @@ class FulfillmentWebHookAPI(http.Controller):
             )
 
         try:
-            result = handler(fulfillment_id, body)
+            result = handler(fulfillment_id, data)
         except Exception as e:
             _logger.exception("Error processing resource %s", resource)
             return request.make_json_response(

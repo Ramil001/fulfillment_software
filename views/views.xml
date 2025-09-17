@@ -43,8 +43,8 @@
                             </group>
                             <group>
                                 <separator string="API integration" colspan="2"/>
-                                <field name="domain_host" />
-                                <field name="domain" />
+                                <field name="api_domain" />
+                                <field name="webhook_domain" />
                                 <field name="fulfillment_api_key" password="True"/>
                             </group>
                             <group >

@@ -3,6 +3,7 @@ from datetime import datetime
 import requests
 import logging
 from .helpers import get_default_domain_host
+from ..lib.api_client import FulfillmentAPIClient
 
 _logger = logging.getLogger(__name__)
 
@@ -22,12 +23,12 @@ class FulfillmentProfile(models.Model):
         string="Country",
         default=lambda self: self.env.ref('base.de').id
     )
-    domain = fields.Char(
+    api_domain = fields.Char(
         string="API domain",
         default="api.fulfillment.software"
     )
-    domain_host = fields.Char(
-        string="Host domain",
+    webhook_domain = fields.Char(
+        string="Webhook URL",
         help="This field use for get odoo domain instance. Use for webhook.",
         readonly=True,
         default=lambda self: get_default_domain_host(self.env)
@@ -71,6 +72,8 @@ class FulfillmentProfile(models.Model):
         self._sync_with_fulfillment_api()
         return result
 
+
+
     def _sync_with_fulfillment_api(self):
         for record in self:
             if not record.fulfillment_api_key:
@@ -84,7 +87,7 @@ class FulfillmentProfile(models.Model):
 
             payload = {
                 "name": record.name or "Default Name",
-                "domain": record.domain or "api.fulfillment.software",
+                "api_domain": record.api_domain or "api.fulfillment.software",
             }
 
             try:
@@ -109,7 +112,7 @@ class FulfillmentProfile(models.Model):
                         record.write({
                             "fulfillment_profile_id": data.get("fulfillment_id"),
                             "name": data.get("name", record.name),
-                            "domain": data.get("domain", record.domain)
+                            "api_domain": data.get("api_domain", record.api_domain)
                            
                         })
                         _logger.info("Fulfillment создан через POST с ID %s", data.get("fulfillment_id"))

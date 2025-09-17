@@ -12,6 +12,15 @@ class FulfillmentTransfers(models.Model):
     
     fulfillment_transfer_id = fields.Char(string="Fulfillment Transfer ID", default="Empty", help="Fulfillemnt ID for API" ,readonly=True)
     
+    @property
+    def fulfillment_api(self):
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment][Profile not found]")
+            return None
+        return FulfillmentAPIClient(profile)
+    
+        
     # Публичные методы
     @api.model
     def write(self, vals):
@@ -28,7 +37,7 @@ class FulfillmentTransfers(models.Model):
                     _logger.warning("[Fulfillment][Update] Profile not found, skipping API call")
                     continue
 
-                fulfillment_api = FulfillmentAPIClient(profile)
+            
 
                 # собираем items
                 items = []
@@ -57,7 +66,7 @@ class FulfillmentTransfers(models.Model):
                         }
 
                         try:
-                            response = fulfillment_api.product.create(product_payload)
+                            response = self.fulfillment_api.product.create(product_payload)
                             if response.get("status") == "success":
                                 product_id = response["data"]["product_id"]
                                 tmpl.fulfillment_product_id = product_id
@@ -99,12 +108,12 @@ class FulfillmentTransfers(models.Model):
                 # проверяем transfer_id
                 if not picking.fulfillment_transfer_id or picking.fulfillment_transfer_id == "Empty":
                     # создаём новый
-                    response = fulfillment_api.transfer.create(payload)
+                    response = self.fulfillment_api.transfer.create(payload)
                     picking.fulfillment_transfer_id = response.get("transfer_id", "Empty")
                     _logger.info(f"[Fulfillment][Create] API transfer created with ID {picking.fulfillment_transfer_id}")
                 else:
                     # обновляем существующий
-                    fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
+                    self.fulfillment_api.transfer.update(picking.fulfillment_transfer_id, payload)
                     _logger.info(f"[Fulfillment][Update] API transfer {picking.fulfillment_transfer_id} updated")
 
             except Exception as e:

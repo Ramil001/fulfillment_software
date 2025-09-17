@@ -18,12 +18,12 @@ class FulfillmentPartners(models.Model):
     
 
 
-    name = fields.Char(string="Fulfillment Name", required=True, readonly=True)
-    fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
-    domain_api = fields.Char(string="Domain", readonly=True)
+    name = fields.Char(string="Fulfillment company name", required=True, readonly=True)
+    fulfillment_id = fields.Char(string="Fulfillment external ID", required=True, index=True, readonly=True)
+    api_domain = fields.Char(string="API domain", readonly=True)
     webhook_url = fields.Char(string="Webhook URL")
-    created_at = fields.Datetime(string="Created At")
-    user_id = fields.Char(string="User ID")
+    created_at = fields.Datetime(string="Date created")
+    user_id = fields.Char(string="User external ID")
     profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
     
@@ -54,10 +54,10 @@ class FulfillmentPartners(models.Model):
                         'sticky': True
                     }
                 }
-
+            
             data = self._fetch_api_data(profile.fulfillment_api_key)
             if not data:
-                return False  # Error already logged and notified
+                return False
 
             self._process_api_data(data, profile.fulfillment_api_key)
             self.env['stock.picking'].sudo().create_fulfillment_receipt()
@@ -107,8 +107,12 @@ class FulfillmentPartners(models.Model):
             }
 
     def button_sync_from_api(self):
-        success = self.sync_from_api()
-
+        
+        profile = self._get_active_profile()
+        success = self.sync_from_api(profile=profile)
+        
+        _logger.info(f"[FULFILLMENT][button_sync_from_api]: {success}")
+        
         if not success:
             return {
                 'type': 'ir.actions.client',
@@ -141,6 +145,7 @@ class FulfillmentPartners(models.Model):
             _logger.error("❌ No active profile with API key")
             raise UserError("No active profile with API key configured")
         return profile
+    
 
     def _fetch_api_data(self, fulfillment_api_key):
         """Получаем данные из API"""
@@ -153,14 +158,14 @@ class FulfillmentPartners(models.Model):
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
             data = response.json().get("data", [])
-            _logger.info("✅ Received %s partners from API", len(data))
+            _logger.info("Received %s partners from API", len(data))
             return data
         except requests.exceptions.HTTPError as e:
             error_msg = self._handle_http_error(e)
             _logger.error(error_msg)
             raise UserError(error_msg)
         except Exception as e:
-            _logger.error("❌ API request error: %s", str(e))
+            _logger.error("API request error: %s", str(e))
             raise UserError(f"API request failed: {str(e)}")
 
 
@@ -186,8 +191,8 @@ class FulfillmentPartners(models.Model):
 
         vals = {
             'name': item.get('name') or 'Без имени',
-            'domain_api': item.get('domain'),
             'fulfillment_id': item.get('fulfillment_id'),
+            'api_domain': item.get('api_domain'),
             'webhook_url': item.get('webhook_url'),
             'created_at': created_at,
             'user_id': item.get('user_id'),
