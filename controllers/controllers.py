@@ -1,54 +1,84 @@
 from odoo import http
 from odoo.http import request
-import json
+import logging
+
+_logger = logging.getLogger(__name__)
+
 
 class FulfillmentWebHookAPI(http.Controller):
 
-    # Route который принимает параметры для вызова обновления с fulfillment API.
+    VALID_RESOURCES = {"partners", "transfers", "warehouses", "purchase"}
+
     @http.route(
-        'fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
+        '/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
         type='http', auth='public', methods=['POST'], csrf=False
     )
-    
-    def trigger_sync(self, fulfillment_id, resource, **kwargs):
+    def update_resource(self, fulfillment_id, resource, **kwargs): 
+        # читаем тело
         try:
-            profile = request.env["fulfillment.profile"].sudo().search([
-                ("fulfillment_id", "=", fulfillment_id)
-            ], limit=1)
+            body = request.httprequest.get_json(force=True, silent=True)
+        except Exception:
+            body = request.httprequest.data.decode("utf-8")
 
-            if not profile:
-                return http.Response(
-                    json.dumps({"status": "error", "message": "Invalid fulfillment_id"}),
-                    content_type="application/json",
-                    status=401
-                )
-
-            data = request.jsonrequest or {}
-
-            if resource == "transfer":
-                # вызов метода синхронизации трансферов
-                request.env['inventory.transfer'].sudo().sync_from_api(profile, data)
-            elif resource == "warehouse":
-                request.env['warehouse'].sudo().sync_from_api(profile, data)
-            else:
-                return http.Response(
-                    json.dumps({"status": "error", "message": f"Unknown resource '{resource}'"}),
-                    content_type="application/json",
-                    status=400
-                )
-
-            return http.Response(
-                json.dumps({
-                    "status": "ok",
-                    "message": f"Синхронизация выполнена ({resource}) для профиля {profile.name}",
-                    "data": data
-                }),
-                content_type="application/json"
+        if resource not in self.VALID_RESOURCES:
+            return request.make_json_response(
+                {"status": "error", "message": f"Invalid resource '{resource}'"},
+                status=400
             )
 
-        except Exception as e:
-            return http.Response(
-                json.dumps({"status": "error", "message": f"Sync failed: {str(e)}"}),
-                content_type="application/json",
+        # Диспетчеризация по типу ресурса
+        handler = getattr(self, f"_process_{resource}", None)
+        if not handler:
+            return request.make_json_response(
+                {"status": "error", "message": f"No handler for '{resource}'"},
                 status=500
             )
+
+        try:
+            result = handler(fulfillment_id, body)
+        except Exception as e:
+            _logger.exception("Error processing resource %s", resource)
+            return request.make_json_response(
+                {"status": "error", "message": str(e)},
+                status=500
+            )
+
+        return request.make_json_response({
+            "status": "ok",
+            "fulfillment_id": fulfillment_id,
+            "resource": resource,
+            "result": result,
+        })
+
+    # =========================
+    # Обработчики по ресурсам
+    # =========================
+
+    def _process_partners(self, fulfillment_id, payload):
+        """Обновление/создание партнёров"""
+        if not payload:
+            return "empty payload"
+        # Пример: обновляем email по external_id
+        partner = request.env["res.partner"].sudo().search([("external_id", "=", payload.get("id"))], limit=1)
+        if partner:
+            partner.write({"email": payload.get("email")})
+            return f"partner {partner.id} updated"
+        else:
+            partner = request.env["res.partner"].sudo().create({
+                "name": payload.get("name"),
+                "email": payload.get("email"),
+                "external_id": payload.get("id"),
+            })
+            return f"partner {partner.id} created"
+
+    def _process_transfers(self, fulfillment_id, payload):
+        """Обновление перемещений (stock.picking)"""
+        return "transfers handler not yet implemented"
+
+    def _process_warehouses(self, fulfillment_id, payload):
+        """Обновление складов (stock.warehouse)"""
+        return "warehouses handler not yet implemented"
+
+    def _process_purchase(self, fulfillment_id, payload):
+        """Обновление закупок (purchase.order)"""
+        return "purchase handler not yet implemented"
