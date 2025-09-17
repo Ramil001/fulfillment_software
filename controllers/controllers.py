@@ -7,14 +7,17 @@ _logger = logging.getLogger(__name__)
 
 class FulfillmentWebHookAPI(http.Controller):
 
-    VALID_RESOURCES = {"partners", "transfers", "warehouses", "purchase"}
+    # Общий принцип: у нас есть endpoint на стороне odoo который принимает данные которые нужно обновить по push to action, odoo1 ->
+    # Тут указываю какие ресурсы доступны для обнволения через API
+    VALID_RESOURCES = {"transfers", "warehouses", "purchase"}
 
     @http.route(
         '/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
         type='http', auth='public', methods=['POST'], csrf=False
     )
+    
     def update_resource(self, fulfillment_id, resource, **kwargs): 
-        # читаем тело
+        
         try:
             body = request.httprequest.get_json(force=True, silent=True)
         except Exception:
@@ -50,26 +53,8 @@ class FulfillmentWebHookAPI(http.Controller):
             "result": result,
         })
 
-    # =========================
-    # Обработчики по ресурсам
-    # =========================
 
-    def _process_partners(self, fulfillment_id, payload):
-        """Обновление/создание партнёров"""
-        if not payload:
-            return "empty payload"
-        # Пример: обновляем email по external_id
-        partner = request.env["res.partner"].sudo().search([("external_id", "=", payload.get("id"))], limit=1)
-        if partner:
-            partner.write({"email": payload.get("email")})
-            return f"partner {partner.id} updated"
-        else:
-            partner = request.env["res.partner"].sudo().create({
-                "name": payload.get("name"),
-                "email": payload.get("email"),
-                "external_id": payload.get("id"),
-            })
-            return f"partner {partner.id} created"
+    # Обработчики которые будут вызываться из models конкретного ресурса.
 
     def _process_transfers(self, fulfillment_id, payload):
         """Обновление перемещений (stock.picking)"""
