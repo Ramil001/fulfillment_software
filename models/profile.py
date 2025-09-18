@@ -1,16 +1,15 @@
 from odoo import models, fields, api
 from datetime import datetime
-import requests
 import logging
 from .helpers import get_default_domain_host
-from ..lib.api_client import FulfillmentAPIClient
+from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 
 _logger = logging.getLogger(__name__)
+
 
 class FulfillmentProfile(models.Model):
     _name = 'fulfillment.profile'
     _description = 'Fulfillment Profile'
-
 
     address = fields.Char(string="Address")
     capabilities_id = fields.Many2one(
@@ -72,18 +71,14 @@ class FulfillmentProfile(models.Model):
         self._sync_with_fulfillment_api()
         return result
 
-
-
+    # --- Sync через API client ---
     def _sync_with_fulfillment_api(self):
         for record in self:
             if not record.fulfillment_api_key:
-                _logger.warning("API ключ не задан — пропущен sync.")
+                _logger.warning("API ключ не задан — sync пропущен.")
                 continue
 
-            headers = {
-                'Content-Type': 'application/json',
-                'X-Fulfillment-API-Key': record.fulfillment_api_key
-            }
+            client = FulfillmentAPIClient(record)
 
             payload = {
                 "name": record.name or "Default Name",
@@ -93,35 +88,30 @@ class FulfillmentProfile(models.Model):
 
             try:
                 if record.fulfillment_profile_id:
-                    url = f"https://api.fulfillment.software/api/v1/fulfillments/{record.fulfillment_profile_id}"
-                    response = requests.patch(url, json=payload, headers=headers, timeout=10)
-                    response.raise_for_status()
-                    result = response.json()
-
-                    if result.get("status") == "success":
-                        _logger.info("Fulfillment %s обновлён через PATCH", response)
+                    # обновляем существующий профиль
+                    response = client.fulfillment.update(record.fulfillment_profile_id, payload)
+                    if response.get("status") == "success":
+                        _logger.info("Fulfillment %s обновлён через PATCH", record.fulfillment_profile_id)
                     else:
-                        _logger.warning("PATCH — неожиданный ответ: %s", result)
+                        _logger.warning("PATCH — неожиданный ответ: %s", response)
                 else:
-                    url = "https://api.fulfillment.software/api/v1/fulfillments/"
-                    response = requests.post(url, json=payload, headers=headers, timeout=10)
-                    response.raise_for_status()
-                    result = response.json()
-
-                    if result.get("status") == "success" and "data" in result:
-                        data = result["data"]
+                    # создаём новый профиль
+                    response = client.fulfillment.create(payload)
+                    if response.get("status") == "success" and "data" in response:
+                        data = response["data"]
                         record.write({
                             "fulfillment_profile_id": data.get("fulfillment_id"),
                             "name": data.get("name", record.name),
                             "api_domain": data.get("api_domain", record.api_domain)
-                           
                         })
                         _logger.info("Fulfillment создан через POST с ID %s", data.get("fulfillment_id"))
                     else:
-                        _logger.warning("POST — неожиданный ответ: %s", result)
+                        _logger.warning("POST — неожиданный ответ: %s", response)
 
-            except requests.exceptions.RequestException as e:
-                _logger.error("Ошибка при вызове API Fulfillment: %s", str(e))
+            except FulfillmentAPIError as e:
+                _logger.error("Ошибка API Fulfillment: %s", str(e))
+            except Exception as e:
+                _logger.error("Неожиданная ошибка при sync: %s", str(e))
 
     @api.model
     def get_my_profile_action(self):
@@ -139,24 +129,20 @@ class FulfillmentProfile(models.Model):
             'context': {'create': False},
         }
 
+    @staticmethod
     def normalize_datetime_str(dt_str):
         if not dt_str:
             return False
         try:
-            # Try ISO8601 with milliseconds and Z
-            dt = datetime.strptime(dt_str, '%Y-%m-%dT%H:%M:%S.%fZ')
+            return datetime.strptime(dt_str, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y-%m-%d %H:%M:%S')
         except ValueError:
             try:
-                # Try ISO8601 without milliseconds
-                dt = datetime.strptime(dt_str, '%Y-%m-%dT%H:%M:%SZ')
+                return datetime.strptime(dt_str, '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d %H:%M:%S')
             except ValueError:
-                # If format unknown, log and return False or None
                 _logger.warning(f"Unrecognized datetime format: {dt_str}")
                 return False
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
- 
-    
-    
+
+
 class FulfillmentProfileCapabilities(models.Model): 
     _name = 'fulfillment.profile.capabilities'
     _description = 'Fulfillment Profile Capabilities'
@@ -167,5 +153,5 @@ class FulfillmentProfileCapabilities(models.Model):
     picking_dropshipping = fields.Boolean(string="Picking Dropshipping")
     picking_crossdock = fields.Boolean(string="Picking Crossdock")
     picking_internal = fields.Boolean(string="Picking Internal")
-   
-    fulfillment_api_key = fields.Char(string="X-Filfillment-API-Key")
+
+    fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
