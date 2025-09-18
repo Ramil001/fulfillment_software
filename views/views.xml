@@ -44,7 +44,7 @@
                             <group>
                                 <separator string="API integration" colspan="2"/>
                                 <field name="api_domain" />
-                                <field name="webhook_domain" />
+                                <field name="webhook_url" />
                                 <field name="fulfillment_api_key" password="True"/>
                             </group>
                             <group >

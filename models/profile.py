@@ -27,7 +27,7 @@ class FulfillmentProfile(models.Model):
         string="API domain",
         default="api.fulfillment.software"
     )
-    webhook_domain = fields.Char(
+    webhook_url = fields.Char(
         string="Webhook URL",
         help="This field use for get odoo domain instance. Use for webhook.",
         readonly=True,
@@ -88,6 +88,7 @@ class FulfillmentProfile(models.Model):
             payload = {
                 "name": record.name or "Default Name",
                 "api_domain": record.api_domain or "api.fulfillment.software",
+                "webhook_url": record.webhook_url,
             }
 
             try:
@@ -98,7 +99,7 @@ class FulfillmentProfile(models.Model):
                     result = response.json()
 
                     if result.get("status") == "success":
-                        _logger.info("Fulfillment %s обновлён через PATCH", record.fulfillment_profile_id)
+                        _logger.info("Fulfillment %s обновлён через PATCH", response)
                     else:
                         _logger.warning("PATCH — неожиданный ответ: %s", result)
                 else:
