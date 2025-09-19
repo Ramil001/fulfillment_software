@@ -95,15 +95,27 @@ class FulfillmentTransfers(models.Model):
 
                 if not items:
                     continue
+                
+                
+                
+                
+                warehouse_out = picking.picking_type_id.warehouse_id
+                warehouse_in = self.env['stock.warehouse'].search([
+                    ('view_location_id', 'parent_of', picking.location_dest_id.id)
+                ], limit=1)
 
-
+                wh_out_id = (warehouse_out.get_fulfillment_info() if warehouse_out else (None, None))
+                wh_in_id = (warehouse_in.get_fulfillment_info() if warehouse_in else (None, None))
+                
                 payload = {
                     "reference": vals.get("name", picking.name),
-                    "warehouse_out": self._get_or_create_fulfillment_warehouse(picking.location_id),
-                    "warehouse_in": self._get_or_create_fulfillment_warehouse(picking.location_dest_id),
+                    "warehouse_out": wh_out_id,
+                    "warehouse_in": wh_in_id,
                     "status": vals.get("status", picking.state or "draft"),
-                    "items": items
+                    "items": items,
                 }
+
+
 
                 # проверяем transfer_id
                 if not picking.fulfillment_transfer_id or picking.fulfillment_transfer_id == "Empty":
@@ -380,18 +392,4 @@ class FulfillmentTransfers(models.Model):
 
         return None
 
-
-
-    def _get_fulfillment_warehouse_id(self, location):
-        if not location:
-            return None
-
-        warehouse = self.env['stock.warehouse'].search([
-            ('lot_stock_id', '=', location.id)
-        ], limit=1)
-
-        if not warehouse:
-            return None
-
-        return self._get_or_create_fulfillment_warehouse(warehouse)
 

@@ -172,3 +172,4 @@ class FulfillmentPartners(models.Model):
         if extra:
             notif['params'].update(extra)
         return notif
+    

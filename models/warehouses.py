@@ -207,3 +207,20 @@ class FulfillmentWarehouses(models.Model):
             return False
 
         return True
+
+
+    def get_fulfillment_info(self):
+        """
+        Возвращает (warehouse_api_id, fulfillment_id) для склада.
+        Если не найден fulfillment_id → пишет в лог ошибку.
+        """
+        self.ensure_one()
+
+        warehouse_api_id = self.fulfillment_warehouse_id
+
+
+        if not warehouse_api_id:
+            _logger.error(f"[Fulfillment] Склад {self.name} (ID={self.id}) не имеет fulfillment_warehouse_id")
+
+
+        return warehouse_api_id
