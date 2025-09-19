@@ -7,6 +7,11 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 _logger = logging.getLogger(__name__)
 
 
+class ResPartner(models.Model):
+    _inherit = 'res.partner'
+
+    x_fulfillment_id = fields.Char(string="Fulfillment External ID", index=True, copy=False)
+
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'
     _description = 'Fulfillment Partners'
@@ -95,6 +100,28 @@ class FulfillmentPartners(models.Model):
 
     # --- Вспомогательные методы ---
 
+
+    def _create_or_update_contact(self, partner_record):
+        """Создаём или обновляем контакт res.partner с тегом Fulfillment"""
+        tag = self._get_fulfillment_tag()
+
+        # ищем контакт по external fulfillment_id (лучше завести поле)
+        contact = self.env['res.partner'].search([
+            ('x_fulfillment_id', '=', partner_record.fulfillment_id)
+        ], limit=1)
+
+        contact_vals = {
+            'name': partner_record.name,
+            'comment': f"Synced from Fulfillment {partner_record.api_domain or ''}",
+            'category_id': [(4, tag.id)],  # добавить тег
+            'x_fulfillment_id': partner_record.fulfillment_id,  # нужно завести кастомное поле
+        }
+
+        if contact:
+            contact.write(contact_vals)
+        else:
+            self.env['res.partner'].create(contact_vals)
+
     def _get_active_profile(self):
         """Получаем активный профиль с API ключом"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -141,8 +168,15 @@ class FulfillmentPartners(models.Model):
 
         if existing:
             existing.write(vals)
+            partner_record = existing
         else:
-            self.create(vals)
+            partner_record = self.create(vals)
+
+        # --- Создание/обновление res.partner ---
+        self._create_or_update_contact(partner_record)
+
+
+
 
     def _normalize_datetime(self, dt_str):
         """Нормализация формата даты"""
@@ -173,3 +207,10 @@ class FulfillmentPartners(models.Model):
             notif['params'].update(extra)
         return notif
     
+
+    def _get_fulfillment_tag(self):
+        """Создаём или ищем тег 'Fulfillment'"""
+        tag = self.env['res.partner.category'].search([('name', '=', 'Fulfillment')], limit=1)
+        if not tag:
+            tag = self.env['res.partner.category'].create({'name': 'Fulfillment'})
+        return tag
