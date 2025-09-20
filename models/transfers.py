@@ -104,18 +104,16 @@ class FulfillmentTransfers(models.Model):
                     ('view_location_id', 'parent_of', picking.location_dest_id.id)
                 ], limit=1)
 
-                wh_out_id = (warehouse_out.get_fulfillment_info() if warehouse_out else (None, None))
-                wh_in_id = (warehouse_in.get_fulfillment_info() if warehouse_in else (None, None))
-                
+
+                warehouse_out_id, warehouse_in_id = self._get_transfer_warehouses(picking)
+
                 payload = {
-                    "reference": vals.get("name", picking.name),
-                    "warehouse_out": wh_out_id,
-                    "warehouse_in": wh_in_id,
-                    "status": vals.get("status", picking.state or "draft"),
+                    "reference": picking.name,
+                    "warehouse_out": warehouse_out_id,
+                    "warehouse_in": warehouse_in_id,
+                    "status": picking.state or "draft",
                     "items": items,
-                }
-
-
+}
 
                 # проверяем transfer_id
                 if not picking.fulfillment_transfer_id or picking.fulfillment_transfer_id == "Empty":
@@ -343,7 +341,38 @@ class FulfillmentTransfers(models.Model):
 
         
     
-    
+    def _get_transfer_warehouses(self, picking):
+        """Вернёт (warehouse_out_id, warehouse_in_id)"""
+        warehouse_out_id, warehouse_in_id = None, None
+
+        # --- warehouse_out: по source location ---
+        if picking.location_id:
+            warehouse_out = self.env['stock.warehouse'].search([
+                ('view_location_id', 'parent_of', picking.location_id.id)
+            ], limit=1)
+            if warehouse_out:
+                warehouse_out_id = warehouse_out.warehouse_id  # внешний ID
+
+        # --- warehouse_in: если outgoing → по партнёру ---
+        if picking.picking_type_code == 'outgoing':
+            if picking.partner_id:
+                warehouse_in = self.env['stock.warehouse'].search([
+                    ('partner_id', '=', picking.partner_id.id)
+                ], limit=1)
+                if warehouse_in:
+                    warehouse_in_id = warehouse_in.warehouse_id
+
+        # --- если incoming/internal → по dest location ---
+        else:
+            if picking.location_dest_id:
+                warehouse_in = self.env['stock.warehouse'].search([
+                    ('view_location_id', 'parent_of', picking.location_dest_id.id)
+                ], limit=1)
+                if warehouse_in:
+                    warehouse_in_id = warehouse_in.warehouse_id
+
+        return warehouse_out_id, warehouse_in_id
+
     # Приватные методы 
     def _get_or_create_fulfillment_warehouse(self, location, client=None, cache=None):
         if not location:
