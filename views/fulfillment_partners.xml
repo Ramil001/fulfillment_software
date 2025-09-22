@@ -22,13 +22,13 @@
         <field name="webhook_url" />
       </group>
       <notebook>
-      <page string="Services">
+      <page string="Warehouses">
        
       </page>
-       <page string="Categories">
+       <page string="Transfers">
        
       </page>
-       <page string="Services">
+       <page string="Products">
        
       </page>
      </notebook>

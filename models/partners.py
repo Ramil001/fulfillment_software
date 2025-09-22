@@ -22,9 +22,9 @@ class FulfillmentPartners(models.Model):
         ('unfollow', 'Unfollow')],
         default='unfollow', tracking=True)
 
-    name = fields.Char(string="Fulfillment company name", required=True, readonly=True)
-    fulfillment_id = fields.Char(string="Fulfillment external ID", required=True, index=True, readonly=True)
-    api_domain = fields.Char(string="API domain", readonly=True)
+    name = fields.Char(string="Fulfillment company", required=True, readonly=True)
+    fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
+    api_domain = fields.Char(string="Domain API", readonly=True)
     webhook_url = fields.Char(string="Webhook URL")
     created_at = fields.Datetime(string="Date created")
     user_id = fields.Char(string="User external ID")
@@ -33,7 +33,7 @@ class FulfillmentPartners(models.Model):
     
     partner_id = fields.Many2one(
         'res.partner',
-        string="Fulfillment account from odoo contact",
+        string="Contact",
         help="Odoo contact lined to this fulfillment partner",
         readonly=True
     )
