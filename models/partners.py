@@ -30,6 +30,14 @@ class FulfillmentPartners(models.Model):
     user_id = fields.Char(string="User external ID")
     profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
+    
+    partner_id = fields.Many2one(
+        'res.partner',
+        string="Fulfillment account from odoo contact",
+        help="Odoo contact lined to this fulfillment partner",
+        readonly=True
+    )
+    
 
     # Разрешаем использование параметра password в поле
     def _valid_field_parameter(self, field, name):
@@ -100,12 +108,10 @@ class FulfillmentPartners(models.Model):
 
     # --- Вспомогательные методы ---
 
-
     def _create_or_update_contact(self, partner_record):
-        """Создаём или обновляем контакт res.partner с тегом Fulfillment"""
+        """Создаём или обновляем контакт res.partner с тегом Fulfillment и возвращаем его"""
         tag = self._get_fulfillment_tag()
 
-        # ищем контакт по external fulfillment_id (лучше завести поле)
         contact = self.env['res.partner'].search([
             ('x_fulfillment_id', '=', partner_record.fulfillment_id)
         ], limit=1)
@@ -114,13 +120,16 @@ class FulfillmentPartners(models.Model):
             'name': partner_record.name,
             'comment': f"Synced from Fulfillment {partner_record.api_domain or ''}",
             'category_id': [(4, tag.id)],  # добавить тег
-            'x_fulfillment_id': partner_record.fulfillment_id,  # нужно завести кастомное поле
+            'x_fulfillment_id': partner_record.fulfillment_id,
         }
 
         if contact:
             contact.write(contact_vals)
         else:
-            self.env['res.partner'].create(contact_vals)
+            contact = self.env['res.partner'].create(contact_vals)
+
+        return contact
+
 
     def _get_active_profile(self):
         """Получаем активный профиль с API ключом"""
@@ -173,7 +182,11 @@ class FulfillmentPartners(models.Model):
             partner_record = self.create(vals)
 
         # --- Создание/обновление res.partner ---
-        self._create_or_update_contact(partner_record)
+        contact = self._create_or_update_contact(partner_record)
+
+        # --- Заполняем ссылку на контакт ---
+        if contact and partner_record.partner_id != contact:
+            partner_record.partner_id = contact.id
 
 
 

@@ -12,10 +12,12 @@
       <header>
         <field name="status" widget="statusbar"  statusbar_visible="follow,unfollow"  statusbar_colors='{"follow":"red","unfollow":"blue"}'/>
       </header>
+        <group>
         <field name="name"/>
         <field name="fulfillment_id"/>
+        </group>
        <group>
-        <field name="name"/>
+        <field name="partner_id"/>
         <field name="api_domain"/>
         <field name="webhook_url" />
       </group>
