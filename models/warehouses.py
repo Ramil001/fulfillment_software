@@ -15,69 +15,76 @@ class FulfillmentWarehouses(models.Model):
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
     last_update = fields.Datetime(string='Last Update', readonly=True)
 
+    def _extract_partner_id(self, val):
+        """Нормализовать partner_id из vals — handle int, (4, id, 0), (6,0,[id]) и т.п."""
+        if not val:
+            return False
+        # уже int
+        if isinstance(val, int):
+            return val
+        # tuple like (4, id, 0)
+        if isinstance(val, (list, tuple)):
+            # direct command (4, id, 0) or (6, 0, [ids])
+            if len(val) == 3 and isinstance(val[0], int):
+                cmd = int(val[0])
+                if cmd == 4 and isinstance(val[1], int):
+                    return int(val[1])
+                if cmd == 6 and isinstance(val[2], list) and len(val[2]) == 1:
+                    return int(val[2][0])
+            # sometimes client send [(4, id, 0)]
+            if len(val) and isinstance(val[0], (list, tuple)):
+                inner = val[0]
+                if len(inner) >= 2 and inner[0] == 4:
+                    return int(inner[1])
+        return False
+
+
     @api.model
-    def write(self, vals):
-        for record in self:
-            is_fulfillment = vals.get('is_fulfillment', record.is_fulfillment)
-            if not is_fulfillment:
-                continue
+    def _get_or_create_warehouse_contact(self, parent_partner, warehouse_name):
+        """Return existing child contact parent->(warehouse_name) or create it."""
+        if not parent_partner or not parent_partner.exists():
+            return False
 
-            # Пропускаем API, если контекст skip_api_sync
-            if self.env.context.get('skip_api_sync'):
-                _logger.info(f"[SKIP PATCH] Warehouse {record.id} updated locally without API sync")
-                continue
+        child_name = f"{parent_partner.name} ({warehouse_name})"
+        _logger.info(f"[Fulfillment] _get_or_create_warehouse_contact lookup: parent={parent_partner.id} name={child_name}")
 
-            profile = self.env['fulfillment.profile'].search([], limit=1)
-            if not profile:
-                _logger.warning("[Fulfillment] Profile not found, API sync skipped")
-                continue
+        child = self.env['res.partner'].search([
+            ('parent_id', '=', parent_partner.id),
+            ('name', '=', child_name)
+        ], limit=1)
 
-            client = FulfillmentAPIClient(profile)
+        if child:
+            _logger.info(f"[Fulfillment] Found existing child contact {child.id} for warehouse '{warehouse_name}'")
+            return child
 
-            payload = {
-                'name': record.name,
-                'code': record.code,
-                'location': 'UKR',
-            }
+        vals = {
+            'name': child_name,
+            'parent_id': parent_partner.id,
+            'type': 'delivery',
+            'is_company': False,
+        }
+        # копируем страну у родителя, если есть
+        if parent_partner.country_id:
+            vals['country_id'] = parent_partner.country_id.id
 
-            fulfillment_id = record.fulfillment_client_id.fulfillment_id
-            warehouse_id = record.fulfillment_warehouse_id
-
-            try:
-                # Проверяем, есть ли уже ID
-                if warehouse_id:
-                    # создаём контекст skip_api_sync, чтобы PATCH не триггерил write снова
-                    with self.env.context({'skip_api_sync': True}):
-                        response = client.warehouse.update(fulfillment_id, warehouse_id, payload)
-                        new_id = response['data'].get('warehouse_id')
-                        if new_id and new_id != warehouse_id:
-                            record.with_context(skip_api_sync=True).write({
-                                'fulfillment_warehouse_id': new_id
-                            })
-                else:
-                    # Если нет warehouse_id — создаём склад в API
-                    with self.env.context({'skip_api_sync': True}):
-                        response = client.warehouse.create(fulfillment_id, payload)
-                        record.with_context(skip_api_sync=True).write({
-                            'fulfillment_warehouse_id': response['data'].get('warehouse_id')
-                        })
-
-            except Exception as e:
-                _logger.warning(f"Warehouse update failed: {e}")
-
-        vals['last_update'] = datetime.now()
-        return super().write(vals)
-
-
+        _logger.info(f"[Fulfillment] Creating child contact for warehouse: {vals}")
+        # создаём в контексте skip_api_sync, чтобы не запускать сторонние обработчики
+        child = self.env['res.partner'].with_context(skip_api_sync=True).create(vals)
+        _logger.info(f"[Fulfillment] Child contact created: {child.id}")
+        return child
 
 
     @api.model
     def create(self, vals):
-        # Если контекст содержит skip_api_sync, пропускаем вызов API
-        if self.env.context.get('skip_api_sync'):
-            _logger.info(f"[SKIP CREATE] Warehouse {vals.get('name')} создан локально без API sync")
-            vals['last_update'] = datetime.now()
-            return super().create(vals)
+        if vals.get('is_fulfillment') and not self.env.context.get('skip_warehouse_contact') and vals.get('partner_id'):
+            parent_id = self._extract_partner_id(vals.get('partner_id'))
+            if parent_id:
+                parent = self.env['res.partner'].browse(parent_id)
+                if parent.exists():
+                    warehouse_name = vals.get('name') or 'Warehouse'
+                    child = self._get_or_create_warehouse_contact(parent, warehouse_name)
+                    if child:
+                        vals['partner_id'] = child.id
 
         vals['last_update'] = datetime.now()
         warehouse = super().create(vals)
@@ -90,8 +97,8 @@ class FulfillmentWarehouses(models.Model):
             _logger.warning("[Fulfillment] Profile not found, API create пропущен")
             return warehouse
 
+        from ..lib.api_client import FulfillmentAPIClient
         client = FulfillmentAPIClient(profile)
-
         payload = {
             'name': warehouse.name,
             'code': warehouse.code,
@@ -100,12 +107,83 @@ class FulfillmentWarehouses(models.Model):
         fulfillment_id = warehouse.fulfillment_client_id.fulfillment_id or profile.fulfillment_profile_id
         try:
             response = client.warehouse.create(fulfillment_id, payload)
-            warehouse.fulfillment_warehouse_id = response['data'].get('warehouse_id')
+            warehouse.fulfillment_warehouse_id = response.get('data', {}).get('warehouse_id')
         except Exception as e:
             _logger.error(f"[Fulfillment] Create failed: {e}")
 
         return warehouse
 
+
+
+    def write(self, vals):
+        if self.env.context.get('skip_warehouse_contact'):
+            return super().write(vals)
+
+        for record in self:
+            if record.is_fulfillment or vals.get('is_fulfillment'):
+                if vals.get('partner_id'):
+                    parent_id = self._extract_partner_id(vals.get('partner_id'))
+                    if parent_id:
+                        parent = self.env['res.partner'].browse(parent_id)
+                        if parent.exists() and len(self) == 1:
+                            warehouse_name = vals.get('name') or record.name
+                            child = self._get_or_create_warehouse_contact(parent, warehouse_name)
+                            if child:
+                                vals['partner_id'] = child.id
+
+                if 'name' in vals and len(self) == 1:
+                    parent = record.partner_id
+                    if parent and not parent.parent_id:
+                        warehouse_name = vals['name']
+                        child = self._get_or_create_warehouse_contact(parent, warehouse_name)
+                        if child:
+                            vals['partner_id'] = child.id
+
+        for record in self:
+            is_fulfillment = vals.get('is_fulfillment', record.is_fulfillment)
+            if not is_fulfillment:
+                continue
+
+            if self.env.context.get('skip_api_sync'):
+                _logger.info(f"[SKIP PATCH] Warehouse {record.id} updated locally without API sync")
+                continue
+
+            profile = self.env['fulfillment.profile'].search([], limit=1)
+            if not profile:
+                _logger.warning("[Fulfillment] Profile not found, API sync skipped")
+                continue
+
+            from ..lib.api_client import FulfillmentAPIClient
+            client = FulfillmentAPIClient(profile)
+
+            payload = {
+                'name': vals.get('name', record.name),
+                'code': vals.get('code', record.code),
+                'location': 'UKR',
+            }
+
+            fulfillment_id = record.fulfillment_client_id.fulfillment_id
+            warehouse_id = record.fulfillment_warehouse_id
+
+            try:
+                if warehouse_id:
+                    response = client.warehouse.update(fulfillment_id, warehouse_id, payload)
+                    new_id = response.get('data', {}).get('warehouse_id')
+                    if new_id and new_id != warehouse_id:
+                        record.with_context(skip_api_sync=True).write({
+                            'fulfillment_warehouse_id': new_id
+                        })
+                else:
+                    response = client.warehouse.create(fulfillment_id, payload)
+                    record.with_context(skip_api_sync=True).write({
+                        'fulfillment_warehouse_id': response.get('data', {}).get('warehouse_id')
+                    })
+
+            except Exception as e:
+                _logger.warning(f"Warehouse update failed: {e}")
+
+        vals['last_update'] = datetime.now()
+        return super().write(vals)
 
     @api.model
     def reload_warehouses(self):
