@@ -24,8 +24,7 @@
             </group>
             <notebook>
               <page string="Warehouses">
-
-                                <group>
+                <group>
                   <separator string="I Rent"/>
                   <field name="warehouses_client_ids" nolabel="1">
                     <list>
@@ -48,7 +47,6 @@
                     </form>
                   </field>
                 </group>
-                
                 <group>
                   <separator string="I Rent Out"/>
                   <field name="warehouses_owner_ids" nolabel="1">
@@ -72,11 +70,66 @@
                     </form>
                   </field>
                 </group>
-
-
               </page>
-
-              <page string="Transfers"/>
+              <page string="Transfers">
+                <group>
+                  <separator string="Purchases (Incoming)"/>
+                  <field name="transfers_purchase_ids" nolabel="1">
+                    <list>
+                      <field name="name"/>
+                      <field name="scheduled_date"/>
+                      <field name="partner_id"/>
+                      <field name="state"/>
+                    </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="scheduled_date"/>
+                        <field name="partner_id"/>
+                        <field name="state"/>
+                      </group>
+                    </form>
+                  </field>
+                </group>
+                <group>
+                  <separator string="Internal Transfers"/>
+                  <field name="transfers_internal_ids" nolabel="1">
+                    <list>
+                      <field name="name"/>
+                      <field name="scheduled_date"/>
+                      <field name="partner_id"/>
+                      <field name="state"/>
+                    </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="scheduled_date"/>
+                        <field name="partner_id"/>
+                        <field name="state"/>
+                      </group>
+                    </form>
+                  </field>
+                </group>
+                <group>
+                  <separator string="Delivery Orders (Outgoing)"/>
+                  <field name="transfers_delivery_ids" nolabel="1">
+                    <list>
+                      <field name="name"/>
+                      <field name="scheduled_date"/>
+                      <field name="partner_id"/>
+                      <field name="state"/>
+                    </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="scheduled_date"/>
+                        <field name="partner_id"/>
+                        <field name="state"/>
+                      </group>
+                    </form>
+                  </field>
+                </group>
+              </page>
               <page string="Products"/>
             </notebook>
           </sheet>
@@ -85,7 +138,6 @@
         </form>
       </field>
     </record>
-
     <!-- Список партнёров -->
     <record id="view_fulfillment_partners_list" model="ir.ui.view">
       <field name="name">fulfillment.partners.list</field>
@@ -105,7 +157,6 @@
         </list>
       </field>
     </record>
-
     <record id="action_fulfillment_partners" model="ir.actions.act_window">
       <field name="name">Partners</field>
       <field name="res_model">fulfillment.partners</field>

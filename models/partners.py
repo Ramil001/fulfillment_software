@@ -31,18 +31,26 @@ class FulfillmentPartners(models.Model):
     user_id = fields.Char(string="User external ID")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
     
-    warehouses_owner_ids = fields.One2many(
-        'stock.warehouse',
-        'fulfillment_owner_id',
-        string="Owned Warehouses"
-    )
+    warehouses_owner_ids = fields.One2many('stock.warehouse', 'fulfillment_owner_id')
+    warehouses_client_ids = fields.One2many('stock.warehouse', 'fulfillment_client_id')
 
-    warehouses_client_ids = fields.One2many(
-        'stock.warehouse',
-        'fulfillment_client_id',
-        string="Client Warehouses"
-    )
     
+    
+    transfers_purchase_ids = fields.One2many(
+        'stock.picking',
+        compute='_compute_transfers',
+        string="Purchase Receipts"
+    )
+    transfers_internal_ids = fields.One2many(
+        'stock.picking',
+        compute='_compute_transfers',
+        string="Internal Transfers"
+    )
+    transfers_delivery_ids = fields.One2many(
+        'stock.picking',
+        compute='_compute_transfers',
+        string="Delivery Orders"
+    )
     # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
     partner_id = fields.Many2one(
         'res.partner',
@@ -51,6 +59,40 @@ class FulfillmentPartners(models.Model):
         readonly=True
     )
     
+
+
+    def _compute_transfers(self):
+        for partner in self:
+            warehouses_owner = partner.warehouses_owner_ids
+            warehouses_client = partner.warehouses_client_ids
+            warehouses_all = warehouses_owner | warehouses_client
+
+            if not warehouses_all:
+                partner.transfers_purchase_ids = False
+                partner.transfers_internal_ids = False
+                partner.transfers_delivery_ids = False
+                continue
+
+            Pick = self.env['stock.picking']
+
+            # Приходы (партнёр — клиент)
+            partner.transfers_purchase_ids = Pick.search([
+                ('picking_type_id.code', '=', 'incoming'),
+                ('picking_type_id.warehouse_id', 'in', warehouses_client.ids)
+            ])
+
+            # Отгрузки (партнёр — владелец)
+            partner.transfers_delivery_ids = Pick.search([
+                ('picking_type_id.code', '=', 'outgoing'),
+                ('picking_type_id.warehouse_id', 'in', warehouses_owner.ids)
+            ])
+
+            # Внутренние (любой склад, связанный с партнёром)
+            partner.transfers_internal_ids = Pick.search([
+                ('picking_type_id.code', '=', 'internal'),
+                ('picking_type_id.warehouse_id', 'in', warehouses_all.ids)
+            ])
+
 
     # Разрешаем использование параметра password в поле
     def _valid_field_parameter(self, field, name):
