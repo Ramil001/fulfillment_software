@@ -1,76 +1,120 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
- <data>
+  <data>
+    <!-- Форма партнёра -->
+    <record id="view_fulfillment_partners_form" model="ir.ui.view">
+      <field name="name">fulfillment.partners.form</field>
+      <field name="model">fulfillment.partners</field>
+      <field name="arch" type="xml">
+        <form string="Partner Details" create="False">
+          <sheet>
+            <header>
+              <field name="status" widget="statusbar"  
+                     statusbar_visible="follow,unfollow"  
+                     statusbar_colors='{"follow":"red","unfollow":"blue"}'/>
+            </header>
+            <group>
+              <field name="name"/>
+              <field name="fulfillment_id"/>
+            </group>
+            <group>
+              <field name="partner_id"/>
+              <field name="api_domain"/>
+              <field name="webhook_url" />
+            </group>
+            <notebook>
+              <page string="Warehouses">
 
-  <!-- Форма партнёра -->
-  <record id="view_fulfillment_partners_form" model="ir.ui.view">
-   <field name="name">fulfillment.partners.form</field>
-   <field name="model">fulfillment.partners</field>
-   <field name="arch" type="xml">
-    <form string="Partner Details" create="False">
-     <sheet>
-      <header>
-        <field name="status" widget="statusbar"  statusbar_visible="follow,unfollow"  statusbar_colors='{"follow":"red","unfollow":"blue"}'/>
-      </header>
-        <group>
-        <field name="name"/>
-        <field name="fulfillment_id"/>
-        </group>
-       <group>
-        <field name="partner_id"/>
-        <field name="api_domain"/>
-        <field name="webhook_url" />
-      </group>
-      <notebook>
-      <page string="Warehouses">
-       
-      </page>
-       <page string="Transfers">
-       
-      </page>
-       <page string="Products">
-       
-      </page>
-     </notebook>
-     </sheet>
-    <!-- Chatter -->
-     <chatter/>
-     
-    </form>
-   </field>
-  </record>
+                                <group>
+                  <separator string="I Rent"/>
+                  <field name="warehouses_client_ids" nolabel="1">
+                    <list>
+                      <field name="name"/>
+                      <field name="code"/>
+                      <field name="partner_id"/>
+                      <field name="company_id"/>
+                      <field name="is_fulfillment"/>
+                      <field name="fulfillment_client_id"/>
+                    </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="partner_id"/>
+                        <field name="company_id"/>
+                        <field name="is_fulfillment"/>
+                        <field name="fulfillment_client_id"/>
+                      </group>
+                    </form>
+                  </field>
+                </group>
+                
+                <group>
+                  <separator string="I Rent Out"/>
+                  <field name="warehouses_owner_ids" nolabel="1">
+                    <list>
+                      <field name="name"/>
+                      <field name="code"/>
+                      <field name="partner_id"/>
+                      <field name="company_id"/>
+                      <field name="is_fulfillment"/>
+                      <field name="fulfillment_client_id"/>
+                    </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="partner_id"/>
+                        <field name="company_id"/>
+                        <field name="is_fulfillment"/>
+                        <field name="fulfillment_client_id"/>
+                      </group>
+                    </form>
+                  </field>
+                </group>
 
 
-  <!-- Список партнёров -->
-  <record id="view_fulfillment_partners_list" model="ir.ui.view">
-   <field name="name">fulfillment.partners.list</field>
-   <field name="model">fulfillment.partners</field>
-   <field name="arch" type="xml">
-    <list string="Partners" create="False">
-     <header>
-      <button name="button_sync_from_api"
+              </page>
+
+              <page string="Transfers"/>
+              <page string="Products"/>
+            </notebook>
+          </sheet>
+          <!-- Chatter -->
+          <chatter/>
+        </form>
+      </field>
+    </record>
+
+    <!-- Список партнёров -->
+    <record id="view_fulfillment_partners_list" model="ir.ui.view">
+      <field name="name">fulfillment.partners.list</field>
+      <field name="model">fulfillment.partners</field>
+      <field name="arch" type="xml">
+        <list string="Partners" create="False">
+          <header>
+            <button name="button_sync_from_api"
                         string="Update partners"
                         type="object"
                         class="oe_highlight"
                         display="always"/>
-     </header>
-     <field name="name"/>
-     <field name="api_domain"/>
-     <field name="webhook_url" />
-    </list>
-   </field>
-  </record>
+          </header>
+          <field name="name"/>
+          <field name="api_domain"/>
+          <field name="webhook_url" />
+        </list>
+      </field>
+    </record>
 
-
-  <record id="action_fulfillment_partners" model="ir.actions.act_window">
-   <field name="name">Partners</field>
-   <field name="res_model">fulfillment.partners</field>
-   <field name="view_mode">list,form</field>
-   <field name="help" type="html">
-    <p class="o_view_nocontent_smiling_face">
-                    Update a new fulfillment partner
-                </p>
-   </field>
-  </record>
- </data>
+    <record id="action_fulfillment_partners" model="ir.actions.act_window">
+      <field name="name">Partners</field>
+      <field name="res_model">fulfillment.partners</field>
+      <field name="view_mode">list,form</field>
+      <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">
+          Update a new fulfillment partner
+        </p>
+      </field>
+    </record>
+  </data>
 </odoo>

@@ -31,6 +31,18 @@ class FulfillmentPartners(models.Model):
     user_id = fields.Char(string="User external ID")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
     
+    warehouses_owner_ids = fields.One2many(
+        'stock.warehouse',
+        'fulfillment_owner_id',
+        string="Owned Warehouses"
+    )
+
+    warehouses_client_ids = fields.One2many(
+        'stock.warehouse',
+        'fulfillment_client_id',
+        string="Client Warehouses"
+    )
+    
     # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
     partner_id = fields.Many2one(
         'res.partner',

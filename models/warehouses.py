@@ -97,7 +97,7 @@ class FulfillmentWarehouses(models.Model):
             _logger.warning("[Fulfillment] Profile not found, API create пропущен")
             return warehouse
 
-        from ..lib.api_client import FulfillmentAPIClient
+        
         client = FulfillmentAPIClient(profile)
         payload = {
             'name': warehouse.name,
@@ -153,7 +153,6 @@ class FulfillmentWarehouses(models.Model):
                 _logger.warning("[Fulfillment] Profile not found, API sync skipped")
                 continue
 
-            from ..lib.api_client import FulfillmentAPIClient
             client = FulfillmentAPIClient(profile)
 
             payload = {
