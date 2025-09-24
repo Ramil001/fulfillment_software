@@ -26,6 +26,11 @@ class FulfillmentPartners(models.Model):
     profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     name = fields.Char(string="Fulfillment company", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
+    fulfillment_logo = fields.Binary(
+    string="Logo",
+    attachment=True,
+    help="Upload a logo or photo for this fulfillment partner."
+    )
     api_domain = fields.Char(string="API", readonly=True)
     webhook_url = fields.Char(string="Webhook", readonly=True)
     created_at = fields.Datetime(string="Date created")
@@ -40,19 +45,16 @@ class FulfillmentPartners(models.Model):
     transfers_purchase_ids = fields.One2many(
         'stock.picking',
         'fulfillment_partner_id',
-        domain=[('picking_type_id.code', '=', 'incoming')],
         string="Purchase Receipts"
     )
     transfers_internal_ids = fields.One2many(
         'stock.picking',
         'fulfillment_partner_id',
-        domain=[('picking_type_id.code', '=', 'internal')],
         string="Internal Transfers"
     )
     transfers_delivery_ids = fields.One2many(
         'stock.picking',
         'fulfillment_partner_id',
-        domain=[('picking_type_id.code', '=', 'outgoing')],
         string="Delivery Orders"
     )
 

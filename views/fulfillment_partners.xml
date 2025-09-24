@@ -8,25 +8,29 @@
       <field name="arch" type="xml">
         <form string="Partner Details" create="False">
           <sheet>
-            <header>
-                <field name="status" widget="statusbar"
-                      statusbar_visible="unfollow,follow"
-                      statusbar_colors='{"follow":"green","unfollow":"red"}'
-                      readonly="False"/>
-            </header>
+<header>
+    
+</header>
+            <group >
+              <group>
+              <field name="status" widget="radio"/>  
+              </group>
+              <group>
+              <field name="fulfillment_logo" widget="image" class="oe_avatar"/>  
+              </group>
+              
+            </group>
 
             <group>
-    
-            <group>
-               <field name="partner_id"/>
-              <field name="fulfillment_id"/>
+              <group>
+                <field name="partner_id"/>
+                <field name="fulfillment_id"/>
+              </group>
+              <group>
+                <field name="api_domain"/>
+                <field name="webhook_url" />
+              </group>
             </group>
-            <group>
-             
-              <field name="api_domain"/>
-              <field name="webhook_url" />
-            </group>
-             </group>
             <notebook>
               <page string="Warehouses">
                 <group>
@@ -186,7 +190,6 @@
           <field name="status" widget="badge"
                 decoration-success="status == 'follow'"
                 decoration-danger="status == 'unfollow'"/>
-
         </list>
       </field>
     </record>

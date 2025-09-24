@@ -8,7 +8,7 @@
         
         <menuitem
             id="menu_fulfillment_profile"
-            name="My profile"
+            name="My account"
             action="action_my_fulfillment_profile"
             sequence="5"/>
         
@@ -20,7 +20,7 @@
         
         <menuitem
             id="menu_fulfillment_partners"
-            name="Partners"
+            name="List of Partners"
             action="action_fulfillment_partners"
             sequence="5"/>
 
