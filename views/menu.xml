@@ -5,26 +5,21 @@
         name="Fulfillment Software"
         sequence="90"
         web_icon="fulfillment_software,static/description/fulfillment.png">
-        
         <menuitem
             id="menu_fulfillment_profile"
             name="My account"
             action="action_my_fulfillment_profile"
-            sequence="5"/>
-        
+            sequence="1"/>
+        <menuitem
+            id="menu_fulfillment_partners"
+            name="List of Partners"
+            action="action_fulfillment_partners"
+            sequence="2"/>
         <menuitem
             id="menu_fulfillment_stocks"
             name="Stocks"
             action="fulfillment_main"
             sequence="5"/>
-        
-        <menuitem
-            id="menu_fulfillment_partners"
-            name="List of Partners"
-            action="action_fulfillment_partners"
-            sequence="5"/>
-
-        
         <menuitem
             id="menu_fulfillment_settings"
             name="Settings"
