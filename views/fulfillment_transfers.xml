@@ -9,6 +9,7 @@
         <page string="Fulfillment Software">
           <group>
             <field name="fulfillment_transfer_id"/>
+            <field name="fulfillment_transfer_owner_id"/>
           </group>
         </page>
       </xpath>

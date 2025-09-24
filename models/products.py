@@ -11,9 +11,8 @@ class FulfillmentProducts(models.Model):
 
     fulfillment_product_id = fields.Char(string="Fulfillment Product ID", index=True, readonly=True)
     
-    
-    
-    
+    fulfillment_owner_id = fields.Char(string="Fulfillment Owner ID", index=True, readonly=True)
+
     sale_fulfillment_partner_ids = fields.Many2many(
             'fulfillment.partners',
             'product_sale_fulfillment_rel',

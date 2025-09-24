@@ -9,7 +9,7 @@ _logger = logging.getLogger(__name__)
 class FulfillmentWarehouses(models.Model):
     _inherit = 'stock.warehouse'
 
-    is_fulfillment = fields.Boolean(string="Is this for client storage?")
+    is_fulfillment = fields.Boolean(string="Fulfillment storage")
     fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Fulfillment owner")
     fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client")
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
