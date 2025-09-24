@@ -77,15 +77,23 @@
                   <field name="transfers_purchase_ids" nolabel="1">
                     <list>
                       <field name="name"/>
-                      <field name="scheduled_date"/>
+                      <field name="origin"/>
                       <field name="partner_id"/>
+                      <field name="location_id"/>
+                      <field name="location_dest_id" />
+                      <field name="fulfillment_partner_id" />
+                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
                     <form>
                       <group>
                         <field name="name"/>
-                        <field name="scheduled_date"/>
+                        <field name="origin"/>
                         <field name="partner_id"/>
+                        <field name="location_id"/>
+                        <field name="location_dest_id" />
+                        <field name="fulfillment_partner_id" />
+                        <field name="move_ids_without_package" />
                         <field name="state"/>
                       </group>
                     </form>
@@ -96,15 +104,23 @@
                   <field name="transfers_internal_ids" nolabel="1">
                     <list>
                       <field name="name"/>
-                      <field name="scheduled_date"/>
+                      <field name="origin"/>
                       <field name="partner_id"/>
+                      <field name="location_id"/>
+                      <field name="location_dest_id" />
+                      <field name="fulfillment_partner_id" />
+                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
                     <form>
                       <group>
                         <field name="name"/>
-                        <field name="scheduled_date"/>
+                        <field name="origin"/>
                         <field name="partner_id"/>
+                        <field name="location_id"/>
+                        <field name="location_dest_id" />
+                        <field name="fulfillment_partner_id" />
+                        <field name="move_ids_without_package" />
                         <field name="state"/>
                       </group>
                     </form>
@@ -115,15 +131,23 @@
                   <field name="transfers_delivery_ids" nolabel="1">
                     <list>
                       <field name="name"/>
-                      <field name="scheduled_date"/>
+                      <field name="origin"/>
                       <field name="partner_id"/>
+                      <field name="location_id"/>
+                      <field name="location_dest_id" />
+                      <field name="fulfillment_partner_id" />
+                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
                     <form>
                       <group>
                         <field name="name"/>
-                        <field name="scheduled_date"/>
+                        <field name="origin"/>
                         <field name="partner_id"/>
+                        <field name="location_id"/>
+                        <field name="location_dest_id" />
+                        <field name="fulfillment_partner_id" />
+                        <field name="move_ids_without_package" />
                         <field name="state"/>
                       </group>
                     </form>
@@ -151,9 +175,13 @@
                         class="oe_highlight"
                         display="always"/>
           </header>
-          <field name="name"/>
+          <field name="name" />
           <field name="api_domain"/>
           <field name="webhook_url" />
+          <field name="status" widget="badge"
+        decoration-success="status == 'follow'"
+        decoration-danger="status == 'unfollow'"/>
+
         </list>
       </field>
     </record>
