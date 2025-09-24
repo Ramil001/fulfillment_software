@@ -20,13 +20,14 @@ class FulfillmentPartners(models.Model):
     status = fields.Selection([
         ('follow', 'Follow'),
         ('unfollow', 'Unfollow')],
-        default='unfollow', tracking=True)
+        default='unfollow', tracking=True, required=True)
+
 
     profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     name = fields.Char(string="Fulfillment company", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
-    api_domain = fields.Char(string="Domain API", readonly=True)
-    webhook_url = fields.Char(string="Webhook URL")
+    api_domain = fields.Char(string="API", readonly=True)
+    webhook_url = fields.Char(string="Webhook", readonly=True)
     created_at = fields.Datetime(string="Date created")
     user_id = fields.Char(string="User external ID")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
@@ -59,12 +60,18 @@ class FulfillmentPartners(models.Model):
     # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
     partner_id = fields.Many2one(
         'res.partner',
-        string="Linked contact",
+        string="Owner contact",
         help="Odoo contact lined to this fulfillment partner",
         readonly=True
     )
     
 
+
+    def action_follow(self):
+        self.write({'status': 'follow'})
+
+    def action_unfollow(self):
+        self.write({'status': 'unfollow'})
     # Разрешаем использование параметра password в поле
     def _valid_field_parameter(self, field, name):
         return name == 'password' or super()._valid_field_parameter(field, name)
