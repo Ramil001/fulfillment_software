@@ -11,7 +11,7 @@
     'category': 'Inventory',
     'version': '0.2',
     'license': "OEEL-1",
-    'depends': ['base', 'contacts', 'point_of_sale', 'account' ,'web','mail', 'purchase', 'stock', 'product', 'sale_management'],
+    'depends': ['base', 'contacts', 'account' ,'web','mail', 'purchase', 'stock', 'product', 'sale_management'],
     'assets': {
         'web.assets_backend': [
             'fulfillment_software/static/src/js/systray.js',
@@ -22,6 +22,7 @@
     },
     'data': [
         'security/ir.model.access.csv',     # Права доступа
+        'data/stock_settings.xml',
         'views/views.xml',                  # Представления
         'views/fulfillment_warehouses.xml',  # Представление для изменения страницы создания скалада
         'views/fulfillment_transfers.xml',   # Представление для изменения страницы создания скалада

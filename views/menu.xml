@@ -17,12 +17,12 @@
             sequence="2"/>
         <menuitem
             id="menu_fulfillment_stocks"
-            name="Stocks"
+            name="Services &amp; Prices"
             action="fulfillment_main"
             sequence="5"/>
         <menuitem
             id="menu_fulfillment_settings"
-            name="Settings"
+            name="Support"
             action="fulfillment_main"
             sequence="5"/>
     </menuitem>

@@ -10,6 +10,7 @@
                     <separator string="Fulfillment Software" colspan="2"/>
                     <group string="Info">
                         <field name="fulfillment_warehouse_id"/>
+                          <field name="fulfillment_owner_id"/>
                         <field name="last_update" />
                     </group>
                     <group string="Settings">

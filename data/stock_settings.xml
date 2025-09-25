@@ -1,0 +1,11 @@
+<odoo>
+    <!-- Включаем Storage Locations -->
+    <record id="group_stock_multi_locations" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('stock.group_stock_user'))]"/>
+    </record>
+
+    <!-- Включаем Multi-Step Routes -->
+    <record id="group_adv_location" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('stock.group_stock_user'))]"/>
+    </record>
+</odoo>

@@ -10,8 +10,8 @@ class FulfillmentWarehouses(models.Model):
     _inherit = 'stock.warehouse'
 
     is_fulfillment = fields.Boolean(string="Fulfillment storage")
-    fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Fulfillment owner")
-    fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client")
+    fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Fulfillment owner", readonly=True)
+    fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client", readonly=True)
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
     last_update = fields.Datetime(string='Last Update', readonly=True)
 
