@@ -54,8 +54,13 @@ class FulfillmentWarehouses(models.Model):
         ], limit=1)
 
         if child:
-            _logger.info(f"[Fulfillment] Found existing child contact {child.id} for warehouse '{warehouse_name}'")
-            return child
+            # Подтягиваем fulfillment_partner если есть
+            fulfillment_partner = self.env['fulfillment.partners'].search([
+                ('partner_id', '=', child.id)
+            ], limit=1)
+            if fulfillment_partner:
+                return child, fulfillment_partner
+            return child, None
 
         vals = {
             'name': child_name,
@@ -70,19 +75,23 @@ class FulfillmentWarehouses(models.Model):
         _logger.info(f"[Fulfillment] Creating child contact for warehouse: {vals}")
         # создаём в контексте skip_api_sync, чтобы не запускать сторонние обработчики
         child = self.env['res.partner'].with_context(skip_api_sync=True).create(vals)
-        _logger.info(f"[Fulfillment] Child contact created: {child.id}")
-        return child
+        fulfillment_partner = self.env['fulfillment.partners'].search([
+                ('partner_id', '=', child.id)
+            ], limit=1)
+        return child, fulfillment_partner
 
 
     @api.model
     def create(self, vals):
+        # Создаём child contact, если это fulfillment склад и задан partner_id
+        fulfillment_partner = None
         if vals.get('is_fulfillment') and not self.env.context.get('skip_warehouse_contact') and vals.get('partner_id'):
             parent_id = self._extract_partner_id(vals.get('partner_id'))
             if parent_id:
                 parent = self.env['res.partner'].browse(parent_id)
                 if parent.exists():
                     warehouse_name = vals.get('name') or 'Warehouse'
-                    child = self._get_or_create_warehouse_contact(parent, warehouse_name)
+                    child, fulfillment_partner = self._get_or_create_warehouse_contact(parent, warehouse_name)
                     if child:
                         vals['partner_id'] = child.id
 
@@ -92,27 +101,32 @@ class FulfillmentWarehouses(models.Model):
         if not warehouse.is_fulfillment:
             return warehouse
 
+        # Получаем профиль для API
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.warning("[Fulfillment] Profile not found, API create пропущен")
             return warehouse
 
-        
         client = FulfillmentAPIClient(profile)
         payload = {
             'name': warehouse.name,
             'code': warehouse.code,
             'location': 'UKR',
         }
-        fulfillment_id = warehouse.fulfillment_client_id.fulfillment_id or profile.fulfillment_profile_id
-        try:
-            response = client.warehouse.create(fulfillment_id, payload)
-            warehouse.fulfillment_warehouse_id = response.get('data', {}).get('warehouse_id')
-        except Exception as e:
-            _logger.error(f"[Fulfillment] Create failed: {e}")
+
+        # Сначала пробуем взять fulfillment_id из клиента, если нет — из профиля
+        fulfillment_id = (fulfillment_partner.fulfillment_id if fulfillment_partner else None) or profile.fulfillment_profile_id
+
+        if fulfillment_id:
+            try:
+                response = client.warehouse.create(fulfillment_id, payload)
+                warehouse.fulfillment_warehouse_id = response.get('data', {}).get('warehouse_id')
+            except Exception as e:
+                _logger.error(f"[Fulfillment] Create failed: {e}")
+        else:
+            _logger.error(f"[Fulfillment] No fulfillment_id available for warehouse {warehouse.name}")
 
         return warehouse
-
 
 
     def write(self, vals):
@@ -121,13 +135,14 @@ class FulfillmentWarehouses(models.Model):
 
         for record in self:
             if record.is_fulfillment or vals.get('is_fulfillment'):
+                # Обновляем partner_id через child contact
                 if vals.get('partner_id'):
                     parent_id = self._extract_partner_id(vals.get('partner_id'))
                     if parent_id:
                         parent = self.env['res.partner'].browse(parent_id)
                         if parent.exists() and len(self) == 1:
                             warehouse_name = vals.get('name') or record.name
-                            child = self._get_or_create_warehouse_contact(parent, warehouse_name)
+                            child, fulfillment_partner = self._get_or_create_warehouse_contact(parent, warehouse_name)
                             if child:
                                 vals['partner_id'] = child.id
 
@@ -135,7 +150,7 @@ class FulfillmentWarehouses(models.Model):
                     parent = record.partner_id
                     if parent and not parent.parent_id:
                         warehouse_name = vals['name']
-                        child = self._get_or_create_warehouse_contact(parent, warehouse_name)
+                        child, fulfillment_partner = self._get_or_create_warehouse_contact(parent, warehouse_name)
                         if child:
                             vals['partner_id'] = child.id
 
@@ -154,35 +169,38 @@ class FulfillmentWarehouses(models.Model):
                 continue
 
             client = FulfillmentAPIClient(profile)
-
             payload = {
                 'name': vals.get('name', record.name),
                 'code': vals.get('code', record.code),
                 'location': 'UKR',
             }
 
-            fulfillment_id = record.fulfillment_client_id.fulfillment_id
+            fulfillment_id = (record.fulfillment_client_id.fulfillment_id
+                            or record.fulfillment_owner_id.fulfillment_id
+                            or profile.fulfillment_profile_id)
             warehouse_id = record.fulfillment_warehouse_id
 
             try:
-                if warehouse_id:
+                if warehouse_id and fulfillment_id:
                     response = client.warehouse.update(fulfillment_id, warehouse_id, payload)
                     new_id = response.get('data', {}).get('warehouse_id')
                     if new_id and new_id != warehouse_id:
-                        record.with_context(skip_api_sync=True).write({
-                            'fulfillment_warehouse_id': new_id
-                        })
-                else:
+                        record.with_context(skip_api_sync=True).write({'fulfillment_warehouse_id': new_id})
+                elif fulfillment_id:
                     response = client.warehouse.create(fulfillment_id, payload)
                     record.with_context(skip_api_sync=True).write({
                         'fulfillment_warehouse_id': response.get('data', {}).get('warehouse_id')
                     })
-
+                else:
+                    _logger.error(f"[Fulfillment] No fulfillment_id for warehouse {record.name}, skipping API sync")
             except Exception as e:
                 _logger.warning(f"Warehouse update failed: {e}")
 
         vals['last_update'] = datetime.now()
         return super().write(vals)
+
+
+
 
     @api.model
     def reload_warehouses(self):
