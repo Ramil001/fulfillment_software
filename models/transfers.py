@@ -12,24 +12,9 @@ class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
 
     # ===== fields =====
-    fulfillment_partner_id = fields.Many2one(
-        'fulfillment.partners',
-        string="Fulfillment Partner",
-        index=True,
-        ondelete='set null'
-    )
-    fulfillment_transfer_id = fields.Char(
-        string="Transfer ID",
-        default="Empty",
-        help="Fulfillment transfer ID",
-        readonly=True
-    )
-    fulfillment_transfer_owner_id = fields.Char(
-        string="Resource owner",
-        default="Empty",
-        help="Fulfillment owner ID",
-        readonly=True
-    )
+    fulfillment_partner_id = fields.Many2one('fulfillment.partners',string="Fulfillment Partner",index=True,ondelete='set null')
+    fulfillment_transfer_id = fields.Char(string="Transfer ID",default="Empty",help="Fulfillment transfer ID",readonly=True)
+    fulfillment_transfer_owner_id = fields.Char(string="Resource owner",default="Empty",help="Fulfillment owner ID",readonly=True)
 
     # ----- helper to create API client when needed -----
     @property
@@ -51,6 +36,7 @@ class FulfillmentTransfers(models.Model):
 
         for picking in self:
             # only operate for pickings that have moves (items)
+            self._get_operation_type(picking)
             if not picking.move_ids:
                 _logger.debug("[Fulfillment] skipping picking %s - no move_ids", picking.name)
                 continue
@@ -205,6 +191,7 @@ class FulfillmentTransfers(models.Model):
 
             try:
                 picking = self.env['stock.picking'].create(vals)
+                self._get_operation_type(picking)
                 created_count += 1
                 _logger.info("[Fulfillment] Created receipt picking %s (partner=%s, fp=%s)", picking.name, partner_res and partner_res.name, fp and fp.name)
 
@@ -409,11 +396,9 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[Fulfillment] load_transfers finished: created=%s", created)
         return created
 
-    # ===== helper methods =====
     def _get_transfer_warehouses(self, picking):
         """
-        Вернёт коды/внешние ID складов (warehouse_out_id, warehouse_in_id) для API.
-        Возвращает None когда не может определить.
+        Вернёт внешние ID складов (warehouse_out_id, warehouse_in_id) для API.
         """
         warehouse_out_id, warehouse_in_id = None, None
 
@@ -423,24 +408,50 @@ class FulfillmentTransfers(models.Model):
                 ('view_location_id', 'parent_of', picking.location_id.id)
             ], limit=1)
             if warehouse_out:
-                # внешнее поле в твоей модели - warehouse.warehouse_id
-                warehouse_out_id = warehouse_out.warehouse_id or warehouse_out.fulfillment_warehouse_id
+                warehouse_out_id = warehouse_out.fulfillment_warehouse_id
 
-        # warehouse_in: если outgoing -> ищем склад по partner_id (как в старом коде)
+        # warehouse_in: если outgoing → ищем по partner_id
         if picking.picking_type_code == 'outgoing':
             if picking.partner_id:
                 warehouse_in = self.env['stock.warehouse'].search([
                     ('partner_id', '=', picking.partner_id.id)
                 ], limit=1)
                 if warehouse_in:
-                    warehouse_in_id = warehouse_in.warehouse_id or warehouse_in.fulfillment_warehouse_id
+                    warehouse_in_id = warehouse_in.fulfillment_warehouse_id
         else:
-            # incoming/internal -> по dest location
+            # incoming/internal → по dest location
             if picking.location_dest_id:
                 warehouse_in = self.env['stock.warehouse'].search([
                     ('view_location_id', 'parent_of', picking.location_dest_id.id)
                 ], limit=1)
                 if warehouse_in:
-                    warehouse_in_id = warehouse_in.warehouse_id or warehouse_in.fulfillment_warehouse_id
+                    warehouse_in_id = warehouse_in.fulfillment_warehouse_id
 
         return warehouse_out_id, warehouse_in_id
+
+
+
+
+    # Метод _get_operation_type возвращает тип транзакции.
+    # По-умолчанию у нас в системе 3 типа операций.
+    # 1. incoming - поступления /IN/
+    # 2. internal - внутренние перемещения /INT/
+    # 3. outgoing - доставка /OUT/
+    
+    def _get_operation_type(self, picking):
+        """ 
+        Get transfer operation type and log it
+        """
+        if not picking.picking_type_id:
+            _logger.warning("[FULFILLMENT] Picking %s has no operation type (picking_type_id is empty)", picking.name)
+            return None
+
+        op_type = picking.picking_type_id
+        _logger.info(
+            "[FULFILLMENT] Picking %s -> operation_type_id=%s (%s, code=%s)",
+            picking.name,
+            op_type.id,
+            op_type.name,
+            op_type.code,
+        )
+        return op_type

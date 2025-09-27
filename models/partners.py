@@ -26,54 +26,26 @@ class FulfillmentPartners(models.Model):
     profile_id = fields.Many2one('fulfillment.profile', string="Profile")
     name = fields.Char(string="Fulfillment company", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
-    fulfillment_logo = fields.Binary(
-    string="Logo",
-    attachment=True,
-    help="Upload a logo or photo for this fulfillment partner."
-    )
+    fulfillment_logo = fields.Binary(string="Logo", attachment=True, help="Upload a logo or photo for this fulfillment partner.")
     api_domain = fields.Char(string="API", readonly=True)
     webhook_url = fields.Char(string="Webhook", readonly=True)
     created_at = fields.Datetime(string="Date created")
     user_id = fields.Char(string="User external ID")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
-    
     warehouses_owner_ids = fields.One2many('stock.warehouse', 'fulfillment_owner_id')
     warehouses_client_ids = fields.One2many('stock.warehouse', 'fulfillment_client_id')
-
-    
-    
-    transfers_purchase_ids = fields.One2many(
-        'stock.picking',
-        'fulfillment_partner_id',
-        string="Purchase Receipts"
-    )
-    transfers_internal_ids = fields.One2many(
-        'stock.picking',
-        'fulfillment_partner_id',
-        string="Internal Transfers"
-    )
-    transfers_delivery_ids = fields.One2many(
-        'stock.picking',
-        'fulfillment_partner_id',
-        string="Delivery Orders"
-    )
-
-
+    transfers_purchase_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Purchase Receipts")
+    transfers_internal_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Internal Transfers")
+    transfers_delivery_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Delivery Orders")
     # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
-    partner_id = fields.Many2one(
-        'res.partner',
-        string="Owner contact",
-        help="Odoo contact lined to this fulfillment partner",
-        readonly=True
-    )
+    partner_id = fields.Many2one('res.partner',string="Owner contact",help="Odoo contact lined to this fulfillment partner",readonly=True)
     
-
-
     def action_follow(self):
         self.write({'status': 'follow'})
 
     def action_unfollow(self):
         self.write({'status': 'unfollow'})
+        
     # Разрешаем использование параметра password в поле
     def _valid_field_parameter(self, field, name):
         return name == 'password' or super()._valid_field_parameter(field, name)
@@ -149,7 +121,6 @@ class FulfillmentPartners(models.Model):
                                   extra={'next': {'type': 'ir.actions.client', 'tag': 'reload'}})
 
     # --- Вспомогательные методы ---
-
     def _create_or_update_contact(self, partner_record):
         """Создаём или обновляем контакт res.partner с тегом Fulfillment и возвращаем его"""
         tag = self._get_fulfillment_tag()
@@ -171,7 +142,6 @@ class FulfillmentPartners(models.Model):
             contact = self.env['res.partner'].create(contact_vals)
 
         return contact
-
 
     def _get_active_profile(self):
         """Получаем активный профиль с API ключом"""
@@ -230,9 +200,6 @@ class FulfillmentPartners(models.Model):
         if contact and partner_record.partner_id != contact:
             partner_record.partner_id = contact.id
 
-
-
-
     def _normalize_datetime(self, dt_str):
         """Нормализация формата даты"""
         if not dt_str:
@@ -262,7 +229,6 @@ class FulfillmentPartners(models.Model):
             notif['params'].update(extra)
         return notif
     
-
     def _get_fulfillment_tag(self):
         """Создаём или ищем тег 'Fulfillment'"""
         tag = self.env['res.partner.category'].search([('name', '=', 'Fulfillment')], limit=1)
