@@ -11,6 +11,7 @@ class ResPartner(models.Model):
     _inherit = 'res.partner'
 
     x_fulfillment_id = fields.Char(string="Fulfillment External ID", index=True, copy=False)
+    
 
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'

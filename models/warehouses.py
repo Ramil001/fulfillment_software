@@ -14,73 +14,9 @@ class FulfillmentWarehouses(models.Model):
     fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client", readonly=True)
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
     last_update = fields.Datetime(string='Last Update', readonly=True)
-
-    def _extract_partner_id(self, val):
-        """Нормализовать partner_id из vals — handle int, (4, id, 0), (6,0,[id]) и т.п."""
-        if not val:
-            return False
-        # уже int
-        if isinstance(val, int):
-            return val
-        # tuple like (4, id, 0)
-        if isinstance(val, (list, tuple)):
-            # direct command (4, id, 0) or (6, 0, [ids])
-            if len(val) == 3 and isinstance(val[0], int):
-                cmd = int(val[0])
-                if cmd == 4 and isinstance(val[1], int):
-                    return int(val[1])
-                if cmd == 6 and isinstance(val[2], list) and len(val[2]) == 1:
-                    return int(val[2][0])
-            # sometimes client send [(4, id, 0)]
-            if len(val) and isinstance(val[0], (list, tuple)):
-                inner = val[0]
-                if len(inner) >= 2 and inner[0] == 4:
-                    return int(inner[1])
-        return False
-
-
-    @api.model
-    def _get_or_create_warehouse_contact(self, parent_partner, warehouse_name):
-        """Return existing child contact parent->(warehouse_name) or create it."""
-        if not parent_partner or not parent_partner.exists():
-            return False
-
-        child_name = f"{parent_partner.name} ({warehouse_name})"
-        _logger.info(f"[Fulfillment] _get_or_create_warehouse_contact lookup: parent={parent_partner.id} name={child_name}")
-
-        child = self.env['res.partner'].search([
-            ('parent_id', '=', parent_partner.id),
-            ('name', '=', child_name)
-        ], limit=1)
-
-        if child:
-            # Подтягиваем fulfillment_partner если есть
-            fulfillment_partner = self.env['fulfillment.partners'].search([
-                ('partner_id', '=', child.id)
-            ], limit=1)
-            if fulfillment_partner:
-                return child, fulfillment_partner
-            return child, None
-
-        vals = {
-            'name': child_name,
-            'parent_id': parent_partner.id,
-            'type': 'delivery',
-            'is_company': False,
-        }
-        # копируем страну у родителя, если есть
-        if parent_partner.country_id:
-            vals['country_id'] = parent_partner.country_id.id
-
-        _logger.info(f"[Fulfillment] Creating child contact for warehouse: {vals}")
-        # создаём в контексте skip_api_sync, чтобы не запускать сторонние обработчики
-        child = self.env['res.partner'].with_context(skip_api_sync=True).create(vals)
-        fulfillment_partner = self.env['fulfillment.partners'].search([
-                ('partner_id', '=', child.id)
-            ], limit=1)
-        return child, fulfillment_partner
-
-
+    
+    
+    
     @api.model
     def create(self, vals):
         # Создаём child contact, если это fulfillment склад и задан partner_id
@@ -199,6 +135,71 @@ class FulfillmentWarehouses(models.Model):
         vals['last_update'] = datetime.now()
         return super().write(vals)
 
+
+    def _extract_partner_id(self, val):
+        """Нормализовать partner_id из vals — handle int, (4, id, 0), (6,0,[id]) и т.п."""
+        if not val:
+            return False
+        # уже int
+        if isinstance(val, int):
+            return val
+        # tuple like (4, id, 0)
+        if isinstance(val, (list, tuple)):
+            # direct command (4, id, 0) or (6, 0, [ids])
+            if len(val) == 3 and isinstance(val[0], int):
+                cmd = int(val[0])
+                if cmd == 4 and isinstance(val[1], int):
+                    return int(val[1])
+                if cmd == 6 and isinstance(val[2], list) and len(val[2]) == 1:
+                    return int(val[2][0])
+            # sometimes client send [(4, id, 0)]
+            if len(val) and isinstance(val[0], (list, tuple)):
+                inner = val[0]
+                if len(inner) >= 2 and inner[0] == 4:
+                    return int(inner[1])
+        return False
+
+
+    @api.model
+    def _get_or_create_warehouse_contact(self, parent_partner, warehouse_name):
+        """Return existing child contact parent->(warehouse_name) or create it."""
+        if not parent_partner or not parent_partner.exists():
+            return False
+
+        child_name = f"{parent_partner.name} ({warehouse_name})"
+        _logger.info(f"[Fulfillment] _get_or_create_warehouse_contact lookup: parent={parent_partner.id} name={child_name}")
+
+        child = self.env['res.partner'].search([
+            ('parent_id', '=', parent_partner.id),
+            ('name', '=', child_name)
+        ], limit=1)
+
+        if child:
+            # Подтягиваем fulfillment_partner если есть
+            fulfillment_partner = self.env['fulfillment.partners'].search([
+                ('partner_id', '=', child.id)
+            ], limit=1)
+            if fulfillment_partner:
+                return child, fulfillment_partner
+            return child, None
+
+        vals = {
+            'name': child_name,
+            'parent_id': parent_partner.id,
+            'type': 'delivery',
+            'is_company': False,
+        }
+        # копируем страну у родителя, если есть
+        if parent_partner.country_id:
+            vals['country_id'] = parent_partner.country_id.id
+
+        _logger.info(f"[Fulfillment] Creating child contact for warehouse: {vals}")
+        # создаём в контексте skip_api_sync, чтобы не запускать сторонние обработчики
+        child = self.env['res.partner'].with_context(skip_api_sync=True).create(vals)
+        fulfillment_partner = self.env['fulfillment.partners'].search([
+                ('partner_id', '=', child.id)
+            ], limit=1)
+        return child, fulfillment_partner
 
 
 
