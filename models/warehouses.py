@@ -9,7 +9,8 @@ _logger = logging.getLogger(__name__)
 class FulfillmentWarehouses(models.Model):
     _inherit = 'stock.warehouse'
 
-    is_fulfillment = fields.Boolean(string="Fulfillment storage")
+    
+    is_fulfillment = fields.Boolean(string="Fulfillment storage",compute="_compute_is_fulfillment",store=True)
     fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Fulfillment owner", readonly=True)
     fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Fulfillment client", readonly=True)
     fulfillment_warehouse_id = fields.Char(string="Fulfillment Software Warehouse Id", readonly=True)
@@ -145,6 +146,23 @@ class FulfillmentWarehouses(models.Model):
         return super().write(vals)
 
 
+
+    @api.depends("partner_id", "partner_id.parent_id", "partner_id.category_id")
+    def _compute_is_fulfillment(self):
+        """Определяет, является ли склад fulfillment на основе родительского партнёра"""
+        for warehouse in self:
+            partner = warehouse.partner_id
+            is_fulfillment = False
+            if partner:
+                parent = partner.parent_id or partner
+                # 1. Если у родителя заполнен fulfillment_contact_id → это fulfillment
+                if getattr(parent, "fulfillment_contact_id", False):
+                    is_fulfillment = True
+                # 2. Дополнительно проверяем по тегу "Fulfillment"
+                elif parent.category_id.filtered(lambda c: c.name == "Fulfillment"):
+                    is_fulfillment = True
+            warehouse.is_fulfillment = is_fulfillment
+
     def _extract_partner_id(self, val):
         """Нормализовать partner_id из vals — handle int, (4, id, 0), (6,0,[id]) и т.п."""
         if not val:
@@ -191,13 +209,18 @@ class FulfillmentWarehouses(models.Model):
             if fulfillment_partner:
                 return child, fulfillment_partner
             return child, None
-
+        
+        tag = self.env['res.partner.category'].search([('name', '=', 'Warehouse')], limit=1)
+        if not tag:
+            tag = self.env['res.partner.category'].create({'name': 'Warehouse'})
+            
         vals = {
             'name': child_name,
             'parent_id': parent_partner.id,
             'type': 'delivery',
             'is_company': False,
             'linked_warehouse_id': self.id,
+            'category_id': [(6, 0, [tag.id])],
         }
         # копируем страну у родителя, если есть
         if parent_partner.country_id:

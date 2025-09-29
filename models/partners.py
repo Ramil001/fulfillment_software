@@ -18,7 +18,16 @@ class ResPartner(models.Model):
         ondelete="set null",
         copy=False,
     )
-
+    
+    def name_get(self):
+        res = super().name_get()
+        new_res = []
+        for partner_id, name in res:
+            tags = partner_id.category_id.mapped('name')
+            if tags:
+                name = f"{name} [{', '.join(tags)}]"
+            new_res.append((partner_id.id, name))
+        return new_res
 
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'
