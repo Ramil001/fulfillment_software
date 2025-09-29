@@ -26,6 +26,7 @@
         'views/fulfillment_warehouses.xml',  # Представление для изменения страницы создания скалада
         'views/fulfillment_transfers.xml',   # Представление для изменения страницы создания скалада
         'views/fulfillment_partners.xml',    # Предстваление старницы партнёра
+        'views/fulfillment_contacts.xml',    # Предстваление старницы contact
         'views/fulfillment_products.xml',
         'views/fulfillment_main.xml',        # Действие
         'views/menu.xml',                   # Меню (после действия)

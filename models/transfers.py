@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
+import json
 from odoo import models, api, fields, _
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
 import logging
 from datetime import datetime
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
@@ -18,12 +19,12 @@ class IncomingTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out_id, warehouse_in_id):
         return {
             "reference": picking.name or picking.origin or "Odoo",
-            "transfer_type": "incoming",
             "partner": picking.partner_id.name if picking.partner_id else None,
             "warehouse_out": warehouse_out_id,
             "warehouse_in": warehouse_in_id,
             "status": picking.state or "draft",
             "items": items,
+            "picking": picking,
         }
 
 
@@ -31,7 +32,6 @@ class OutgoingTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out_id, warehouse_in_id):
         return {
             "reference": picking.name or picking.origin or "Odoo",
-            "transfer_type": "outgoing",
             "partner": picking.partner_id.name if picking.partner_id else None,
             "warehouse_out": warehouse_out_id,
             "warehouse_in": warehouse_in_id,
@@ -44,7 +44,6 @@ class InternalTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out_id, warehouse_in_id):
         return {
             "reference": picking.name or picking.origin or "Odoo",
-            "transfer_type": "internal",
             "warehouse_out": warehouse_out_id,
             "warehouse_in": warehouse_in_id,
             "status": picking.state or "draft",
@@ -117,13 +116,13 @@ class WarehouseMapper:
     def resolve(self, picking):
         if picking.picking_type_code == 'incoming':
             return (
-                picking.partner_id.x_fulfillment_id if picking.partner_id else None,
+                picking.partner_id.fulfillment_contact_id if picking.partner_id else None,
                 self._ext_id_from_location(picking.location_dest_id)
             )
         if picking.picking_type_code == 'outgoing':
             return (
                 self._ext_id_from_location(picking.location_id),
-                picking.partner_id.x_fulfillment_id if picking.partner_id else None
+                picking.partner_id.fulfillment_contact_id if picking.partner_id else None
             )
         if picking.picking_type_code == 'internal':
             return (
@@ -180,6 +179,26 @@ class FulfillmentTransfers(models.Model):
             picking._push_to_fulfillment_api()
         return res
 
+
+
+    # @api.model
+    # def create(self, vals):
+    #     raise UserError("Тестовая ошибка при создании трансфера — документ не сохранён!")
+
+    #     record = super(FulfillmentTransfers, self).create(vals)
+    #     record._push_to_fulfillment_api()
+    #     return record
+
+    # def write(self, vals):
+    #     raise UserError("Тестовая ошибка при обновлении трансфера — изменения не записаны!")
+
+    #     res = super(FulfillmentTransfers, self).write(vals)
+    #     for picking in self:
+    #         picking._push_to_fulfillment_api()
+    #     return res
+
+    
+    
     # ===== helpers =====
     def _push_to_fulfillment_api(self):
         self.ensure_one()
@@ -206,11 +225,11 @@ class FulfillmentTransfers(models.Model):
         partner_fulfillment_id = None
 
         if self.picking_type_code == 'incoming':
-            partner_fulfillment_id = self.partner_id.x_fulfillment_id if self.partner_id else None
+            partner_fulfillment_id = self.partner_id.fulfillment_contact_id if self.partner_id else None
             warehouse_in_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_dest_id.id)], limit=1).fulfillment_warehouse_id
             warehouse_out_id = partner_fulfillment_id
         elif self.picking_type_code == 'outgoing':
-            partner_fulfillment_id = self.partner_id.x_fulfillment_id if self.partner_id else None
+            partner_fulfillment_id = self.partner_id.fulfillment_contact_id if self.partner_id else None
             warehouse_out_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_id.id)], limit=1).fulfillment_warehouse_id
             warehouse_in_id = partner_fulfillment_id
         elif self.picking_type_code == 'internal':
@@ -219,6 +238,12 @@ class FulfillmentTransfers(models.Model):
 
         # --- Payload ---
         payload = PickingAdapter.to_api_payload(self, items, warehouse_out_id, warehouse_in_id)
+        
+        _logger.info(
+            "[Fulfillment][Payload][%s]\n%s",
+            self.picking_type_code,
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+        )
 
         # --- Sync ---
         try:
@@ -248,6 +273,69 @@ class FulfillmentTransfers(models.Model):
             _logger.warning("[Fulfillment][Profile not found]")
             return None
         return FulfillmentAPIClient(profile)
+
+
+
+    # ----- Загрузка трансферов -----
+    @api.model
+    def load_transfers(self, fulfillment_id=None, page=1, limit=50):
+        """Загружает трансферы из Fulfillment API"""
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found, load_transfers пропущен")
+            return False
+
+        client = FulfillmentAPIClient(profile)
+
+        try:
+            response = client.transfer.list(
+                fulfillment_id=fulfillment_id,
+                page=page,
+                limit=limit
+            )
+        except Exception as e:
+            _logger.error(f"[Fulfillment] Ошибка при запросе transfer.list: {e}")
+            return False
+
+        if not response or response.get("status") != "success":
+            _logger.warning("[Fulfillment] Некорректный ответ при загрузке transfers: %s", response)
+            return False
+
+        transfers = response.get("data", [])
+        for transfer in transfers:
+            # здесь создаёшь/обновляешь stock.picking
+            self._import_transfer(transfer)
+
+        return True
+
+    def _import_transfer(self, transfer):
+        """Импорт одного transfer в Odoo"""
+        picking_type = transfer.get("type")
+        reference = transfer.get("reference")
+
+        picking = self.search([("name", "=", reference)], limit=1)
+        if not picking:
+            picking = self.create({
+                "name": reference,
+                "picking_type_id": self._map_type(picking_type),
+                # дополняешь нужные поля
+            })
+            _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, transfer.get("id"))
+        else:
+            picking.write({
+                "state": transfer.get("status"),
+                # обновить данные
+            })
+            _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, transfer.get("id"))
+
+    def _map_type(self, remote_type):
+        """Маппинг типов transfer -> Odoo picking_type_id"""
+        op_type = self.env["stock.picking.type"].search([("code", "=", remote_type)], limit=1)
+        return op_type.id if op_type else False
+    
+    
+    
+    
 
     # ----- Определение типа -----
     def _get_operation_type(self, picking):
