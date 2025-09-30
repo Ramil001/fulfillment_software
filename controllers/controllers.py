@@ -11,10 +11,7 @@ class FulfillmentWebHookAPI(http.Controller):
     # Тут указываю какие ресурсы доступны для обнволения через API
     VALID_RESOURCES = {"transfers", "warehouses", "purchase"}
 
-    @http.route(
-        '/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
-        type='http', auth='public', methods=['POST'], csrf=False
-    )
+    @http.route('/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update', type='http', auth='public', methods=['POST'], csrf=False )
     
     def update_resource(self, fulfillment_id, resource, **kwargs): 
         

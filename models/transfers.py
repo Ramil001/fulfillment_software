@@ -24,7 +24,7 @@ class IncomingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in_id,
             "status": picking.state or "draft",
             "items": items,
-            "picking": picking,
+
         }
 
 
@@ -225,13 +225,44 @@ class FulfillmentTransfers(models.Model):
         partner_fulfillment_id = None
 
         if self.picking_type_code == 'incoming':
-            partner_fulfillment_id = self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else None
-            warehouse_in_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_dest_id.id)], limit=1).fulfillment_warehouse_id
-            warehouse_out_id = partner_fulfillment_id
+            # ДИАГНОСТИКА: Логируем что ищем
+            _logger.info("[Fulfillment] Incoming transfer diagnostic:")
+            _logger.info("  - Partner: %s (ID: %s)", self.partner_id.name, self.partner_id.id)
+            _logger.info("  - Partner linked_warehouse_id: %s", self.partner_id.linked_warehouse_id.id if self.partner_id and self.partner_id.linked_warehouse_id else "None")
+            _logger.info("  - Partner fulfillment_contact_warehouse_id: %s", self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else "None")
+            _logger.info("  - Location dest: %s (ID: %s)", self.location_dest_id.name, self.location_dest_id.id)
+            
+            # Для входящего: warehouse_out_id - от партнера
+            if self.partner_id and self.partner_id.linked_warehouse_id:
+                linked_warehouse = self.partner_id.linked_warehouse_id
+                warehouse_out_id = linked_warehouse.fulfillment_warehouse_id
+                _logger.info("  - Using linked warehouse: %s -> fulfillment_id: %s", linked_warehouse.name, warehouse_out_id)
+            elif self.partner_id:
+                warehouse_out_id = self.partner_id.fulfillment_contact_warehouse_id
+                _logger.info("  - Using partner contact warehouse_id: %s", warehouse_out_id)
+            else:
+                _logger.warning("  - No partner found for incoming transfer")
+            
+            # warehouse_in_id - наш локальный склад
+            dest_warehouse = self.env['stock.warehouse'].search([
+                ('lot_stock_id', '=', self.location_dest_id.id)
+            ], limit=1)
+            
+            if dest_warehouse:
+                warehouse_in_id = dest_warehouse.fulfillment_warehouse_id
+                _logger.info("  - Destination warehouse: %s -> fulfillment_id: %s", dest_warehouse.name, warehouse_in_id)
+                
+                if not warehouse_in_id:
+                    _logger.warning("  - Destination warehouse %s has no fulfillment_warehouse_id, syncing...", dest_warehouse.name)
+                    warehouse_in_id = dest_warehouse.sync_warehouse_to_api()
+            else:
+                _logger.warning("  - No warehouse found for location %s", self.location_dest_id.name)
+            
         elif self.picking_type_code == 'outgoing':
             partner_fulfillment_id = self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else None
             warehouse_out_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_id.id)], limit=1).fulfillment_warehouse_id
             warehouse_in_id = partner_fulfillment_id
+            
         elif self.picking_type_code == 'internal':
             warehouse_out_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_id.id)], limit=1).fulfillment_warehouse_id
             warehouse_in_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_dest_id.id)], limit=1).fulfillment_warehouse_id

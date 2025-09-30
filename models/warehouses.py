@@ -383,3 +383,19 @@ class FulfillmentWarehouses(models.Model):
         if partner.category_id.filtered(lambda c: c.name == "Fulfillment"):
             return True
         return False
+
+
+    def sync_warehouse_to_api(self):
+        """Публичный метод для принудительной синхронизации склада с API"""
+        self.ensure_one()
+        
+        if self.fulfillment_warehouse_id:
+            _logger.info("[Fulfillment] Warehouse %s already has API ID: %s", self.name, self.fulfillment_warehouse_id)
+            return self.fulfillment_warehouse_id
+        
+        try:
+            self._sync_warehouse_with_api(self, None, 'create')
+            return self.fulfillment_warehouse_id
+        except Exception as e:
+            _logger.error("[Fulfillment] Failed to sync warehouse %s: %s", self.name, e)
+            return None
