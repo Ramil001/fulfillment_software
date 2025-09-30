@@ -116,13 +116,13 @@ class WarehouseMapper:
     def resolve(self, picking):
         if picking.picking_type_code == 'incoming':
             return (
-                picking.partner_id.fulfillment_contact_id if picking.partner_id else None,
+                picking.partner_id.fulfillment_contact_warehouse_id if picking.partner_id else None,
                 self._ext_id_from_location(picking.location_dest_id)
             )
         if picking.picking_type_code == 'outgoing':
             return (
                 self._ext_id_from_location(picking.location_id),
-                picking.partner_id.fulfillment_contact_id if picking.partner_id else None
+                picking.partner_id.fulfillment_contact_warehouse_id if picking.partner_id else None
             )
         if picking.picking_type_code == 'internal':
             return (
@@ -225,11 +225,11 @@ class FulfillmentTransfers(models.Model):
         partner_fulfillment_id = None
 
         if self.picking_type_code == 'incoming':
-            partner_fulfillment_id = self.partner_id.fulfillment_contact_id if self.partner_id else None
+            partner_fulfillment_id = self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else None
             warehouse_in_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_dest_id.id)], limit=1).fulfillment_warehouse_id
             warehouse_out_id = partner_fulfillment_id
         elif self.picking_type_code == 'outgoing':
-            partner_fulfillment_id = self.partner_id.fulfillment_contact_id if self.partner_id else None
+            partner_fulfillment_id = self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else None
             warehouse_out_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_id.id)], limit=1).fulfillment_warehouse_id
             warehouse_in_id = partner_fulfillment_id
         elif self.picking_type_code == 'internal':

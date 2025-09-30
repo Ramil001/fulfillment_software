@@ -10,24 +10,9 @@ _logger = logging.getLogger(__name__)
 class ResPartner(models.Model):
     _inherit = 'res.partner'
 
-    fulfillment_contact_id = fields.Char(string="Fulfillment External ID", index=True, copy=False)
-    linked_warehouse_id = fields.Many2one(
-        'stock.warehouse',
-        string="Linked Warehouse",
-        help="Warehouse that this contact represents",
-        ondelete="set null",
-        copy=False,
-    )
+    fulfillment_contact_warehouse_id = fields.Char(string="Fulfillment External ID", index=True, copy=False)
+    linked_warehouse_id = fields.Many2one('stock.warehouse',string="Linked Warehouse",help="Warehouse that this contact represents",ondelete="set null",copy=False)
     
-    def name_get(self):
-        res = super().name_get()
-        new_res = []
-        for partner_id, name in res:
-            tags = partner_id.category_id.mapped('name')
-            if tags:
-                name = f"{name} [{', '.join(tags)}]"
-            new_res.append((partner_id.id, name))
-        return new_res
 
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'
@@ -143,14 +128,14 @@ class FulfillmentPartners(models.Model):
         tag = self._get_fulfillment_tag()
 
         contact = self.env['res.partner'].search([
-            ('fulfillment_contact_id', '=', partner_record.fulfillment_id)
+            ('fulfillment_contact_warehouse_id', '=', partner_record.fulfillment_id)
         ], limit=1)
 
         contact_vals = {
             'name': partner_record.name,
             'comment': f"Synced from Fulfillment {partner_record.api_domain or ''}",
             'category_id': [(4, tag.id)],  # добавить тег
-            'fulfillment_contact_id': partner_record.fulfillment_id,
+            'fulfillment_contact_warehouse_id': partner_record.fulfillment_id,
         }
 
         if contact:
