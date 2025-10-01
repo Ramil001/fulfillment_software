@@ -12,11 +12,22 @@ class TransferAPI:
         _logger.debug(f"POST {url} payload={payload}")
         return self.client._request("POST", url, payload)
 
-    def list(self, filters: dict = None):
-        """Получить список трансферов (с фильтрами warehouse_id, status, page)"""
+    def list(self, page=None, limit=None, fulfillment_id=None):
+        """Список трансферов с поддержкой пагинации и фильтрации"""
         url = f"https://{self.client.api_domain}/api/v1/transfers"
-        _logger.debug(f"GET {url} params={filters}")
-        return self.client._request("GET", url, params=filters)
+        params = {}
+        if page is not None:
+            params["page"] = page
+        if limit is not None:
+            params["limit"] = limit
+        if fulfillment_id:
+            params["fulfillment_id"] = fulfillment_id
+
+        response = self.client._request("GET", url, params=params)
+        _logger.info(f"[TransferAPI][list] response={response}")
+        return response
+
+
 
     def get(self, transfer_id: str):
         """Получить детали трансфера"""

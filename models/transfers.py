@@ -178,8 +178,8 @@ class FulfillmentTransfers(models.Model):
         for picking in self:
             picking._push_to_fulfillment_api()
         return res
-
-
+    
+    
 
     # @api.model
     # def create(self, vals):
@@ -334,7 +334,6 @@ class FulfillmentTransfers(models.Model):
 
         transfers = response.get("data", [])
         for transfer in transfers:
-            # здесь создаёшь/обновляешь stock.picking
             self._import_transfer(transfer)
 
         return True
@@ -348,7 +347,7 @@ class FulfillmentTransfers(models.Model):
         if not picking:
             picking = self.create({
                 "name": reference,
-                "picking_type_id": self._map_type(picking_type),
+                "picking_type_id": self._map_type(transfer),
                 # дополняешь нужные поля
             })
             _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, transfer.get("id"))
@@ -359,12 +358,36 @@ class FulfillmentTransfers(models.Model):
             })
             _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, transfer.get("id"))
 
-    def _map_type(self, remote_type):
-        """Маппинг типов transfer -> Odoo picking_type_id"""
-        op_type = self.env["stock.picking.type"].search([("code", "=", remote_type)], limit=1)
+    def _map_type(self, transfer):
+        """Маппинг типа transfer -> Odoo picking_type_id с зеркалкой"""
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found for _map_type")
+            return False
+
+        my_fulfillment_id = profile.fulfillment_profile_id
+        remote_type = transfer.get("type")
+
+        wh_in = transfer.get("fulfillment_in")
+        wh_out = transfer.get("fulfillment_out")
+
+        # если оба в одном fulfillment → internal
+        if wh_in and wh_out and wh_in == wh_out:
+            op_code = "internal"
+
+        else:
+            # зеркалим относительно своего профиля
+            if wh_in == my_fulfillment_id:
+                op_code = "incoming"
+            elif wh_out == my_fulfillment_id:
+                op_code = "outgoing"
+            else:
+                # если мы вообще не участвуем → используем remote_type как fallback
+                op_code = remote_type or "internal"
+
+        op_type = self.env["stock.picking.type"].search([("code", "=", op_code)], limit=1)
         return op_type.id if op_type else False
-    
-    
+
     
     
 
