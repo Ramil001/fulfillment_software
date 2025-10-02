@@ -10,7 +10,7 @@ _logger = logging.getLogger(__name__)
 class ResPartner(models.Model):
     _inherit = 'res.partner'
 
-    fulfillment_contact_warehouse_id = fields.Char(string="Fulfillment External ID", index=True, copy=False)
+    fulfillment_contact_warehouse_id = fields.Char(string="Fulfillment External ID", index=True, copy=False, readonly=True)
     linked_warehouse_id = fields.Many2one('stock.warehouse',string="Linked Warehouse",help="Warehouse that this contact represents",ondelete="set null",copy=False)
     
 
@@ -29,11 +29,13 @@ class FulfillmentPartners(models.Model):
     name = fields.Char(string="Fulfillment company", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
     fulfillment_logo = fields.Binary(string="Logo", attachment=True, help="Upload a logo or photo for this fulfillment partner.")
+    
     api_domain = fields.Char(string="API", readonly=True)
     webhook_url = fields.Char(string="Webhook", readonly=True)
     created_at = fields.Datetime(string="Date created")
     user_id = fields.Char(string="User external ID")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
+    
     warehouses_owner_ids = fields.One2many('stock.warehouse', 'fulfillment_owner_id')
     warehouses_client_ids = fields.One2many('stock.warehouse', 'fulfillment_client_id')
     transfers_purchase_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Purchase Receipts")
@@ -75,7 +77,7 @@ class FulfillmentPartners(models.Model):
                 )
             # обновляем склады и приходы
             # self.env['stock.picking'].sudo().create_fulfillment_receipt()
-            self.env['stock.warehouse'].sudo().reload_warehouses()
+            self.env['stock.warehouse'].sudo().import_warehouses()
 
             # загружаем трансферы
             for item in data:

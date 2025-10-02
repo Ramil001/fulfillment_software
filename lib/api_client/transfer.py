@@ -6,12 +6,6 @@ class TransferAPI:
     def __init__(self, client):
         self.client = client
 
-    def create(self, payload: dict):
-        """Создать новый трансфер"""
-        url = f"https://{self.client.api_domain}/api/v1/transfers"
-        _logger.debug(f"POST {url} payload={payload}")
-        return self.client._request("POST", url, payload)
-
     def list(self, page=None, limit=None, fulfillment_id=None):
         """Список трансферов с поддержкой пагинации и фильтрации"""
         url = f"https://{self.client.api_domain}/api/v1/transfers"
@@ -27,7 +21,11 @@ class TransferAPI:
         _logger.info(f"[TransferAPI][list] response={response}")
         return response
 
-
+    def create(self, payload: dict):
+        """Создать новый трансфер"""
+        url = f"https://{self.client.api_domain}/api/v1/transfers"
+        _logger.debug(f"POST {url} payload={payload}")
+        return self.client._request("POST", url, payload)
 
     def get(self, transfer_id: str):
         """Получить детали трансфера"""

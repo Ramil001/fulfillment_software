@@ -229,8 +229,9 @@ class FulfillmentWarehouses(models.Model):
 
 
     @api.model
-    def reload_warehouses(self):
+    def import_warehouses(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
+        _logger.info("[IMPORT][WAREHOUSES][🏢 🏢 🏢][START]")
         if not profile:
             _logger.error("[Fulfillment] Profile not found")
             return False

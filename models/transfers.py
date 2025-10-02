@@ -114,22 +114,32 @@ class WarehouseMapper:
         self.env = env
 
     def resolve(self, picking):
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        my_fulfillment_id = profile.fulfillment_profile_id if profile else None
+
         if picking.picking_type_code == 'incoming':
             return (
-                picking.partner_id.fulfillment_contact_warehouse_id if picking.partner_id else None,
-                self._ext_id_from_location(picking.location_dest_id)
+                picking.partner_id.fulfillment_contact_warehouse_id,
+                self._ext_id_from_location(picking.location_dest_id),
+                picking.partner_id.fulfillment_profile_id,
+                my_fulfillment_id
             )
         if picking.picking_type_code == 'outgoing':
             return (
                 self._ext_id_from_location(picking.location_id),
-                picking.partner_id.fulfillment_contact_warehouse_id if picking.partner_id else None
+                picking.partner_id.fulfillment_contact_warehouse_id,
+                my_fulfillment_id,
+                picking.partner_id.fulfillment_profile_id
             )
         if picking.picking_type_code == 'internal':
             return (
                 self._ext_id_from_location(picking.location_id),
-                self._ext_id_from_location(picking.location_dest_id)
+                self._ext_id_from_location(picking.location_dest_id),
+                my_fulfillment_id,
+                my_fulfillment_id
             )
-        return None, None
+        return None, None, None, None
+
 
     def _ext_id_from_location(self, location):
         if not location:
@@ -180,29 +190,61 @@ class FulfillmentTransfers(models.Model):
         return res
     
     
-
-    # @api.model
-    # def create(self, vals):
-    #     raise UserError("Тестовая ошибка при создании трансфера — документ не сохранён!")
-
-    #     record = super(FulfillmentTransfers, self).create(vals)
-    #     record._push_to_fulfillment_api()
-    #     return record
-
-    # def write(self, vals):
-    #     raise UserError("Тестовая ошибка при обновлении трансфера — изменения не записаны!")
-
-    #     res = super(FulfillmentTransfers, self).write(vals)
-    #     for picking in self:
-    #         picking._push_to_fulfillment_api()
-    #     return res
-
-    
-    
     # ===== helpers =====
+    def _get_partner_fulfillment_profile_id(self, partner):
+        """
+        Возвращает fulfillment_profile_id партнёра (строка) или None.
+        Логика:
+         - если у партнёра есть linked_warehouse_id -> берём склад -> fulfillment_owner_id
+         - иначе ищем запись в fulfillment.partners по partner_id
+         - если всё это не даёт результата, возвращаем None
+        """
+        if not partner:
+            return None
+
+        # 1) linked warehouse -> fulfillment owner (fulfillment.partners)
+        try:
+            linked_wh = getattr(partner, "linked_warehouse_id", None)
+            if linked_wh:
+                owner = getattr(linked_wh, "fulfillment_owner_id", None)
+                if owner and getattr(owner, "profile_id", None):
+                    return owner.profile_id.fulfillment_profile_id or None
+        except Exception as e:
+            _logger.debug("[Fulfillment][_get_partner_fulfillment_profile_id] linked_warehouse check failed: %s", e)
+
+        # 2) direct fulfillment.partners record (partner_id)
+        try:
+            fp = self.env['fulfillment.partners'].search([('partner_id', '=', partner.id)], limit=1)
+            if fp and getattr(fp, "profile_id", None):
+                return fp.profile_id.fulfillment_profile_id or None
+        except Exception as e:
+            _logger.debug("[Fulfillment][_get_partner_fulfillment_profile_id] search failed: %s", e)
+
+        # 3) fallback: maybe partner stores external id of contact warehouse (fulfillment_contact_warehouse_id)
+        try:
+            contact_wh_ext = getattr(partner, "fulfillment_contact_warehouse_id", None)
+            if contact_wh_ext:
+                wh = self.env['stock.warehouse'].search([('fulfillment_warehouse_id', '=', contact_wh_ext)], limit=1)
+                if wh and getattr(wh, "fulfillment_owner_id", None):
+                    owner = wh.fulfillment_owner_id
+                    if owner and getattr(owner, "profile_id", None):
+                        return owner.profile_id.fulfillment_profile_id or None
+        except Exception as e:
+            _logger.debug("[Fulfillment][_get_partner_fulfillment_profile_id] contact_warehouse check failed: %s", e)
+
+        return None
+
+
+    # ----- Rewritten _push_to_fulfillment_api -----
     def _push_to_fulfillment_api(self):
         self.ensure_one()
-        self._get_operation_type(self)
+
+        # диагностика
+        try:
+            self._get_operation_type(self)
+        except Exception:
+            # не критично — продолжаем, но логируем
+            _logger.exception("[Fulfillment] error while getting operation type")
 
         if not self.move_ids:
             _logger.debug("[Fulfillment] skip %s - no move_ids", self.name)
@@ -213,68 +255,115 @@ class FulfillmentTransfers(models.Model):
             _logger.warning("[Fulfillment] API client not available for %s", self.name)
             return
 
-        # --- Items ---
+        # Items
         items = FulfillmentItemBuilder(client).build_items(self.move_ids)
         if not items:
             _logger.debug("[Fulfillment] No items to sync for %s", self.name)
             return
 
-        # --- Определяем склад/партнера в зависимости от типа ---
+        # Profile (наш)
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found in _push_to_fulfillment_api")
+            return
+        my_fulfillment_id = getattr(profile, "fulfillment_profile_id", None)
+
+        # Default placeholders
         warehouse_out_id = None
         warehouse_in_id = None
-        partner_fulfillment_id = None
+        fulfillment_out = None
+        fulfillment_in = None
 
+        # Safely get partner
+        partner = self.partner_id if getattr(self, "partner_id", False) else None
+
+        # --- Determine per picking type ---
         if self.picking_type_code == 'incoming':
-            # ДИАГНОСТИКА: Логируем что ищем
-            _logger.info("[Fulfillment] Incoming transfer diagnostic:")
-            _logger.info("  - Partner: %s (ID: %s)", self.partner_id.name, self.partner_id.id)
-            _logger.info("  - Partner linked_warehouse_id: %s", self.partner_id.linked_warehouse_id.id if self.partner_id and self.partner_id.linked_warehouse_id else "None")
-            _logger.info("  - Partner fulfillment_contact_warehouse_id: %s", self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else "None")
-            _logger.info("  - Location dest: %s (ID: %s)", self.location_dest_id.name, self.location_dest_id.id)
-            
-            # Для входящего: warehouse_out_id - от партнера
-            if self.partner_id and self.partner_id.linked_warehouse_id:
-                linked_warehouse = self.partner_id.linked_warehouse_id
-                warehouse_out_id = linked_warehouse.fulfillment_warehouse_id
-                _logger.info("  - Using linked warehouse: %s -> fulfillment_id: %s", linked_warehouse.name, warehouse_out_id)
-            elif self.partner_id:
-                warehouse_out_id = self.partner_id.fulfillment_contact_warehouse_id
-                _logger.info("  - Using partner contact warehouse_id: %s", warehouse_out_id)
-            else:
-                _logger.warning("  - No partner found for incoming transfer")
-            
-            # warehouse_in_id - наш локальный склад
-            dest_warehouse = self.env['stock.warehouse'].search([
-                ('lot_stock_id', '=', self.location_dest_id.id)
-            ], limit=1)
-            
-            if dest_warehouse:
-                warehouse_in_id = dest_warehouse.fulfillment_warehouse_id
-                _logger.info("  - Destination warehouse: %s -> fulfillment_id: %s", dest_warehouse.name, warehouse_in_id)
-                
-                if not warehouse_in_id:
-                    _logger.warning("  - Destination warehouse %s has no fulfillment_warehouse_id, syncing...", dest_warehouse.name)
-                    warehouse_in_id = dest_warehouse.sync_warehouse_to_api()
-            else:
-                _logger.warning("  - No warehouse found for location %s", self.location_dest_id.name)
-            
-        elif self.picking_type_code == 'outgoing':
-            partner_fulfillment_id = self.partner_id.fulfillment_contact_warehouse_id if self.partner_id else None
-            warehouse_out_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_id.id)], limit=1).fulfillment_warehouse_id
-            warehouse_in_id = partner_fulfillment_id
-            
-        elif self.picking_type_code == 'internal':
-            warehouse_out_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_id.id)], limit=1).fulfillment_warehouse_id
-            warehouse_in_id = self.env['stock.warehouse'].search([('lot_stock_id','=',self.location_dest_id.id)], limit=1).fulfillment_warehouse_id
+            # товар идёт ОТ партнёра К нам
+            _logger.info("[Fulfillment] Processing INCOMING for %s", self.name)
 
-        # --- Payload ---
+            # warehouse_out: partner's warehouse (linked or contact)
+            if partner and getattr(partner, "linked_warehouse_id", False):
+                linked_wh = partner.linked_warehouse_id
+                warehouse_out_id = getattr(linked_wh, "fulfillment_warehouse_id", None)
+                _logger.info("  - partner linked warehouse: %s -> %s", getattr(linked_wh, "name", ""), warehouse_out_id)
+            elif partner:
+                warehouse_out_id = getattr(partner, "fulfillment_contact_warehouse_id", None)
+                _logger.info("  - partner contact warehouse external id: %s", warehouse_out_id)
+            else:
+                _logger.warning("  - incoming: no partner on picking %s", self.name)
+
+            # warehouse_in: our local warehouse (location_dest)
+            try:
+                dest_wh = self.env['stock.warehouse'].search([('lot_stock_id', '=', self.location_dest_id.id)], limit=1)
+                if dest_wh:
+                    warehouse_in_id = getattr(dest_wh, "fulfillment_warehouse_id", None)
+                    _logger.info("  - dest warehouse: %s -> %s", getattr(dest_wh, "name", ""), warehouse_in_id)
+                    if not warehouse_in_id:
+                        # sync attempt if needed
+                        _logger.info("  - dest warehouse has no fulfillment_warehouse_id, attempting sync")
+                        try:
+                            warehouse_in_id = dest_wh.sync_warehouse_to_api()
+                        except Exception as e:
+                            _logger.error("  - sync_warehouse_to_api failed for %s: %s", dest_wh.name, e)
+                else:
+                    _logger.warning("  - no dest warehouse found for location %s", getattr(self.location_dest_id, "name", "None"))
+            except Exception as e:
+                _logger.exception("[Fulfillment] error resolving destination warehouse: %s", e)
+
+            # fulfillment sides
+            fulfillment_out = self._get_partner_fulfillment_profile_id(partner)
+            fulfillment_in = my_fulfillment_id
+
+        elif self.picking_type_code == 'outgoing':
+            # товар идёт ОТ нас К партнёру
+            _logger.info("[Fulfillment] Processing OUTGOING for %s", self.name)
+
+            try:
+                src_wh = self.env['stock.warehouse'].search([('lot_stock_id', '=', self.location_id.id)], limit=1)
+                warehouse_out_id = getattr(src_wh, "fulfillment_warehouse_id", None) if src_wh else None
+                _logger.info("  - source warehouse: %s -> %s", getattr(src_wh, "name", ""), warehouse_out_id)
+            except Exception as e:
+                _logger.exception("[Fulfillment] error resolving source warehouse: %s", e)
+
+            # warehouse_in: partner's contact/linked
+            if partner and getattr(partner, "linked_warehouse_id", False):
+                warehouse_in_id = getattr(partner.linked_warehouse_id, "fulfillment_warehouse_id", None)
+                _logger.info("  - partner linked warehouse in: %s", warehouse_in_id)
+            elif partner:
+                warehouse_in_id = getattr(partner, "fulfillment_contact_warehouse_id", None)
+                _logger.info("  - partner contact warehouse in ext id: %s", warehouse_in_id)
+            else:
+                _logger.warning("  - outgoing: no partner on picking %s", self.name)
+
+            # fulfillment sides
+            fulfillment_out = my_fulfillment_id
+            fulfillment_in = self._get_partner_fulfillment_profile_id(partner)
+
+        elif self.picking_type_code == 'internal':
+            _logger.info("[Fulfillment] Processing INTERNAL for %s", self.name)
+            try:
+                src_wh = self.env['stock.warehouse'].search([('lot_stock_id', '=', self.location_id.id)], limit=1)
+                dest_wh = self.env['stock.warehouse'].search([('lot_stock_id', '=', self.location_dest_id.id)], limit=1)
+                warehouse_out_id = getattr(src_wh, "fulfillment_warehouse_id", None) if src_wh else None
+                warehouse_in_id = getattr(dest_wh, "fulfillment_warehouse_id", None) if dest_wh else None
+                fulfillment_out = fulfillment_in = my_fulfillment_id
+                _logger.info("  - internal: out=%s in=%s", warehouse_out_id, warehouse_in_id)
+            except Exception as e:
+                _logger.exception("[Fulfillment] error resolving internal warehouses: %s", e)
+        else:
+            _logger.warning("[Fulfillment] Unknown picking_type_code=%s for %s", self.picking_type_code, self.name)
+
+        # --- Build payload and explicitly include fulfillment owners ---
         payload = PickingAdapter.to_api_payload(self, items, warehouse_out_id, warehouse_in_id)
-        
-        _logger.info(
-            "[Fulfillment][Payload][%s]\n%s",
-            self.picking_type_code,
-            json.dumps(payload, ensure_ascii=False, indent=2, default=str)
-        )
+        # explicitly add fulfillment ownership info so remote system knows кто чей
+        if fulfillment_out:
+            payload['fulfillment_out'] = fulfillment_out
+        if fulfillment_in:
+            payload['fulfillment_in'] = fulfillment_in
+
+        _logger.info("[Fulfillment][Payload][%s]\n%s", self.picking_type_code,
+                     json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
         # --- Sync ---
         try:
@@ -282,19 +371,18 @@ class FulfillmentTransfers(models.Model):
                 response = client.transfer.create(payload)
                 if response and response.get('status') == 'success':
                     self.fulfillment_transfer_id = (
-                        response.get('transfer_id')
+                        response.get('transfer_id')                               
                         or response.get('data', {}).get('transfer_id')
-                        or response.get('data', {}).get('id')
                         or "Empty"
                     )
-                    _logger.info("[Fulfillment][Create] Created remote transfer %s -> %s",
-                                self.name, self.fulfillment_transfer_id)
-            else:
-                client.transfer.update(self.fulfillment_transfer_id, payload)
-                _logger.info("[Fulfillment][Update] Updated remote transfer %s for %s",
-                            self.fulfillment_transfer_id, self.name)
+
+                    _logger.info(
+                        "[Fulfillment][Create] Created remote transfer %s -> %s",
+                        self.name, self.fulfillment_transfer_id
+                    )
         except Exception as e:
-            _logger.error("[Fulfillment][Sync] API error for %s: %s", self.name, e)
+            _logger.error("[Fulfillment][Create] Failed to create transfer %s: %s", self.name, e)
+
 
     # ----- API client -----
     @property
@@ -340,50 +428,56 @@ class FulfillmentTransfers(models.Model):
 
     def _import_transfer(self, transfer):
         """Импорт одного transfer в Odoo"""
-        picking_type = transfer.get("type")
+        remote_id = transfer.get("transfer_id")
         reference = transfer.get("reference")
 
-        picking = self.search([("name", "=", reference)], limit=1)
-        if not picking:
-            picking = self.create({
-                "name": reference,
-                "picking_type_id": self._map_type(transfer),
-                # дополняешь нужные поля
-            })
-            _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, transfer.get("id"))
+        if not remote_id:
+            _logger.warning("[Fulfillment] Transfer без ID пропущен: %s", transfer)
+            return False
+
+        # 🔑 ищем именно по transfer_id
+        picking = self.search([("fulfillment_transfer_id", "=", remote_id)], limit=1)
+
+        vals = {
+            "name": reference,
+            "fulfillment_transfer_id": remote_id,
+            "state": transfer.get("status"),
+            "picking_type_id": self._map_type(transfer),
+        }
+
+        if picking:
+            picking.write(vals)
+            _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, remote_id)
         else:
-            picking.write({
-                "state": transfer.get("status"),
-                # обновить данные
-            })
-            _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, transfer.get("id"))
+            picking = self.create(vals)
+            _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, remote_id)
+
+        return picking
+
+
 
     def _map_type(self, transfer):
-        """Маппинг типа transfer -> Odoo picking_type_id с зеркалкой"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
-            _logger.warning("[Fulfillment] Profile not found for _map_type")
             return False
 
         my_fulfillment_id = profile.fulfillment_profile_id
-        remote_type = transfer.get("type")
-
         wh_in = transfer.get("fulfillment_in")
         wh_out = transfer.get("fulfillment_out")
 
-        # если оба в одном fulfillment → internal
-        if wh_in and wh_out and wh_in == wh_out:
+        if wh_in == wh_out:
             op_code = "internal"
-
+        elif wh_in == my_fulfillment_id:
+            op_code = "incoming"
+        elif wh_out == my_fulfillment_id:
+            op_code = "outgoing"
         else:
-            # зеркалим относительно своего профиля
-            if wh_in == my_fulfillment_id:
-                op_code = "incoming"
-            elif wh_out == my_fulfillment_id:
-                op_code = "outgoing"
-            else:
-                # если мы вообще не участвуем → используем remote_type как fallback
-                op_code = remote_type or "internal"
+            op_code = transfer.get("type") or "internal"
+
+        _logger.info(
+            "[Fulfillment][_map_type] transfer=%s wh_in=%s wh_out=%s my=%s => %s",
+            transfer.get("id"), wh_in, wh_out, my_fulfillment_id, op_code
+        )
 
         op_type = self.env["stock.picking.type"].search([("code", "=", op_code)], limit=1)
         return op_type.id if op_type else False
