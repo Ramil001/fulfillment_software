@@ -56,7 +56,7 @@ class FulfillmentPartners(models.Model):
 
     # --- Основная синхронизация ---
     @api.model
-    def sync_from_api(self, profile=None):
+    def import_all(self, profile=None):
         """Sync data from API and return proper action"""
         try:
             if not profile:
@@ -116,7 +116,7 @@ class FulfillmentPartners(models.Model):
     def button_sync_from_api(self):
         """Кнопка в интерфейсе"""
         profile = self._get_active_profile()
-        success = self.sync_from_api(profile=profile)
+        success = self.import_all(profile=profile)
 
         _logger.info(f"[FULFILLMENT][button_sync_from_api]: {success}")
 
