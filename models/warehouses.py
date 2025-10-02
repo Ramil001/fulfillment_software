@@ -228,6 +228,7 @@ class FulfillmentWarehouses(models.Model):
         return child, fulfillment_partner
 
 
+
     @api.model
     def import_warehouses(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -246,10 +247,9 @@ class FulfillmentWarehouses(models.Model):
                 _logger.info("[Fulfillment] No warehouses received from API")
                 return True
 
-            # страна по умолчанию (UA)
             default_country = self.env.ref('base.ua')
 
-            # ищем ВСЕ склады (активные и архивные)
+            # ищем все склады (активные и архивные)
             existing = self.with_context(active_test=False).search([('is_fulfillment', '=', True)])
             existing_map = {w.fulfillment_warehouse_id: w for w in existing}
             processed_ids = set()
@@ -258,17 +258,24 @@ class FulfillmentWarehouses(models.Model):
                 ext_id = str(wh['warehouse_id'])
                 warehouse = existing_map.get(ext_id)
                 base_name = wh.get('name', 'Unnamed')
-                code = wh.get('code', '')
-                unique_name = base_name
+                code = wh.get('code', 'WH')
+
+                # проверка уникальности кода
+                original_code = code
                 suffix = 1
+                while self.search_count([('code', '=', code), ('company_id', '=', self.env.company.id)]):
+                    code = f"{original_code}_{suffix}"
+                    suffix += 1
 
                 # защита от дублей по имени
+                unique_name = base_name
+                suffix_name = 1
                 while self.with_context(active_test=False).search_count([
                     ('name', '=', unique_name),
                     ('company_id', '=', self.env.company.id)
                 ]):
-                    unique_name = f"{base_name} [{code}-{suffix}]"
-                    suffix += 1
+                    unique_name = f"{base_name} [{suffix_name}]"
+                    suffix_name += 1
 
                 country = self.env['res.country'].search([('code', '=', wh.get('location', 'UA'))], limit=1) or default_country
                 partner_vals = {
@@ -288,46 +295,44 @@ class FulfillmentWarehouses(models.Model):
                 }
 
                 if warehouse:
-                    # обновляем существующий (даже если он архивный → станет активным)
+                    # обновляем существующий склад
                     if warehouse.partner_id:
                         warehouse.partner_id.with_context(skip_api_sync=True).write(partner_vals)
                     else:
-                        vals['partner_id'] = self.env['res.partner'].create(partner_vals).id
+                        vals['partner_id'] = self.env['res.partner'].with_context(skip_api_sync=True).create(partner_vals).id
 
                     warehouse.with_context(skip_api_sync=True).write(vals)
                     processed_ids.add(warehouse.id)
+                    continue
 
-                else:
-                    # пробуем найти архивный склад по имени
-                    archived_wh = self.with_context(active_test=False).search([
-                        ('name', '=', base_name),
-                        ('company_id', '=', self.env.company.id)
-                    ], limit=1)
+                # если склада нет → ищем архивный по имени
+                archived_wh = self.with_context(active_test=False).search([
+                    ('name', '=', base_name),
+                    ('company_id', '=', self.env.company.id)
+                ], limit=1)
 
-                    if archived_wh:
-                        _logger.info(f"[Fulfillment] Found archived warehouse {base_name}, reactivating it")
-                        archived_wh.with_context(skip_api_sync=True).write(vals)
-                        processed_ids.add(archived_wh.id)
-                        continue
+                if archived_wh:
+                    _logger.info(f"[Fulfillment] Found archived warehouse {base_name}, reactivating it")
+                    archived_wh.with_context(skip_api_sync=True).write(vals)
+                    processed_ids.add(archived_wh.id)
+                    continue
 
-                    parent = self.env['res.partner'].with_context(skip_api_sync=True).create(partner_vals)
+                # создаём partner
+                parent = self.env['res.partner'].with_context(skip_api_sync=True).create(partner_vals)
+                vals['partner_id'] = parent.id
 
-                    vals['partner_id'] = parent.id
+                try:
+                    new_warehouse = self.with_context(skip_api_sync=True).create(vals)
+                    processed_ids.add(new_warehouse.id)
+                    _logger.info(f"[Fulfillment] Created warehouse: {new_warehouse.name}")
 
-                    
-                    try:
-                        new_warehouse = self.with_context(skip_api_sync=True).create(vals)
-                        processed_ids.add(new_warehouse.id)
-                        _logger.info(f"[Fulfillment] Created warehouse: {new_warehouse.name}")
-                        # если child был создан — обновим его linked_warehouse_id (на случай race)
-                        if child and new_warehouse:
-                            try:
-                                child.with_context(skip_api_sync=True).write({'linked_warehouse_id': new_warehouse.id})
-                            except Exception:
-                                _logger.warning("[Fulfillment] Failed to write linked_warehouse_id for contact %s", child.id)
-                    except Exception as e:
-                        _logger.error(f"[Fulfillment] Failed to create: {e}")
-                        self.env.cr.rollback()
+                    # создаём child contact для склада
+                    child, _ = self._get_or_create_warehouse_contact(parent, new_warehouse.name)
+                    if child:
+                        child.with_context(skip_api_sync=True).write({'linked_warehouse_id': new_warehouse.id})
+                except Exception as e:
+                    _logger.error(f"[Fulfillment] Failed to create: {e}")
+                    self.env.cr.rollback()
 
             # деактивируем те, которых нет в API
             to_deactivate = existing.filtered(lambda w: w.id not in processed_ids)
@@ -339,6 +344,7 @@ class FulfillmentWarehouses(models.Model):
             return False
 
         return True
+
 
 
     def get_fulfillment_info(self):
