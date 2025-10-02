@@ -7,12 +7,27 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 _logger = logging.getLogger(__name__)
 
 
-class ResPartner(models.Model):
+# Тут мы переопределяем модель парнеров контактов и добавляем нужные поля.
+class FulfillmentOverrideResPartner(models.Model):
     _inherit = 'res.partner'
 
-    fulfillment_contact_warehouse_id = fields.Char(string="Fulfillment External ID", index=True, copy=False, readonly=True)
-    linked_warehouse_id = fields.Many2one('stock.warehouse',string="Linked Warehouse",help="Warehouse that this contact represents",ondelete="set null",copy=False)
-    
+    fulfillment_contact_warehouse_id = fields.Char(
+        string="Fulfillment External ID", index=True, copy=False, readonly=True
+    )
+    linked_warehouse_id = fields.Many2one(
+        'stock.warehouse',
+        string="Linked Warehouse",
+        help="Warehouse that this contact represents",
+        ondelete="set null",
+        copy=False
+    )
+    fulfillment_partner_id = fields.Char(
+        string="Fulfillment Partner ID",
+        index=True,
+        copy=False
+    )
+
+
 
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'
@@ -38,11 +53,16 @@ class FulfillmentPartners(models.Model):
     
     warehouses_owner_ids = fields.One2many('stock.warehouse', 'fulfillment_owner_id')
     warehouses_client_ids = fields.One2many('stock.warehouse', 'fulfillment_client_id')
+    
     transfers_purchase_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Purchase Receipts")
     transfers_internal_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Internal Transfers")
     transfers_delivery_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Delivery Orders")
     # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
-    partner_id = fields.Many2one('res.partner',string="Owner contact",help="Odoo contact lined to this fulfillment partner",readonly=True)
+    partner_id = fields.Many2one(
+        'res.partner',
+        string="Owner contact",
+        help="Odoo contact linked to this fulfillment partner"
+    )
     
     def action_follow(self):
         self.write({'status': 'follow'})
@@ -70,7 +90,7 @@ class FulfillmentPartners(models.Model):
 
             for partner in self.search([]):
                 _logger.info(
-                    f"[SYNC DONE][{partner.name}] "
+                    f"[IMPORT DONE][{partner.name}] "
                     f"Purchases={partner.transfers_purchase_ids.ids}, "
                     f"Internal={partner.transfers_internal_ids.ids}, "
                     f"Delivery={partner.transfers_delivery_ids.ids}"
@@ -111,12 +131,10 @@ class FulfillmentPartners(models.Model):
             _logger.error("Sync failed: %s", str(e))
             return self._notification("Error", f"Sync failed: {str(e)}", "danger", sticky=True)
 
-    def button_sync_from_api(self):
+    def button_run_import_all(self):
         """Кнопка в интерфейсе"""
         profile = self._get_active_profile()
         success = self.import_all(profile=profile)
-
-        _logger.info(f"[FULFILLMENT][button_sync_from_api]: {success}")
 
         if not success:
             return self._notification("Ошибка", "Синхронизация не удалась", "danger", sticky=True)
@@ -130,20 +148,29 @@ class FulfillmentPartners(models.Model):
         tag = self._get_fulfillment_tag()
 
         contact = self.env['res.partner'].search([
-            ('fulfillment_contact_warehouse_id', '=', partner_record.fulfillment_id)
+            ('fulfillment_partner_id', '=', partner_record.fulfillment_id)
         ], limit=1)
-
+        
         contact_vals = {
             'name': partner_record.name,
             'comment': f"Synced from Fulfillment {partner_record.api_domain or ''}",
-            'category_id': [(4, tag.id)],  # добавить тег
-            'fulfillment_contact_warehouse_id': partner_record.fulfillment_id,
+            'category_id': [(4, tag.id)],
+            'fulfillment_partner_id': partner_record.fulfillment_id,
         }
+
+        contact = self.env['res.partner'].search([
+            ('fulfillment_partner_id', '=', partner_record.fulfillment_id)
+        ], limit=1)
+        
+        _logger.info(f"🔄 Creating/updating res.partner for {partner_record.name} ({partner_record.fulfillment_id}) with {contact_vals}")
 
         if contact:
             contact.write(contact_vals)
         else:
             contact = self.env['res.partner'].create(contact_vals)
+            
+        partner_record.partner_id = contact.id
+        self.env.cr.commit() 
 
         return contact
 
@@ -161,6 +188,7 @@ class FulfillmentPartners(models.Model):
             client = FulfillmentAPIClient(profile)
             data = client.fulfillment.list()
             data = data.get("data", [])
+            _logger.info("📦[JSON][FULFILLMENT LIST][API]: %s", data)
             _logger.info("Received %s partners from API", len(data))
             return data
         except FulfillmentAPIError as e:
@@ -190,7 +218,9 @@ class FulfillmentPartners(models.Model):
             'fulfillment_api_key': profile.fulfillment_api_key,
             'profile_id': profile.id,
         }
-
+        
+        _logger.info(f"🔄 Creating/updating fulfillment.partner: {vals}")
+        
         if existing:
             existing.write(vals)
             partner_record = existing

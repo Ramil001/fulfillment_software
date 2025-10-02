@@ -178,8 +178,8 @@
       <field name="arch" type="xml">
         <list string="Partners" create="False">
           <header>
-            <button name="button_sync_from_api"
-                        string="Update partners"
+            <button name="button_run_import_all"
+                        string="Run import all"
                         type="object"
                         class="oe_highlight"
                         display="always"/>
