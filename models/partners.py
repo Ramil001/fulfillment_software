@@ -75,8 +75,6 @@ class FulfillmentPartners(models.Model):
                     f"Internal={partner.transfers_internal_ids.ids}, "
                     f"Delivery={partner.transfers_delivery_ids.ids}"
                 )
-            # обновляем склады и приходы
-            # self.env['stock.picking'].sudo().create_fulfillment_receipt()
             self.env['stock.warehouse'].sudo().import_warehouses()
 
             # загружаем трансферы
@@ -87,12 +85,12 @@ class FulfillmentPartners(models.Model):
                     limit = 100
                     while True:
                         _logger.info(f"🔄 Начинаем загрузку трансферов для {fulfillment_id}, page={page}, limit={limit}")
-                        success = self.env['stock.picking'].sudo().load_transfers(
+                        success = self.env['stock.picking'].sudo().import_transfers(
                             fulfillment_id=fulfillment_id,
                             page=page,
                             limit=limit
                         )
-                        _logger.info(f"✅ Результат load_transfers для {fulfillment_id}, page={page}: {success}")
+                        _logger.info(f"✅ Результат import_transfers для {fulfillment_id}, page={page}: {success}")
                         if not success or success < limit:
                             break
                         page += 1

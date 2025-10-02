@@ -397,7 +397,7 @@ class FulfillmentTransfers(models.Model):
 
     # ----- Загрузка трансферов -----
     @api.model
-    def load_transfers(self, fulfillment_id=None, page=1, limit=50):
+    def import_transfers(self, fulfillment_id=None, page=1, limit=50):
         """Загружает трансферы из Fulfillment API"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
