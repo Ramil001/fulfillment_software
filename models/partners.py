@@ -13,7 +13,7 @@ class FulfillmentOverrideResPartner(models.Model):
     _inherit = 'res.partner'
 
     # Это ид склада получается, он тут мне не нужен наверное (надо подумать)
-    fulfillment_contact_warehouse_id = fields.Char(
+    fulfillment_warehouse_id = fields.Char(
         string="Fulfillment External ID", index=True, copy=False, readonly=True
     )
     # Это поле показывает к какому складу привязан контакт
@@ -215,6 +215,7 @@ class FulfillmentPartners(models.Model):
 
     def _process_api_data(self, data, profile):
         """Обработка полученных данных и обновление партнеров"""
+        _logger.info(f"[🌙][PROCESS_API]: DATA: {data} PROFILE: {profile}")
         for item in data:
             self.import_partners(item, profile)
 
