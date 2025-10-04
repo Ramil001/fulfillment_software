@@ -12,23 +12,23 @@ _logger = logging.getLogger(__name__)
 class FulfillmentOverrideResPartner(models.Model):
     _inherit = 'res.partner'
 
-    # Это ид склада получается, он тут мне не нужен наверное (надо подумать)
     fulfillment_warehouse_id = fields.Char(
-        string="Fulfillment External ID", index=True, copy=False, readonly=True
+        string="Fulfillment warehouse Id", index=True, copy=False, readonly=True
     )
-    # Это поле показывает к какому складу привязан контакт
     linked_warehouse_id = fields.Many2one(
         'stock.warehouse',
-        string="Linked Warehouse",
+        string="Linked warehouse",
         help="Warehouse that this contact represents",
         ondelete="set null",
-        copy=False
+        copy=False,
+        readonly=True
     )
     
     fulfillment_partner_id = fields.Char(
-        string="Fulfillment Partner ID",
+        string="Fulfillment partner Id",
         index=True,
-        copy=False
+        copy=False,
+        readonly=True
     )
 
 
@@ -104,7 +104,7 @@ class FulfillmentPartners(models.Model):
                     f"Internal={partner.transfers_internal_ids.ids}, "
                     f"Delivery={partner.transfers_delivery_ids.ids}"
                 )
-            # self.env['stock.warehouse'].sudo().import_warehouses()
+                self.env['stock.warehouse'].sudo().import_warehouses(partner)
 
             # загружаем трансферы
             for item in data:
