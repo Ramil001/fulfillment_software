@@ -11,6 +11,7 @@
                     <group>
                         <field name="fulfillment_contact_warehouse_id"/>
                         <field name="linked_warehouse_id"/>
+                        <field name="fulfillment_partner_id" />
                     </group>
                 </page>
             </xpath>

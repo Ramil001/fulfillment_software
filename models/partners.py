@@ -8,12 +8,15 @@ _logger = logging.getLogger(__name__)
 
 
 # Тут мы переопределяем модель парнеров контактов и добавляем нужные поля.
+# ---------- Контакты  -----------#
 class FulfillmentOverrideResPartner(models.Model):
     _inherit = 'res.partner'
 
+    # Это ид склада получается, он тут мне не нужен наверное (надо подумать)
     fulfillment_contact_warehouse_id = fields.Char(
         string="Fulfillment External ID", index=True, copy=False, readonly=True
     )
+    # Это поле показывает к какому складу привязан контакт
     linked_warehouse_id = fields.Many2one(
         'stock.warehouse',
         string="Linked Warehouse",
@@ -21,6 +24,7 @@ class FulfillmentOverrideResPartner(models.Model):
         ondelete="set null",
         copy=False
     )
+    
     fulfillment_partner_id = fields.Char(
         string="Fulfillment Partner ID",
         index=True,
@@ -28,39 +32,44 @@ class FulfillmentOverrideResPartner(models.Model):
     )
 
 
-
+# ---------- Партнеры  -----------#
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'
     _description = 'Fulfillment Partners'
     _inherit = ['mail.thread', 'mail.activity.mixin']
 
+    # Переменная подписки на fulfillment показывает статус, подписан / отписан
     status = fields.Selection([
         ('follow', 'Follow'),
         ('unfollow', 'Unfollow')],
         default='unfollow', tracking=True, required=True)
 
 
-    profile_id = fields.Many2one('fulfillment.profile', string="Profile")
-    name = fields.Char(string="Fulfillment company", required=True, readonly=True)
+    # Название компании партнера
+    name = fields.Char(string="Company name", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
     fulfillment_logo = fields.Binary(string="Logo", attachment=True, help="Upload a logo or photo for this fulfillment partner.")
     
     api_domain = fields.Char(string="API", readonly=True)
     webhook_url = fields.Char(string="Webhook", readonly=True)
+    
     created_at = fields.Datetime(string="Date created")
-    user_id = fields.Char(string="User external ID")
+    
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
     
+    # эти переменные пока не работают..
     warehouses_owner_ids = fields.One2many('stock.warehouse', 'fulfillment_owner_id')
     warehouses_client_ids = fields.One2many('stock.warehouse', 'fulfillment_client_id')
     
     transfers_purchase_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Purchase Receipts")
     transfers_internal_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Internal Transfers")
     transfers_delivery_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Delivery Orders")
+    #=========
+    
     # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
     partner_id = fields.Many2one(
         'res.partner',
-        string="Owner contact",
+        string="Contact",
         help="Odoo contact linked to this fulfillment partner"
     )
     
@@ -95,7 +104,7 @@ class FulfillmentPartners(models.Model):
                     f"Internal={partner.transfers_internal_ids.ids}, "
                     f"Delivery={partner.transfers_delivery_ids.ids}"
                 )
-            self.env['stock.warehouse'].sudo().import_warehouses()
+            # self.env['stock.warehouse'].sudo().import_warehouses()
 
             # загружаем трансферы
             for item in data:
@@ -131,6 +140,9 @@ class FulfillmentPartners(models.Model):
             _logger.error("Sync failed: %s", str(e))
             return self._notification("Error", f"Sync failed: {str(e)}", "danger", sticky=True)
 
+
+    
+
     def button_run_import_all(self):
         """Кнопка в интерфейсе"""
         profile = self._get_active_profile()
@@ -141,12 +153,15 @@ class FulfillmentPartners(models.Model):
 
         return self._notification("Синхронизация", "Обновление включилось!", "success", sticky=False,
                                   extra={'next': {'type': 'ir.actions.client', 'tag': 'reload'}})
+        
+        
+    
 
     # --- Вспомогательные методы ---
-    def _create_or_update_contact(self, partner_record):
+    def import_contacts(self, partner_record):
         """Создаём или обновляем контакт res.partner с тегом Fulfillment и возвращаем его"""
         tag = self._get_fulfillment_tag()
-
+        self._notification("Ошибка", "Импорт контаков", "success", sticky=True)
         contact = self.env['res.partner'].search([
             ('fulfillment_partner_id', '=', partner_record.fulfillment_id)
         ], limit=1)
@@ -201,9 +216,9 @@ class FulfillmentPartners(models.Model):
     def _process_api_data(self, data, profile):
         """Обработка полученных данных и обновление партнеров"""
         for item in data:
-            self._create_or_update_partner(item, profile)
+            self.import_partners(item, profile)
 
-    def _create_or_update_partner(self, item, profile):
+    def import_partners(self, item, profile):
         """Создание или обновление партнера"""
         existing = self.search([('fulfillment_id', '=', item['fulfillment_id'])], limit=1)
         created_at = self._normalize_datetime(item.get('created_at'))
@@ -214,9 +229,7 @@ class FulfillmentPartners(models.Model):
             'api_domain': item.get('api_domain'),
             'webhook_url': item.get('webhook_url'),
             'created_at': created_at,
-            'user_id': item.get('user_id'),
             'fulfillment_api_key': profile.fulfillment_api_key,
-            'profile_id': profile.id,
         }
         
         _logger.info(f"🔄 Creating/updating fulfillment.partner: {vals}")
@@ -228,7 +241,7 @@ class FulfillmentPartners(models.Model):
             partner_record = self.create(vals)
 
         # --- Создание/обновление res.partner ---
-        contact = self._create_or_update_contact(partner_record)
+        contact = self.import_contacts(partner_record)
 
         # --- Заполняем ссылку на контакт ---
         if contact and partner_record.partner_id != contact:

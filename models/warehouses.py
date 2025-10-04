@@ -329,7 +329,11 @@ class FulfillmentWarehouses(models.Model):
                     # создаём child contact для склада
                     child, _ = self._get_or_create_warehouse_contact(parent, new_warehouse.name)
                     if child:
-                        child.with_context(skip_api_sync=True).write({'linked_warehouse_id': new_warehouse.id})
+                        child.with_context(skip_api_sync=True).write({
+                            'linked_warehouse_id': new_warehouse.id,       # ID склада
+                            'fulfillment_contact_warehouse_id': parent.id  # ID партнёра-фулфиллмента
+                        })
+
                 except Exception as e:
                     _logger.error(f"[Fulfillment] Failed to create: {e}")
                     self.env.cr.rollback()
@@ -406,3 +410,4 @@ class FulfillmentWarehouses(models.Model):
         except Exception as e:
             _logger.error("[Fulfillment] Failed to sync warehouse %s: %s", self.name, e)
             return None
+        
