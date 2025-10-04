@@ -192,13 +192,13 @@ class FulfillmentWarehouses(models.Model):
                     "name": vals.get("name", record.name),
                     "code": vals.get("code", record.code),
                     "location": vals.get("location", record.partner_id.city or ""),
-                    "short_name": vals.get("short_name", record.short_name or record.code.upper()),
+                    "short_name": vals.get("short_name", record.code.upper() if record.code else record.name),
                     "warehouse_customer_fulfillment_id": partner.fulfillment_partner_id,
                 }
-
                 _logger.info(f"[WAREHOUSE][WRITE][API] PUT → warehouse_id={record.fulfillment_warehouse_id} payload={payload}")
 
                 response = client.warehouse.update(
+                    fulfillment_id=record.fulfillment_owner_id.fulfillment_id,
                     warehouse_id=record.fulfillment_warehouse_id,
                     payload=payload
                 )
@@ -206,13 +206,18 @@ class FulfillmentWarehouses(models.Model):
                 if response.get("status") == "success" and "data" in response:
                     data = response["data"]
 
-                    owner_partner = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
-                    client_partner = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+                    owner_partner = self.env['fulfillment.partners'].search(
+                        [('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1
+                    )
+                    client_partner = self.env['fulfillment.partners'].search(
+                        [('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1
+                    )
 
-                    record.write({
+                    record.with_context(skip_import_warehouses=True).write({
                         'fulfillment_owner_id': owner_partner.id if owner_partner else False,
                         'fulfillment_client_id': client_partner.id if client_partner else False,
                         'fulfillment_warehouse_id': data.get('warehouse_id'),
+                        'last_update': datetime.now(),
                     })
 
                     _logger.info("✅ Warehouse %s обновлён в API (ID %s)", record.name, data.get("warehouse_id"))
