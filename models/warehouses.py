@@ -21,81 +21,135 @@ class FulfillmentWarehouses(models.Model):
     # ---------------------------
     @api.model
     def create(self, vals):
-        """Создание склада в Odoo + синхронизация с внешним Fulfillment API"""
+        """Создание склада в Odoo + синхронизация с внешним Fulfillment API.
 
-        _logger.info(f"[WAREHOUSE][CREATE][START] vals={vals}")
+        Поведение:
+        1) Создаём запись склада в Odoo (super).
+        2) Создаём / находи́м дочерний контакт склада (child contact) и подставляем его
+        в warehouse.partner_id (делаем write с контекстом skip_api_sync чтобы не вызывать рекурсивный sync).
+        3) Берём fulfillment_id (owner) у родителя/партнёра и warehouse_customer_fulfillment_id
+        у дочернего контакта (если есть) — и отправляем POST в API.
+        4) При успешном ответе записываем в warehouse поля и дублируем warehouse_id в дочерний контакт.
+        """
+        _logger.info("[WAREHOUSE][CREATE][START] vals=%s", vals)
 
-        # 1. Создаём запись склада в Odoo (локально)
+        # 1) Создаём запись в Odoo
         warehouse = super().create(vals)
 
+        # 2) Подготовка и создание/получение дочернего контакта (parent может быть company)
+        parent_partner = warehouse.partner_id.parent_id or warehouse.partner_id
+        child_contact = None
+        fulfillment_partner_obj = None
+
+        if parent_partner:
+            # возвращает (child, fulfillment_partner) — child может быть уже существующим
+            child_contact, fulfillment_partner_obj = self._get_or_create_warehouse_contact(parent_partner, warehouse.name)
+            if child_contact:
+                # Привязываем склад к дочернему контакту, но пропускаем API синхронизацию во время этого write
+                try:
+                    warehouse.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({'partner_id': child_contact.id})
+                    _logger.info("[WAREHOUSE][CREATE] Partner relinked to child contact %s for warehouse %s", child_contact.id, warehouse.id)
+                except Exception as e:
+                    _logger.exception("[WAREHOUSE][CREATE] Failed to relink partner to child: %s", e)
+
+        # 3) Профиль и проверка API ключа
         try:
-            # 2. Получаем активный профиль Fulfillment (API ключ и настройки)
             profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
             if not profile or not profile.fulfillment_api_key:
                 _logger.warning("⚠️ Нет активного профиля с API ключом — склад %s не отправлен во Fulfillment", warehouse.name)
                 return warehouse
 
-            # 3. Проверяем, есть ли у склада связанный партнёр
-            partner = warehouse.partner_id
-            if partner and not partner.fulfillment_partner_id and partner.parent_id:
-                partner = partner.parent_id
+            # Определяем, кто будет owner fulfillment_id (создатель склада).
+            # Обычно это parent_partner (company). Если нет — используем профиль.
+            owner_fulfillment_id = False
+            if parent_partner and getattr(parent_partner, 'fulfillment_partner_id', False):
+                owner_fulfillment_id = parent_partner.fulfillment_partner_id
+            elif fulfillment_partner_obj and getattr(fulfillment_partner_obj, 'fulfillment_id', False):
+                # если _get_or_create_warehouse_contact вернул fulfillment_partner привязанный к дочернему
+                owner_fulfillment_id = fulfillment_partner_obj.fulfillment_id
+            else:
+                owner_fulfillment_id = profile.fulfillment_profile_id
 
-            if not partner or not partner.fulfillment_partner_id:
-                _logger.warning("❌ У склада %s нет партнёра с fulfillment_partner_id", warehouse.name)
+            # Для warehouse_customer_fulfillment_id предпочтение — у дочернего контакта, иначе у родителя
+            customer_fulfillment_id = None
+            if child_contact and getattr(child_contact, 'fulfillment_partner_id', False):
+                customer_fulfillment_id = child_contact.fulfillment_partner_id
+            elif parent_partner and getattr(parent_partner, 'fulfillment_partner_id', False):
+                customer_fulfillment_id = parent_partner.fulfillment_partner_id
+
+            if not owner_fulfillment_id:
+                _logger.warning("[WAREHOUSE][CREATE] No owner fulfillment_id found, skipping API sync for %s", warehouse.name)
                 return warehouse
 
-            # 4. Готовим payload для запроса
-            payload = {
-                "name": warehouse.name,                       # Название склада
-                "code": warehouse.code,                       # Код склада
-                "location": warehouse.partner_id.city or "",  # Локация (берём из города партнёра)
-                "short_name": warehouse.code.upper(),         # Короткое имя (например W11)
-                "warehouse_customer_fulfillment_id": partner.fulfillment_partner_id,
+            if not customer_fulfillment_id:
+                _logger.warning("[WAREHOUSE][CREATE] No customer_fulfillment_id found for warehouse %s — API requires it, skipping", warehouse.name)
+                return warehouse
 
+            # 4) Подготовка payload
+            payload = {
+                "name": warehouse.name,
+                "code": warehouse.code,
+                "location": (child_contact.city or child_contact.parent_id.city or "") if child_contact else (parent_partner.city or ""),
+                "short_name": (warehouse.code or "").upper(),
+                # обязательно передаём warehouse_customer_fulfillment_id (ID клиента)
+                "warehouse_customer_fulfillment_id": customer_fulfillment_id,
             }
 
-            # 5. Создаём клиент для API
+            _logger.info("[WAREHOUSE][CREATE][API] POST → fulfillment_id=%s payload=%s", owner_fulfillment_id, payload)
+
             client = FulfillmentAPIClient(profile)
-
-            _logger.info(f"[WAREHOUSE][CREATE][API] POST → fulfillment_id={partner.fulfillment_partner_id} payload={payload}")
-
-            # 6. Отправляем запрос на создание склада в API
             response = client.warehouse.create(
-                fulfillment_id=partner.fulfillment_partner_id,
+                fulfillment_id=owner_fulfillment_id,
                 payload=payload
             )
 
-            # 7. Обрабатываем успешный ответ API
+            # 5) Обработка успешного ответа
             if response.get("status") == "success" and "data" in response:
                 data = response["data"]
 
-                owner_partner = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
-                client_partner = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+                # Найдём/свяжем fulfillment.partners записи (owner и client) по возвращённым fulfillment_id
+                owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
+                client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
 
-                warehouse.write({
-                    'fulfillment_owner_id': owner_partner.id if owner_partner else False,
-                    'fulfillment_client_id': client_partner.id if client_partner else False,
-                    'fulfillment_warehouse_id': data.get('warehouse_id'),
-                })
+                # Пишем в warehouse (через контекст, чтобы избежать повторной синхронизации)
+                try:
+                    warehouse.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
+                        'fulfillment_owner_id': owner_fp.id if owner_fp else False,
+                        'fulfillment_client_id': client_fp.id if client_fp else False,
+                        'fulfillment_warehouse_id': data.get('warehouse_id'),
+                    })
+                except Exception as e:
+                    _logger.exception("[WAREHOUSE][CREATE] Failed to write API IDs to warehouse: %s", e)
 
-                # Также обновляем связанного партнёра (привязываем склад)
-                partner.write({
-                    "fulfillment_warehouse_id": data.get("warehouse_id"),
-                    "linked_warehouse_id": warehouse.id
-                })
+                # Дублируем warehouse_id и ставим связь linked_warehouse_id у дочернего контакта
+                if child_contact:
+                    try:
+                        child_contact.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
+                            'fulfillment_warehouse_id': data.get('warehouse_id'),
+                            'linked_warehouse_id': warehouse.id,
+                        })
+                        _logger.info("[WAREHOUSE][CREATE] Child contact %s updated with fulfillment_warehouse_id=%s", child_contact.id, data.get('warehouse_id'))
+                    except Exception as e:
+                        _logger.exception("[WAREHOUSE][CREATE] Failed to update child contact with warehouse id: %s", e)
 
-                _logger.info("✅ Warehouse %s создан в API с ID %s", warehouse.name, data.get("warehouse_id"))
+                # Также убедимся, что у (возможно) родителя есть ссылка на warehouse (опционально)
+                try:
+                    if parent_partner:
+                        parent_partner.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
+                            'fulfillment_warehouse_id': data.get('warehouse_id'),
+                        })
+                except Exception as e:
+                    _logger.exception("[WAREHOUSE][CREATE] Failed to update parent partner with warehouse id: %s", e)
 
+                _logger.info("✅ Warehouse %s created in API with id %s", warehouse.name, data.get('warehouse_id'))
             else:
-                _logger.warning("[WAREHOUSE][CREATE][API] неожиданный ответ: %s", response)
+                _logger.warning("[WAREHOUSE][CREATE][API] unexpected response: %s", response)
 
-        # 8. Обработка ошибок
         except FulfillmentAPIError as e:
-            _logger.error("❌ Ошибка API при создании склада: %s", str(e))
+            _logger.error("❌ Fulfillment API error creating warehouse %s: %s", warehouse.name, e)
         except Exception as e:
-            _logger.error("❌ Неожиданная ошибка при создании склада: %s", str(e))
+            _logger.exception("❌ Unexpected error during warehouse create sync for %s: %s", warehouse.name, e)
 
-        # 9. Возвращаем объект склада в Odoo
         return warehouse
 
     # ---------------------------
@@ -110,35 +164,69 @@ class FulfillmentWarehouses(models.Model):
             _logger.info(f"[WAREHOUSE][WRITE][SKIP_IMPORT] ids={self.ids}")
             return res
 
-        for record in self:
-            partner_id = vals.get('partner_id') or record.partner_id.id
-            partner_id = self._extract_partner_id(partner_id)
-            parent = self.env['res.partner'].browse(partner_id) if partner_id else None
+        res = super().write(vals)
 
-            if parent and self._is_fulfillment_partner(parent):
-                if len(self) == 1:
-                    warehouse_name = vals.get('name') or record.name
-                    child, fulfillment_partner = self._get_or_create_warehouse_contact(parent, warehouse_name)
-                    if child:
-                        _logger.info(f"[WAREHOUSE][WRITE] Relinking to child contact {child.id}")
-                        vals['partner_id'] = child.id
+        try:
+            profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+            if not profile or not profile.fulfillment_api_key:
+                _logger.warning("⚠️ Нет активного профиля — пропускаем API write")
+                return res
 
-                    if 'name' in vals and record.partner_id and record.partner_id.parent_id:
-                        new_name = f"{record.partner_id.parent_id.name} ({vals['name']})"
-                        _logger.info(f"[WAREHOUSE][WRITE] Renaming child partner {record.partner_id.id} → {new_name}")
-                        record.partner_id.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
-                            'name': new_name
-                        })
+            client = FulfillmentAPIClient(profile)
 
-            if record.is_fulfillment and not self.env.context.get('skip_api_sync'):
-                _logger.info(f"[WAREHOUSE][WRITE] Syncing {record.id} to API with vals={vals}")
-                self._sync_update(record, vals)
+            for record in self:
+                if not record.fulfillment_warehouse_id:
+                    _logger.warning("❌ У склада %s нет fulfillment_warehouse_id — обновление в API невозможно", record.name)
+                    continue
+
+                partner = record.partner_id
+                if partner and not partner.fulfillment_partner_id and partner.parent_id:
+                    partner = partner.parent_id
+
+                if not partner or not partner.fulfillment_partner_id:
+                    _logger.warning("❌ У склада %s нет партнёра с fulfillment_partner_id", record.name)
+                    continue
+
+                # payload для обновления
+                payload = {
+                    "name": vals.get("name", record.name),
+                    "code": vals.get("code", record.code),
+                    "location": vals.get("location", record.partner_id.city or ""),
+                    "short_name": vals.get("short_name", record.short_name or record.code.upper()),
+                    "warehouse_customer_fulfillment_id": partner.fulfillment_partner_id,
+                }
+
+                _logger.info(f"[WAREHOUSE][WRITE][API] PUT → warehouse_id={record.fulfillment_warehouse_id} payload={payload}")
+
+                response = client.warehouse.update(
+                    warehouse_id=record.fulfillment_warehouse_id,
+                    payload=payload
+                )
+
+                if response.get("status") == "success" and "data" in response:
+                    data = response["data"]
+
+                    owner_partner = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
+                    client_partner = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+
+                    record.write({
+                        'fulfillment_owner_id': owner_partner.id if owner_partner else False,
+                        'fulfillment_client_id': client_partner.id if client_partner else False,
+                        'fulfillment_warehouse_id': data.get('warehouse_id'),
+                    })
+
+                    _logger.info("✅ Warehouse %s обновлён в API (ID %s)", record.name, data.get("warehouse_id"))
+                else:
+                    _logger.warning("[WAREHOUSE][WRITE][API] неожиданный ответ: %s", response)
+
+        except FulfillmentAPIError as e:
+            _logger.error("❌ Ошибка API при обновлении склада: %s", str(e))
+        except Exception as e:
+            _logger.error("❌ Неожиданная ошибка при обновлении склада: %s", str(e))
 
         vals['last_update'] = datetime.now()
-        res = super().write(vals)
         _logger.info(f"[WAREHOUSE][WRITE][DONE] ids={self.ids}")
         return res
-
     # ---------------------------
     # SYNC HELPERS
     # ---------------------------
