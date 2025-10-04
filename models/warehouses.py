@@ -240,13 +240,25 @@ class FulfillmentWarehouses(models.Model):
     # ---------------------------
     @api.model
     def import_warehouses(self, fulfillment_partner):
-        _logger.info("[IMPORT][WAREHOUSES][START] for partner %s", fulfillment_partner.name)
-        client = fulfillment_partner._get_fulfillment_client()
+        """Импорт складов из Fulfillment API для конкретного партнёра.
+
+        Поведение:
+        1) Запросить список складов у API.
+        2) Для каждого склада — найти или создать запись stock.warehouse.
+        3) Проверить уникальность кода и имени (как в твоём коде).
+        4) Создать/обновить дочерний контакт для склада.
+        5) Записать fulfillment_owner_id, fulfillment_client_id, fulfillment_warehouse_id.
+        """
+        _logger.info("[IMPORT][WAREHOUSES][START] for partner %s (%s)", fulfillment_partner.name, fulfillment_partner.fulfillment_id)
 
         try:
-            _logger.info("[IMPORT][WAREHOUSES] Requesting API for partner_id=%s", fulfillment_partner.fulfillment_id)
-            response = client.get(f"/api/v1/fulfillments/{fulfillment_partner.fulfillment_id}/warehouses")
-            _logger.info("[IMPORT][WAREHOUSES] API response received: %s", response)
+            profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+            if not profile or not profile.fulfillment_api_key:
+                _logger.error("[IMPORT][WAREHOUSES] Нет профиля с API ключом")
+                return
+            client = FulfillmentAPIClient(profile)
+            response = client.fulfillment.list_warehouses(fulfillment_partner.fulfillment_id)
+            _logger.info("[IMPORT][WAREHOUSES] API response: %s", response)
 
             if response.get("status") != "success":
                 _logger.error("[IMPORT][WAREHOUSES] API call failed: %s", response)
@@ -255,66 +267,74 @@ class FulfillmentWarehouses(models.Model):
             warehouses = response.get("data", [])
             _logger.info("[IMPORT][WAREHOUSES] Total received: %s", len(warehouses))
 
-            # собрать карту уже существующих складов
-            existing = self.search([("fulfillment_id", "=", fulfillment_partner.fulfillment_id)])
+            # карта существующих складов
+            existing = self.search([("fulfillment_warehouse_id", "in", [w.get("warehouse_id") for w in warehouses])])
             existing_map = {w.fulfillment_warehouse_id: w for w in existing}
-            _logger.info("[IMPORT][WAREHOUSES] Existing in DB: %s", len(existing_map))
 
             for wh in warehouses:
                 try:
                     wh_id = wh.get("warehouse_id")
-                    _logger.info("[IMPORT][WAREHOUSE] >>> Start %s (%s)", wh.get("name"), wh_id)
+                    _logger.info("[IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
 
-                    # Поиск существующего
                     warehouse = existing_map.get(wh_id)
-                    _logger.info("[IMPORT][WAREHOUSE] Found existing? %s", bool(warehouse))
 
-                    # Проверка уникальности кода
+                    # уникальный код
                     code = wh.get("code") or wh.get("name") or "WH"
                     original_code = code
                     suffix = 1
                     while self.search_count([("code", "=", code), ("id", "!=", warehouse.id if warehouse else 0)]):
-                        _logger.warning("[IMPORT][WAREHOUSE] Code %s already exists, trying new", code)
                         code = f"{original_code}_{suffix}"
                         suffix += 1
-                    _logger.info("[IMPORT][WAREHOUSE] Final code: %s", code)
 
-                    # Проверка уникальности имени
+                    # уникальное имя
                     base_name = wh.get("name") or "Warehouse"
                     unique_name = base_name
                     suffix = 1
                     while self.search_count([("name", "=", unique_name), ("id", "!=", warehouse.id if warehouse else 0)]):
-                        _logger.warning("[IMPORT][WAREHOUSE] Name %s already exists, trying new", unique_name)
                         unique_name = f"{base_name} ({suffix})"
                         suffix += 1
-                    _logger.info("[IMPORT][WAREHOUSE] Final name: %s", unique_name)
 
-                    # Данные для записи
                     vals = {
                         "name": unique_name,
                         "code": code,
-                        "location": wh.get("location"),
-                        "fulfillment_id": wh.get("fulfillment_id"),
                         "fulfillment_warehouse_id": wh_id,
-                        "fulfillment_partner_id": fulfillment_partner.id,
                         "active": True,
                     }
-                    _logger.info("[IMPORT][WAREHOUSE] Prepared vals: %s", vals)
 
                     if warehouse:
-                        _logger.info("[IMPORT][WAREHOUSE] Updating existing warehouse %s", warehouse.id)
-                        warehouse.write(vals)
+                        _logger.info("[IMPORT][WAREHOUSE] Updating existing %s", warehouse.id)
+                        warehouse.with_context(skip_api_sync=True).write(vals)
                     else:
                         _logger.info("[IMPORT][WAREHOUSE] Creating new warehouse")
-                        warehouse = self.create(vals)
+                        warehouse = self.with_context(skip_api_sync=True).create(vals)
 
-                    # Создать/привязать contact
-                    _logger.info("[IMPORT][WAREHOUSE] Ensuring contact for warehouse %s", warehouse.id)
-                    warehouse._get_or_create_warehouse_contact()
-                    _logger.info("[IMPORT][WAREHOUSE] Contact ensured for %s", warehouse.id)
+                    # --- Контакт (child) ---
+                    parent_partner = fulfillment_partner.partner_id
+                    child_contact, _ = warehouse._get_or_create_warehouse_contact(parent_partner, warehouse.name)
+
+                    if child_contact:
+                        warehouse.with_context(skip_api_sync=True).write({"partner_id": child_contact.id})
+
+                    # --- Связь с fulfillment.partners ---
+                    owner_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("fulfillment_id"))], limit=1)
+                    client_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("warehouse_customer_fulfillment_id"))], limit=1)
+
+                    warehouse.with_context(skip_api_sync=True).write({
+                        "fulfillment_owner_id": owner_fp.id if owner_fp else False,
+                        "fulfillment_client_id": client_fp.id if client_fp else False,
+                    })
+
+                    # --- Запишем warehouse_id в контакт ---
+                    if child_contact:
+                        child_contact.with_context(skip_api_sync=True).write({
+                            "fulfillment_warehouse_id": wh_id,
+                            "linked_warehouse_id": warehouse.id,
+                        })
+
+                    _logger.info("✅ Imported warehouse %s (%s)", warehouse.name, wh_id)
 
                 except Exception as e:
-                    _logger.exception("[IMPORT][WAREHOUSE] Error while processing warehouse %s: %s", wh, str(e))
+                    _logger.exception("[IMPORT][WAREHOUSE] Error while processing %s: %s", wh, str(e))
                     self.env.cr.rollback()
 
             _logger.info("[IMPORT][WAREHOUSES][DONE] Imported: %s", len(warehouses))
