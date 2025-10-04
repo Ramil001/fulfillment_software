@@ -321,23 +321,7 @@ class FulfillmentWarehouses(models.Model):
     # ---------------------------
     # HELPERS
     # ---------------------------
-    def _extract_partner_id(self, val):
-        if not val:
-            return False
-        if isinstance(val, int):
-            return val
-        if isinstance(val, (list, tuple)):
-            if len(val) == 3 and isinstance(val[0], int):
-                cmd = int(val[0])
-                if cmd == 4 and isinstance(val[1], int):
-                    return int(val[1])
-                if cmd == 6 and isinstance(val[2], list) and len(val[2]) == 1:
-                    return int(val[2][0])
-            if len(val) and isinstance(val[0], (list, tuple)):
-                inner = val[0]
-                if len(inner) >= 2 and inner[0] == 4:
-                    return int(inner[1])
-        return False
+
 
     @api.model
     def _get_or_create_warehouse_contact(self, parent_partner, warehouse_name):
@@ -396,14 +380,3 @@ class FulfillmentWarehouses(models.Model):
             warehouse.is_fulfillment = is_fulfillment
  
  
-    def _is_fulfillment_partner(self, partner):
-        """Проверка, является ли партнёр фулфилментом"""
-        if not partner:
-            return False
-        # партнёр считается фулфилментом, если есть fulfillment_partner_id
-        if getattr(partner, 'fulfillment_partner_id', False):
-            return True
-        # или если у партнёра есть категория Fulfillment
-        if partner.category_id.filtered(lambda c: c.name == 'Fulfillment'):
-            return True
-        return False
