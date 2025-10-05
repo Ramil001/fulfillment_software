@@ -34,8 +34,7 @@ class FulfillmentProfile(models.Model):
     )
     email = fields.Char(string="Email")
     fulfillment_api_key = fields.Char(
-        string="X-Fulfillment-API-Key",
-        password=True
+        string="X-Fulfillment-API-Key"
     )
     fulfillment_profile_id = fields.Char(
         string="Fulfillment Application Key",
@@ -51,14 +50,14 @@ class FulfillmentProfile(models.Model):
     verification_account = fields.Selection([
         ('verification', 'Verification'),
         ('not_verification', 'Not verification')],
-        default='not_verification', tracking=True)
+        default='not_verification')
 
     update_at = fields.Datetime(
         string="Last Updated",
         readonly=True
     )
 
-    @api.model
+    @api.model_create_multi
     def create(self, vals):
         vals['update_at'] = datetime.now()
         record = super().create(vals)

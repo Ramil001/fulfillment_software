@@ -19,7 +19,7 @@ class FulfillmentWarehouses(models.Model):
     # ---------------------------
     # CREATE
     # ---------------------------
-    @api.model
+    @api.model_create_multi
     def create(self, vals):
         """Создание склада в Odoo + синхронизация с внешним Fulfillment API.
 
@@ -109,15 +109,20 @@ class FulfillmentWarehouses(models.Model):
 
                 # Найдём/свяжем fulfillment.partners записи (owner и client) по возвращённым fulfillment_id
                 owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
-                client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+                client_fp = None
+                if data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
+                    client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+                else:
+                    _logger.warning(f"⚠️ API вернул одинаковые fulfillment_id и warehouse_customer_fulfillment_id для склада {warehouse.name}")
 
                 # Пишем в warehouse (через контекст, чтобы избежать повторной синхронизации)
                 try:
                     warehouse.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
                         'fulfillment_owner_id': owner_fp.id if owner_fp else False,
-                        'fulfillment_client_id': client_fp.id if client_fp else False,
+                        'fulfillment_client_id': client_fp.id if client_fp else False,  # будет False, если совпадают
                         'fulfillment_warehouse_id': data.get('warehouse_id'),
                     })
+
                 except Exception as e:
                     _logger.exception("[WAREHOUSE][CREATE] Failed to write API IDs to warehouse: %s", e)
 
@@ -209,9 +214,14 @@ class FulfillmentWarehouses(models.Model):
                     owner_partner = self.env['fulfillment.partners'].search(
                         [('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1
                     )
-                    client_partner = self.env['fulfillment.partners'].search(
-                        [('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1
-                    )
+                    client_partner = None
+                    if data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
+                        client_partner = self.env['fulfillment.partners'].search(
+                            [('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1
+                        )
+                    else:
+                        _logger.warning(f"⚠️ API вернул одинаковые fulfillment_id и warehouse_customer_fulfillment_id для склада {record.name}")
+
 
                     record.with_context(skip_import_warehouses=True).write({
                         'fulfillment_owner_id': owner_partner.id if owner_partner else False,
@@ -317,7 +327,11 @@ class FulfillmentWarehouses(models.Model):
 
                     # --- Связь с fulfillment.partners ---
                     owner_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("fulfillment_id"))], limit=1)
-                    client_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("warehouse_customer_fulfillment_id"))], limit=1)
+                    client_fp = None
+                    if wh.get("warehouse_customer_fulfillment_id") != wh.get("fulfillment_id"):
+                        client_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("warehouse_customer_fulfillment_id"))], limit=1)
+                    else:
+                        _logger.warning(f"⚠️ API вернул одинаковые fulfillment_id и warehouse_customer_fulfillment_id для склада {wh.get('name')}")
 
                     warehouse.with_context(skip_api_sync=True).write({
                         "fulfillment_owner_id": owner_fp.id if owner_fp else False,

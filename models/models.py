@@ -63,7 +63,7 @@ class FulfillmentDashboard(models.Model):
             'target': 'current',
         }
 
-    @api.model
+    @api.model_create_multi
     def create(self, vals):
         dashboard = super().create(vals)
 

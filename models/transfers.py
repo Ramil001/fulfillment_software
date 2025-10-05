@@ -175,7 +175,7 @@ class FulfillmentTransfers(models.Model):
     )
 
     # ===== ORM overrides =====
-    @api.model
+    @api.model_create_multi
     def create(self, vals):
         _logger.info("[Fulfillment][Create] stock.picking.create vals=%s", vals)
         record = super(FulfillmentTransfers, self).create(vals)
