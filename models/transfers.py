@@ -410,19 +410,40 @@ class FulfillmentTransfers(models.Model):
         """Импорт одного transfer в Odoo"""
         remote_id = transfer.get("transfer_id")
         reference = transfer.get("reference")
+        wh_in_ext = transfer.get("warehouse_in")
+        wh_out_ext = transfer.get("warehouse_out")
 
         if not remote_id:
             _logger.warning("[Fulfillment] Transfer без ID пропущен: %s", transfer)
             return False
 
-        # 🔑 ищем именно по transfer_id
+        # 🔍 Ищем по внешним ID соответствующие склады
+        warehouse_in = self.env["stock.warehouse"].search(
+            [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
+        )
+        warehouse_out = self.env["stock.warehouse"].search(
+            [("fulfillment_warehouse_id", "=", wh_out_ext)], limit=1
+        )
+
+        location_id = warehouse_out.lot_stock_id.id if warehouse_out else False
+        location_dest_id = warehouse_in.lot_stock_id.id if warehouse_in else False
+
+        # 🔍 Ищем контакт (партнёр), чей fulfillment_warehouse_id совпадает с warehouse_in
+        partner = self.env["res.partner"].search(
+            [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
+        )
+
+        # 🔑 ищем по transfer_id
         picking = self.search([("fulfillment_transfer_id", "=", remote_id)], limit=1)
 
         vals = {
-            "name": f"[Fullfillment][{remote_id[:8]}] {reference}",
+            "name": f"[Fulfillment][{remote_id[:8]}] {reference}",
             "fulfillment_transfer_id": remote_id,
-            "state": transfer.get("status"),
+            "state": transfer.get("status") or "draft",
             "picking_type_id": self._map_type(transfer),
+            "partner_id": partner.id if partner else False,
+            "location_id": location_id,
+            "location_dest_id": location_dest_id,
         }
 
         if picking:
@@ -433,6 +454,7 @@ class FulfillmentTransfers(models.Model):
             _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, remote_id)
 
         return picking
+
 
 
 
