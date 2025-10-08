@@ -175,13 +175,35 @@ class FulfillmentTransfers(models.Model):
     )
 
     # ===== ORM overrides =====
+
     @api.model_create_multi
     def create(self, vals_list):
+        _logger.info("[Fulfillment][CREATE] Creating %d new stock.picking records", len(vals_list))
+
         records = super(FulfillmentTransfers, self).create(vals_list)
         for rec in records:
+            _logger.info("[Fulfillment][CREATE] Record created: %s (id=%s, name=%s, transfer_id=%s)",
+                        rec.picking_type_code, rec.id, rec.name, rec.fulfillment_transfer_id)
+
+            # Проверяем, был ли уже создан трансфер в Fulfillment
             if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                rec._push_to_fulfillment_api()
+                existing = self.search([
+                    ("name", "=", rec.name),
+                    ("fulfillment_transfer_id", "!=", "Empty")
+                ], limit=1)
+
+                if existing:
+                    _logger.warning("[Fulfillment][CREATE] Skipping push for %s — already has transfer_id=%s",
+                                    rec.name, existing.fulfillment_transfer_id)
+                else:
+                    _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
+                    rec._push_to_fulfillment_api()
+            else:
+                _logger.info("[Fulfillment][CREATE] Skip push — already linked to Fulfillment (%s)",
+                            rec.fulfillment_transfer_id)
+
         return records
+
 
     def write(self, vals):
         return super(FulfillmentTransfers, self).write(vals)
@@ -236,7 +258,24 @@ class FulfillmentTransfers(models.Model):
     # ----- Rewritten _push_to_fulfillment_api -----
     def _push_to_fulfillment_api(self):
         self.ensure_one()
+        _logger.info(
+            "[Fulfillment][PUSH] Called for picking: %s (id=%s, transfer_id=%s, type=%s, state=%s)",
+            self.name, self.id, self.fulfillment_transfer_id, self.picking_type_code, self.state
+        )
+            # Проверка повторного вызова
+        if self.fulfillment_transfer_id and self.fulfillment_transfer_id != "Empty":
+            _logger.warning("[Fulfillment][PUSH] Skip — transfer already exists: %s", self.fulfillment_transfer_id)
+            return
 
+        if not self.move_ids:
+            _logger.warning("[Fulfillment][PUSH] Skip — no move_ids for %s", self.name)
+            return
+
+        # Проверим наличие API клиента
+        client = self.fulfillment_api
+        if not client:
+            _logger.error("[Fulfillment][PUSH] API client unavailable for %s", self.name)
+            return
         # диагностика
         try:
             self._get_operation_type(self)
@@ -329,49 +368,43 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[Fulfillment][Payload][%s]\n%s", self.picking_type_code,
                      json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
+
         # --- Sync ---
         try:
+            # Создаём трансфер только если ещё нет связанного ID
             if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
                 response = client.transfer.create(payload)
-                
-                if response and response.get('status') == 'success':
-                    data = response.get('data')
+                _logger.info("[Fulfillment][CREATE] Sent new transfer payload: %s", payload)
+                _logger.info("[Fulfillment][CREATE] Raw API response: %s", response)
 
-                    # если API возвращает список (массив)
-                    if isinstance(data, list) and len(data) > 0:
-                        transfer_id = data[0].get('transfer_id')
-                    # если API возвращает словарь
-                    elif isinstance(data, dict):
-                        transfer_id = data.get('transfer_id')
-                    # fallback
-                    else:
-                        transfer_id = response.get('transfer_id')
+                if isinstance(response, dict):
+                    vals = {
+                        "fulfillment_transfer_id": response.get("transfer_id"),
+                        "name": response.get("reference") or self.name,
+                        "state": response.get("status") or "draft",
+                    }
 
-                    if response and response.get('status') == 'success':
-                        data = response.get('data', {})
-                        if isinstance(data, list):
-                            data = data[0]
+                    # Дополнительные поля при необходимости
+                    if response.get("fulfillment_in"):
+                        vals["fulfillment_transfer_owner_id"] = response["fulfillment_in"]
 
-                        vals = {
-                            "fulfillment_transfer_id": data.get("transfer_id"),
-                            "name": data.get("reference") or self.name,
-                            "state": data.get("status") or "draft",
-                        }
+                    self.write(vals)
+                    _logger.info(
+                        "[Fulfillment][CREATE] Updated transfer %s with new fulfillment_transfer_id=%s",
+                        self.name, response.get("transfer_id")
+                    )
+                else:
+                    _logger.warning("[Fulfillment][CREATE] Unexpected API response type: %s", type(response))
 
-                        # Если хочешь сохранять inbound/outbound ID
-                        if data.get("fulfillment_in"):
-                            vals["fulfillment_transfer_owner_id"] = data["fulfillment_in"]
+            else:
+                # Если есть ID — просто обновляем на API
+                response = client.transfer.update(self.fulfillment_transfer_id, payload)
+                _logger.info("[Fulfillment][UPDATE] Pushed transfer update for %s. API response: %s",
+                             self.fulfillment_transfer_id, response)
 
-                        self.write(vals)
-                        _logger.info("[Fulfillment][Create] Updated local transfer %s from API: %s", self.name, vals)
-
-                    else:
-                        _logger.warning(
-                            "[Fulfillment][Create] No transfer_id found in response: %s",
-                            response
-                        )
         except Exception as e:
-            _logger.error("[Fulfillment][Create] Failed to create transfer %s: %s", self.name, e)
+            _logger.error("[Fulfillment][ERROR] Failed to sync transfer %s: %s", self.name, e, exc_info=True)
+
 
 
     # ----- API client -----
