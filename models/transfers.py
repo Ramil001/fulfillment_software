@@ -176,18 +176,16 @@ class FulfillmentTransfers(models.Model):
 
     # ===== ORM overrides =====
     @api.model_create_multi
-    def create(self, vals):
-        _logger.info("[Fulfillment][Create] stock.picking.create vals=%s", vals)
-        record = super(FulfillmentTransfers, self).create(vals)
-        record._push_to_fulfillment_api()
-        return record
+    def create(self, vals_list):
+        records = super(FulfillmentTransfers, self).create(vals_list)
+        for rec in records:
+            if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
+                rec._push_to_fulfillment_api()
+        return records
 
     def write(self, vals):
-        _logger.info("[Fulfillment][Update] stock.picking.write ids=%s vals=%s", self.ids, vals)
-        res = super(FulfillmentTransfers, self).write(vals)
-        for picking in self:
-            picking._push_to_fulfillment_api()
-        return res
+        return super(FulfillmentTransfers, self).write(vals)
+
     
     
     # ===== helpers =====
@@ -519,6 +517,7 @@ class FulfillmentTransfers(models.Model):
                 create_vals = {
                     "name": prod_name,
                     "type": "consu",
+                    "is_storable": True,
                     "uom_id": self.env.ref("uom.product_uom_unit").id,
                     "uom_po_id": self.env.ref("uom.product_uom_unit").id,
                     "default_code": sku,
