@@ -7,3 +7,4 @@ from . import warehouses
 from . import products
 from . import purchase
 from . import transfers
+from . import stock
