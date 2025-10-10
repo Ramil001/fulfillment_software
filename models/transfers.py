@@ -206,7 +206,26 @@ class FulfillmentTransfers(models.Model):
 
 
     def write(self, vals):
-        return super(FulfillmentTransfers, self).write(vals)
+        res = super(FulfillmentTransfers, self).write(vals)
+
+        # логируем обновление
+        for rec in self:
+            _logger.info("[Fulfillment][WRITE] Updated %s with vals=%s", rec.name, vals)
+
+            # вызываем пуш, если уже есть внешний ID
+            if rec.fulfillment_transfer_id and rec.fulfillment_transfer_id != "Empty":
+                # если изменились важные поля, делаем апдейт
+                trigger_fields = {'move_ids', 'state', 'partner_id', 'location_id', 'location_dest_id'}
+                if trigger_fields.intersection(vals.keys()):
+                    _logger.info("[Fulfillment][WRITE] Detected change in %s — pushing update to API", 
+                                trigger_fields.intersection(vals.keys()))
+                    rec._push_to_fulfillment_api()
+                else:
+                    _logger.debug("[Fulfillment][WRITE] No relevant changes for API push in %s", rec.name)
+            else:
+                _logger.debug("[Fulfillment][WRITE] No fulfillment_transfer_id yet, skipping push")
+
+        return res
 
     
     
@@ -262,10 +281,7 @@ class FulfillmentTransfers(models.Model):
             "[Fulfillment][PUSH] Called for picking: %s (id=%s, transfer_id=%s, type=%s, state=%s)",
             self.name, self.id, self.fulfillment_transfer_id, self.picking_type_code, self.state
         )
-            # Проверка повторного вызова
-        if self.fulfillment_transfer_id and self.fulfillment_transfer_id != "Empty":
-            _logger.warning("[Fulfillment][PUSH] Skip — transfer already exists: %s", self.fulfillment_transfer_id)
-            return
+
 
         if not self.move_ids:
             _logger.warning("[Fulfillment][PUSH] Skip — no move_ids for %s", self.name)
