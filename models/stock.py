@@ -10,23 +10,33 @@ class StockQuant(models.Model):
         string='Fulfillment Stock ID',
         help='External fulfillment system stock identifier',
         index=True,
-        readonly=False,
     )
 
     @api.model_create_multi
     def create(self, vals_list):
         quants = super().create(vals_list)
         for quant in quants:
-            quant._check_fulfillment_quant(is_create=True)
+            quant._log_fulfillment_event(is_create=True)
         return quants
 
-    def write(self, vals):
-        res = super().write(vals)
-        # Не вызываем проверку на каждом write — только при создании
-        return res
+    def _update_available_quantity(self, product, location, quantity=None, **kwargs):
+        """Переопределяем системное обновление остатков."""
+        # Просто вызываем оригинальную реализацию с любыми аргументами, что придут
+        result = super()._update_available_quantity(product, location, quantity=quantity, **kwargs)
 
-    def _check_fulfillment_quant(self, is_create=False):
-        """Проверяет, принадлежит ли квант фулфиллмент-складу."""
+        # Ищем квант
+        quant = self.env['stock.quant'].search([
+            ('product_id', '=', product.id),
+            ('location_id', '=', location.id)
+        ], limit=1)
+
+        if quant:
+            quant._log_fulfillment_event(is_create=False)
+
+        return result
+
+    def _log_fulfillment_event(self, is_create=False):
+        """Логируем, если квант относится к fulfillment-складу и нет external ID."""
         self.ensure_one()
 
         if self.fulfillment_stock_id:
@@ -43,9 +53,10 @@ class StockQuant(models.Model):
         ], limit=1)
 
         if warehouse and warehouse.fulfillment_warehouse_id:
+            action = "Создан" if is_create else "Обновлён"
             _logger.info(
-                "[FULFILLMENT] %s квант без ID: product=%s, qty=%s, location=%s, warehouse=%s (%s)",
-                "Создан" if is_create else "Обновлён",
+                "[FULFILLMENT] %s квант без ID: product=%s, qty=%.2f, location=%s, warehouse=%s (%s)",
+                action,
                 self.product_id.display_name,
                 self.quantity,
                 location.complete_name,
