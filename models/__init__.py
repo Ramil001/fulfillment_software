@@ -8,3 +8,4 @@ from . import products
 from . import purchase
 from . import transfers
 from . import stock
+from . import locations
