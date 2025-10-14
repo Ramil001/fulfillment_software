@@ -28,6 +28,7 @@
         'views/fulfillment_partners.xml',    # Предстваление старницы партнёра
         'views/fulfillment_contacts.xml',    # Предстваление старницы contact
         'views/fulfillment_products.xml',
+        'views/fulfillment_locations.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
         'views/fulfillment_main.xml',        # Действие

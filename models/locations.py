@@ -17,6 +17,9 @@ class FulfillmentLocations(models.Model):
         copy=False
     )
 
+    # =============================
+    # CREATE
+    # =============================
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
@@ -27,18 +30,38 @@ class FulfillmentLocations(models.Model):
                     rec.fulfillment_location_id, rec.name, rec.id
                 )
             else:
-                _logger.debug(
-                    "[FULFILLMENT] Создана локация без внешнего ID: %s (id=%s)",
+                _logger.info(
+                    "[FULFILLMENT] Создана локация без внешнего ID: name=%s, id=%s",
                     rec.name, rec.id
                 )
         return records
 
+    # =============================
+    # WRITE (обновление)
+    # =============================
     def write(self, vals):
         res = super().write(vals)
         for rec in self:
+            changed_fields = ', '.join(vals.keys()) if vals else '(нет изменений)'
+            _logger.info(
+                "[FULFILLMENT] Обновлена локация: name=%s, id=%s, changed=%s",
+                rec.name, rec.id, changed_fields
+            )
+
             if 'fulfillment_location_id' in vals:
                 _logger.info(
-                    "[FULFILLMENT] Локация обновлена: %s → fulfillment_location_id=%s",
+                    "[FULFILLMENT] Локация %s → новый fulfillment_location_id=%s",
                     rec.name, rec.fulfillment_location_id
                 )
         return res
+
+    # =============================
+    # UNLINK (удаление)
+    # =============================
+    def unlink(self):
+        for rec in self:
+            _logger.warning(
+                "[FULFILLMENT] Удалена локация: name=%s, id=%s, fulfillment_location_id=%s",
+                rec.name, rec.id, rec.fulfillment_location_id or '—'
+            )
+        return super().unlink()
