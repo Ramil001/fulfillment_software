@@ -24,8 +24,9 @@ class FulfillmentLocations(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
-        client = FulfillmentAPIClient(self.env)
-        api = client.locations  # экземпляр LocationAPI
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        client = FulfillmentAPIClient(profile)
+        api = client.location  # экземпляр LocationAPI
 
         for rec in records:
             # Получаем склад, к которому относится локация
@@ -74,8 +75,9 @@ class FulfillmentLocations(models.Model):
     # =============================
     def write(self, vals):
         res = super().write(vals)
-        client = FulfillmentAPIClient(self.env)
-        api = client.locations
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        client = FulfillmentAPIClient(profile)
+        api = client.location
 
         for rec in self:
             changed_fields = ', '.join(vals.keys()) if vals else '(нет изменений)'
