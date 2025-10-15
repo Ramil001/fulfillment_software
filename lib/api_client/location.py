@@ -24,7 +24,7 @@ class LocationAPI:
         _logger.debug(f"Response: {response}")
         return response
 
-    def getProductsInLocation(self, location_id):
+    def getProductsByLocationId(self, location_id):
         """_summary_ Get products in location
 
         Args:
