@@ -76,6 +76,10 @@ class FulfillmentLocations(models.Model):
     def write(self, vals):
         res = super().write(vals)
         profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[FULFILLMENT] Профиль не найден — синхронизация отключена.")
+            return res
+
         client = FulfillmentAPIClient(profile)
         api = client.location
 
@@ -86,36 +90,45 @@ class FulfillmentLocations(models.Model):
                 rec.name, rec.id, changed_fields
             )
 
-            # Если склад связан с Fulfillment и у локации есть внешний ID → можно синхронизировать
             warehouse = self.env['stock.warehouse'].search([
                 ('view_location_id', 'parent_of', rec.id)
             ], limit=1)
 
+            # Синхронизация с Fulfillment
             if warehouse and warehouse.fulfillment_warehouse_id:
-                # Если нет external_id — создаем новую
-                if not rec.fulfillment_location_id:
-                    try:
-                        payload = {
-                            "warehouse_id": warehouse.fulfillment_warehouse_id,
-                            "name": rec.name,
-                            "address": rec.complete_name or rec.name,
-                        }
+                try:
+                    payload = {
+                        "warehouse_id": warehouse.fulfillment_warehouse_id,
+                        "name": rec.name,
+                        "address": rec.complete_name or rec.name,
+                    }
+
+                    if rec.fulfillment_location_id:
+                        # ✅ Локация уже существует во Fulfillment → обновляем
+                        response = api.update(rec.fulfillment_location_id, payload)
+                        _logger.info(
+                            "[FULFILLMENT] Локация обновлена во внешней системе: name=%s, external_id=%s",
+                            rec.name, rec.fulfillment_location_id
+                        )
+                    else:
+                        # ❌ Внешнего ID нет → создаём новую запись
                         response = api.create(payload)
                         data = response.get('data', {}) if response else {}
-
                         if data.get('location_id'):
                             rec.fulfillment_location_id = data['location_id']
                             _logger.info(
-                                "[FULFILLMENT] Для обновляемой локации создан внешний объект: %s (id=%s)",
-                                rec.name, rec.id
+                                "[FULFILLMENT] Для обновляемой локации создан внешний объект: %s (external_id=%s)",
+                                rec.name, rec.fulfillment_location_id
                             )
-                    except FulfillmentAPIError as e:
-                        _logger.error(
-                            "[FULFILLMENT] Ошибка при создании локации во Fulfillment при обновлении (name=%s): %s",
-                            rec.name, str(e)
-                        )
+
+                except FulfillmentAPIError as e:
+                    _logger.error(
+                        "[FULFILLMENT] Ошибка синхронизации локации (name=%s, id=%s): %s",
+                        rec.name, rec.id, str(e)
+                    )
 
         return res
+
 
     # =============================
     # UNLINK (удаление)
