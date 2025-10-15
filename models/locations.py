@@ -14,7 +14,8 @@ class FulfillmentLocations(models.Model):
         string='Fulfillment Location ID',
         help='External location ID from Fulfillment system',
         index=True,
-        copy=False
+        copy=False,
+        readonly=True,
     )
 
     # =============================

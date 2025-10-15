@@ -4,6 +4,8 @@ from .purchase import PurchaseAPI
 from .transfer import TransferAPI
 from .product import ProductAPI
 from .fulfillment import FulfillmentAPI
+from .location import LocationAPI
+from . stock import StockAPI
 
 __all__ = [
     'FulfillmentAPIClient',
@@ -13,4 +15,6 @@ __all__ = [
     'TransferAPI',
     'ProductAPI',
     'FulfillmentAPI',
+    'LocationAPI',
+    'StockAPI',
 ]
