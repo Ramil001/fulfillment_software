@@ -23,3 +23,13 @@ class LocationAPI:
         response = self.client._request("PATCH", url, payload)
         _logger.debug(f"Response: {response}")
         return response
+
+    def getProductsInLocation(self, location_id):
+        """_summary_ Get products in location
+
+        Args:
+            location_id (_type_): _description_
+        """
+        url = f"https://{self.client.api_domain}/api/v1/locatons/{location_id}/products"
+        response =self.client._request("GET", url)
+        return response
