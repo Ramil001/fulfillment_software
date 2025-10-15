@@ -24,17 +24,49 @@ class FulfillmentLocations(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
+        client = FulfillmentAPIClient(self.env)
+        api = client.locations  # экземпляр LocationAPI
+
         for rec in records:
-            if rec.fulfillment_location_id:
-                _logger.info(
-                    "[FULFILLMENT] Создана локация с внешним ID: %s (name=%s, id=%s)",
-                    rec.fulfillment_location_id, rec.name, rec.id
-                )
+            # Получаем склад, к которому относится локация
+            warehouse = self.env['stock.warehouse'].search([
+                ('view_location_id', 'parent_of', rec.id)
+            ], limit=1)
+
+            # Проверяем, связан ли склад с Fulfillment
+            if warehouse and warehouse.fulfillment_warehouse_id:
+                try:
+                    payload = {
+                        "warehouse_id": warehouse.fulfillment_warehouse_id,
+                        "name": rec.name,
+                        "address": rec.complete_name or rec.name,
+                    }
+                    response = api.create(payload)
+                    data = response.get('data', {}) if response else {}
+
+                    if data.get('location_id'):
+                        rec.fulfillment_location_id = data['location_id']
+                        _logger.info(
+                            "[FULFILLMENT] Создана локация во внешней системе: name=%s, id=%s, external_id=%s",
+                            rec.name, rec.id, rec.fulfillment_location_id
+                        )
+                    else:
+                        _logger.warning(
+                            "[FULFILLMENT] Ответ Fulfillment без location_id: %s (name=%s, id=%s)",
+                            response, rec.name, rec.id
+                        )
+
+                except FulfillmentAPIError as e:
+                    _logger.error(
+                        "[FULFILLMENT] Ошибка при создании локации во Fulfillment (name=%s, id=%s): %s",
+                        rec.name, rec.id, str(e)
+                    )
             else:
                 _logger.info(
-                    "[FULFILLMENT] Создана локация без внешнего ID: name=%s, id=%s",
+                    "[FULFILLMENT] Создана локально без внешнего ID: name=%s, id=%s (склад без Fulfillment)",
                     rec.name, rec.id
                 )
+
         return records
 
     # =============================
@@ -42,6 +74,9 @@ class FulfillmentLocations(models.Model):
     # =============================
     def write(self, vals):
         res = super().write(vals)
+        client = FulfillmentAPIClient(self.env)
+        api = client.locations
+
         for rec in self:
             changed_fields = ', '.join(vals.keys()) if vals else '(нет изменений)'
             _logger.info(
@@ -49,11 +84,35 @@ class FulfillmentLocations(models.Model):
                 rec.name, rec.id, changed_fields
             )
 
-            if 'fulfillment_location_id' in vals:
-                _logger.info(
-                    "[FULFILLMENT] Локация %s → новый fulfillment_location_id=%s",
-                    rec.name, rec.fulfillment_location_id
-                )
+            # Если склад связан с Fulfillment и у локации есть внешний ID → можно синхронизировать
+            warehouse = self.env['stock.warehouse'].search([
+                ('view_location_id', 'parent_of', rec.id)
+            ], limit=1)
+
+            if warehouse and warehouse.fulfillment_warehouse_id:
+                # Если нет external_id — создаем новую
+                if not rec.fulfillment_location_id:
+                    try:
+                        payload = {
+                            "warehouse_id": warehouse.fulfillment_warehouse_id,
+                            "name": rec.name,
+                            "address": rec.complete_name or rec.name,
+                        }
+                        response = api.create(payload)
+                        data = response.get('data', {}) if response else {}
+
+                        if data.get('location_id'):
+                            rec.fulfillment_location_id = data['location_id']
+                            _logger.info(
+                                "[FULFILLMENT] Для обновляемой локации создан внешний объект: %s (id=%s)",
+                                rec.name, rec.id
+                            )
+                    except FulfillmentAPIError as e:
+                        _logger.error(
+                            "[FULFILLMENT] Ошибка при создании локации во Fulfillment при обновлении (name=%s): %s",
+                            rec.name, str(e)
+                        )
+
         return res
 
     # =============================

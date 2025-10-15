@@ -5,6 +5,8 @@ from .purchase import PurchaseAPI
 from .transfer import TransferAPI
 from .product import ProductAPI
 from .fulfillment import FulfillmentAPI
+from .location import LocationAPI
+from .stock import StockAPI
 
 _logger = logging.getLogger(__name__)
 
@@ -30,6 +32,8 @@ class FulfillmentAPIClient:
         self.transfer = TransferAPI(self)
         self.product = ProductAPI(self)
         self.fulfillment = FulfillmentAPI(self)
+        self.location = LocationAPI(self)
+        self.stock = StockAPI(self)
 
         _logger.info(f"[FULFILLMENT] Client initialized for api_domain: {self.api_domain}")
 

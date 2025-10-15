@@ -8,7 +8,7 @@ class LocationAPI:
 
 
     def create(self, payload: dict):
-        """Создать новый фулфилмент"""
+        """Создать новую локацию"""
         url = f"https://{self.client.api_domain}/api/v1/locations"
         _logger.debug(f"POST {url} payload={payload}")
         return self.client._request("POST", url, payload)
