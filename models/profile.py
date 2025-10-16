@@ -58,11 +58,13 @@ class FulfillmentProfile(models.Model):
     )
 
     @api.model_create_multi
-    def create(self, vals):
-        vals['update_at'] = datetime.now()
-        record = super().create(vals)
-        record._sync_with_fulfillment_api()
-        return record
+    def create(self, vals_list):
+        for vals in vals_list:
+            vals['update_at'] = datetime.now()
+
+        records = super().create(vals_list)
+        records._sync_with_fulfillment_api()
+        return records
 
     def write(self, vals):
         vals['update_at'] = datetime.now()
