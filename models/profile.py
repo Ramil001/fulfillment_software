@@ -7,6 +7,7 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 _logger = logging.getLogger(__name__)
 
 
+## Revision
 class FulfillmentProfile(models.Model):
     _name = 'fulfillment.profile'
     _description = 'Fulfillment Profile'
