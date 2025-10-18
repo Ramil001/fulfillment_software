@@ -22,16 +22,8 @@ class StockQuant(models.Model):
         quants = super().create(vals_list)
         for vals, quant in zip(vals_list, quants):
             quant._log_fulfillment_event(is_create=True)
-
-            # Берём количество, которое было указано при создании
-            init_qty = vals.get('quantity', 0.0)
-            reserved_qty = vals.get('reserved_quantity', 0.0)
-
-            quant._sync_fulfillment_stock_create(
-                input_quantity=init_qty,
-                input_reserved=reserved_qty
-            )
         return quants
+
 
     def _update_available_quantity(self, product, location, quantity=None, **kwargs):
         """Переопределяем системное обновление остатков."""
@@ -42,11 +34,52 @@ class StockQuant(models.Model):
             ('location_id', '=', location.id)
         ], limit=1)
 
-        if quant:
-            quant._log_fulfillment_event(is_create=False)
+        if not quant:
+            return result
+
+        real_qty = quant.quantity or 0.0
+        reserved_qty = quant.reserved_quantity or 0.0
+
+        quant._log_fulfillment_event(is_create=not bool(quant.fulfillment_stock_id))
+
+        if not quant.fulfillment_stock_id:
+            _logger.info("[FULFILLMENT][STOCK] Нет ID → создаём через API (qty=%.2f)", real_qty)
+            quant._sync_fulfillment_stock_create(
+                input_quantity=real_qty,
+                input_reserved=reserved_qty,
+            )
+        else:
+            _logger.info("[FULFILLMENT][STOCK] Есть ID → обновляем через API (qty=%.2f)", real_qty)
             quant._sync_fulfillment_stock_update()
 
         return result
+
+
+    def _sync_fulfillment_stock_update(self):
+        """Обновление стока в Fulfillment API"""
+        self.ensure_one()
+
+        if not self.fulfillment_stock_id:
+            _logger.warning("[FULFILLMENT][STOCK UPDATE] Нет fulfillment_stock_id — пропуск")
+            return
+
+        try:
+            profile = self.env['fulfillment.profile'].search([], limit=1)
+            client = FulfillmentAPIClient(profile)
+
+            payload = {
+                "stock_id": self.fulfillment_stock_id,
+                "quantity": float(self.quantity),
+                "reserved": float(self.reserved_quantity or 0.0),
+            }
+
+            _logger.info("[FULFILLMENT][STOCK UPDATE] Payload → %s", payload)
+            response = client.stock.update(payload)
+            _logger.info("[FULFILLMENT][STOCK UPDATE] Response → %s", response)
+
+        except Exception as e:
+            _logger.exception("[FULFILLMENT][STOCK UPDATE] Ошибка при обновлении стока: %s", e)
+
 
     def _log_fulfillment_event(self, is_create=False):
         self.ensure_one()
