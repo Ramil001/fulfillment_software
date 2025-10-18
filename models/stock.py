@@ -13,6 +13,7 @@ class StockQuant(models.Model):
     )
 
     @api.model_create_multi
+    
     def create(self, vals_list):
         quants = super().create(vals_list)
         for quant in quants:
