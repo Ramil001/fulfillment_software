@@ -124,6 +124,33 @@ class FulfillmentPartners(models.Model):
                             break
                         page += 1
 
+
+            fulfillment_warehouses = self.env['stock.warehouse'].search([
+                        ('fulfillment_warehouse_id', '!=', False)
+                    ])
+
+            if not fulfillment_warehouses:
+                _logger.warning("[FULFILLMENT][IMPORT_ALL] Нет складов с fulfillment_warehouse_id — импорт остатков пропущен")
+            else:
+                _logger.info(
+                    "[FULFILLMENT][IMPORT_ALL] Импорт остатков для складов: %s",
+                    ', '.join(fulfillment_warehouses.mapped('name'))
+                )
+
+                stock_model = self.env['stock.quant'].sudo()
+                for warehouse in fulfillment_warehouses:
+                    filters = {
+                        "warehouse_ids": [warehouse.fulfillment_warehouse_id],
+                    }
+                    _logger.info(
+                        "[FULFILLMENT][IMPORT_ALL] 🔄 Импорт остатков для склада %s (%s)",
+                        warehouse.name, warehouse.fulfillment_warehouse_id
+                    )
+                    success = stock_model.import_stock(filters=filters)
+                    _logger.info(
+                        "[FULFILLMENT][IMPORT_ALL] ✅ Импорт остатков завершён для %s: %s",
+                        warehouse.name, success
+                    )
             return {
                 'type': 'ir.actions.act_window',
                 'name': 'Partners',

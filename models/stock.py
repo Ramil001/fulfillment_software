@@ -55,6 +55,107 @@ class StockQuant(models.Model):
         return result
 
 
+    def import_stock(self, filters=None):
+        """Импорт остатков из Fulfillment API и обновление stock.quant в Odoo."""
+
+        _logger.info("[FULFILLMENT][IMPORT] Запуск импорта остатков (filters=%s)", filters)
+
+        try:
+            # 1️⃣ Получаем профиль и инициализируем клиента
+            profile = self.env['fulfillment.profile'].search([], limit=1)
+            if not profile:
+                _logger.error("[FULFILLMENT][IMPORT] Не найден профиль fulfillment.profile")
+                return False
+
+            client = FulfillmentAPIClient(profile)
+
+            # 2️⃣ Формируем payload для API
+            payload = {
+                "filters": filters or {},
+                "group_by": ["warehouse_id", "product_id", "location_id"],
+                "include_reserved": False,
+            }
+
+            _logger.info("[FULFILLMENT][IMPORT] Payload → %s", payload)
+
+            # 3️⃣ Запрос к API
+            response = client.stock.getStockAvailiability(payload)
+            _logger.info("[FULFILLMENT][IMPORT] Response → %s", response)
+
+            if not response or response.get("status") != "success":
+                _logger.warning("[FULFILLMENT][IMPORT] Ошибка: %s", response)
+                return False
+
+            data_list = response.get("data", [])
+            _logger.info("[FULFILLMENT][IMPORT] Получено записей: %d", len(data_list))
+
+            # 4️⃣ Обработка записей
+            for item in data_list:
+                product_ext_id = item.get("product_id")
+                warehouse_ext_id = item.get("warehouse_id")
+                location_ext_id = item.get("location_id")
+                qty = float(item.get("_sum", {}).get("quantity", 0.0))
+                available = float(item.get("_sum", {}).get("available", 0.0))
+
+                # 5️⃣ Поиск соответствующих записей в Odoo
+                product = self.env['product.product'].search([
+                    '|',
+                    ('fulfillment_product_id', '=', product_ext_id),
+                    ('id', '=', product_ext_id)
+                ], limit=1)
+
+                location = self.env['stock.location'].search([
+                    '|',
+                    ('fulfillment_location_id', '=', location_ext_id),
+                    ('id', '=', location_ext_id)
+                ], limit=1)
+
+                if not product or not location:
+                    _logger.warning(
+                        "[FULFILLMENT][IMPORT] Пропуск: нет product/location (%s / %s)",
+                        product_ext_id, location_ext_id
+                    )
+                    continue
+
+                # 6️⃣ Ищем существующий квант
+                quant = self.search([
+                    ('product_id', '=', product.id),
+                    ('location_id', '=', location.id)
+                ], limit=1)
+
+                # 7️⃣ Обновление или создание кванта
+                if quant:
+                    quant.write({
+                        'quantity': qty,
+                        'reserved_quantity': qty - available if qty > available else 0.0,
+                    })
+                    _logger.info(
+                        "[FULFILLMENT][IMPORT] Обновлён квант: %s (%s) qty=%.2f",
+                        product.display_name, location.display_name, qty
+                    )
+                else:
+                    new_quant = self.create({
+                        'product_id': product.id,
+                        'location_id': location.id,
+                        'quantity': qty,
+                        'reserved_quantity': qty - available if qty > available else 0.0,
+                        'fulfillment_stock_id': None,  # при импорте не создаём ID
+                    })
+                    _logger.info(
+                        "[FULFILLMENT][IMPORT] Создан новый квант: %s (%s) qty=%.2f",
+                        new_quant.product_id.display_name,
+                        new_quant.location_id.display_name,
+                        qty
+                    )
+
+            _logger.info("[FULFILLMENT][IMPORT] Импорт завершён успешно")
+            return True
+
+        except Exception as e:
+            _logger.exception("[FULFILLMENT][IMPORT] Ошибка при импорте остатков: %s", e)
+            return False
+
+
     def _sync_fulfillment_stock_update(self):
         """Обновление стока в Fulfillment API"""
         self.ensure_one()

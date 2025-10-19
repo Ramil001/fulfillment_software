@@ -145,6 +145,9 @@ class FulfillmentProfile(models.Model):
                 return False
 
 
+
+
+
 class FulfillmentProfileCapabilities(models.Model): 
     _name = 'fulfillment.profile.capabilities'
     _description = 'Fulfillment Profile Capabilities'

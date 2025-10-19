@@ -443,14 +443,32 @@ class FulfillmentWarehouses(models.Model):
     @api.depends("partner_id", "partner_id.parent_id", "partner_id.category_id")
     def _compute_is_fulfillment(self):
         for warehouse in self:
-            partner = warehouse.partner_id
-            is_fulfillment = False
-            if partner:
+            try:
+                partner = warehouse.partner_id
+                is_fulfillment = False
+
+                if not partner:
+                    warehouse.is_fulfillment = False
+                    continue
+
+                # Берём родителя, если он есть
                 parent = partner.parent_id or partner
+
+                # Проверяем, связан ли партнёр с fulfillment-складом
                 if getattr(parent, "fulfillment_contact_warehouse_id", False):
                     is_fulfillment = True
-                elif parent.category_id.filtered(lambda c: c.name == "Fulfillment"):
-                    is_fulfillment = True
-            warehouse.is_fulfillment = is_fulfillment
- 
- 
+
+                # Проверяем категории, если они есть
+                elif getattr(parent, "category_id", False):
+                    if any(c.name == "Fulfillment" for c in parent.category_id):
+                        is_fulfillment = True
+
+                warehouse.is_fulfillment = is_fulfillment
+
+            except Exception as e:
+                # Безопасный fallback, чтобы транзакция не падала
+                warehouse.is_fulfillment = False
+                _logger.error(
+                    "[Fulfillment] Ошибка при вычислении is_fulfillment для склада '%s': %s",
+                    warehouse.display_name or warehouse.name, e,
+                )
