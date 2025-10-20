@@ -99,16 +99,14 @@ class StockQuant(models.Model):
 
                 # 5️⃣ Поиск соответствующих записей в Odoo
                 product = self.env['product.product'].search([
-                    '|',
-                    ('fulfillment_product_id', '=', product_ext_id),
-                    ('id', '=', product_ext_id)
+                    ('fulfillment_product_id', '=', product_ext_id)
                 ], limit=1)
 
+
                 location = self.env['stock.location'].search([
-                    '|',
-                    ('fulfillment_location_id', '=', location_ext_id),
-                    ('id', '=', location_ext_id)
+                    ('fulfillment_location_id', '=', location_ext_id)
                 ], limit=1)
+
 
                 if not product or not location:
                     _logger.warning(
@@ -234,9 +232,9 @@ class StockQuant(models.Model):
             reserved = input_reserved if input_reserved is not None else (self.reserved_quantity or 0.0)
 
             payload = {
-                "product_id": str(self.product_id.fulfillment_product_id or self.product_id.id),
+                "product_id": str(self.product_id.fulfillment_product_id),
                 "warehouse_id": warehouse.fulfillment_warehouse_id,
-                "location_id": str(self.location_id.fulfillment_location_id or self.location_id.id),
+                "location_id": str(self.location_id.fulfillment_location_id),
                 "quantity": float(qty),
                 "reserved": float(reserved),
             }
