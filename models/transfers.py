@@ -206,6 +206,9 @@ class FulfillmentTransfers(models.Model):
 
 
     def write(self, vals):
+        if self.env.context.get('skip_fulfillment_push'):
+            return super(FulfillmentTransfers, self).write(vals)
+
         res = super(FulfillmentTransfers, self).write(vals)
 
         # логируем обновление

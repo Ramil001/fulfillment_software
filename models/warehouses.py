@@ -198,6 +198,12 @@ class FulfillmentWarehouses(models.Model):
     def write(self, vals):
         _logger.info(f"[WAREHOUSE][WRITE][START] ids={self.ids}, vals={vals}, context={self.env.context}")
 
+        if self.env.context.get('skip_api_sync'):
+            _logger.info(f"[WAREHOUSE][WRITE][SKIP_API_SYNC] ids={self.ids}")
+            vals['last_update'] = datetime.now()
+            res = super().write(vals)
+            return res
+
         if self.env.context.get('skip_import_warehouses'):
             vals['last_update'] = datetime.now()
             res = super().write(vals)

@@ -104,7 +104,7 @@ class FulfillmentPartners(models.Model):
                     f"Internal={partner.transfers_internal_ids.ids}, "
                     f"Delivery={partner.transfers_delivery_ids.ids}"
                 )
-                self.env['stock.warehouse'].sudo().import_warehouses(partner)
+                self.env['stock.warehouse'].sudo().with_context(skip_api_sync=True).import_warehouses(partner)
 
             # загружаем трансферы
             for item in data:
@@ -114,11 +114,12 @@ class FulfillmentPartners(models.Model):
                     limit = 100
                     while True:
                         _logger.info(f"🔄 Начинаем загрузку трансферов для {fulfillment_id}, page={page}, limit={limit}")
-                        success = self.env['stock.picking'].sudo().import_transfers(
+                        success = self.env['stock.picking'].sudo().with_context(skip_fulfillment_push=True).import_transfers(
                             fulfillment_id=fulfillment_id,
                             page=page,
                             limit=limit
                         )
+
                         _logger.info(f"✅ Результат import_transfers для {fulfillment_id}, page={page}: {success}")
                         if not success or success < limit:
                             break
@@ -149,7 +150,7 @@ class FulfillmentPartners(models.Model):
                     success = stock_model.import_stock(filters=filters)
                     _logger.info(
                         "[FULFILLMENT][IMPORT_ALL] ✅ Импорт остатков завершён для %s: %s",
-                        warehouse.name, success
+                        # warehouse.name, success
                     )
             return {
                 'type': 'ir.actions.act_window',
