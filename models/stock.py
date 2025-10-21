@@ -79,7 +79,7 @@ class StockQuant(models.Model):
             _logger.info("[FULFILLMENT][IMPORT] Payload → %s", payload)
 
             # 3️⃣ Запрос к API
-            response = client.stock.getStockAvailiability(payload)
+            response = client.stock.get(payload)
             _logger.info("[FULFILLMENT][IMPORT] Response → %s", response)
 
             if not response or response.get("status") != "success":
@@ -167,17 +167,74 @@ class StockQuant(models.Model):
             client = FulfillmentAPIClient(profile)
 
             payload = {
-                "stock_id": self.fulfillment_stock_id,
-                "quantity": float(self.quantity),
+                "quantity": float(self.quantity or 0.0),
                 "reserved": float(self.reserved_quantity or 0.0),
             }
 
-            _logger.info("[FULFILLMENT][STOCK UPDATE] Payload → %s", payload)
-            response = client.stock.update(payload)
+            # Если количество и резерв равны нулю — вместо обновления делаем удаление
+            if payload["quantity"] == 0 and payload["reserved"] == 0:
+                _logger.info(
+                    "[FULFILLMENT][STOCK UPDATE] Кол-во = 0 → выполняем DELETE для %s",
+                    self.fulfillment_stock_id
+                )
+                return self._sync_fulfillment_stock_delete()
+
+            _logger.info(
+                "[FULFILLMENT][STOCK UPDATE] PUT /stock/%s → %s",
+                self.fulfillment_stock_id, payload
+            )
+
+            response = client.stock.update(self.fulfillment_stock_id, payload)
             _logger.info("[FULFILLMENT][STOCK UPDATE] Response → %s", response)
 
+            if not response or response.get("status") != "success":
+                _logger.warning("[FULFILLMENT][STOCK UPDATE] Ошибка при обновлении стока: %s", response)
+
         except Exception as e:
-            _logger.exception("[FULFILLMENT][STOCK UPDATE] Ошибка при обновлении стока: %s", e)
+            _logger.exception("[FULFILLMENT][STOCK UPDATE] Исключение: %s", e)
+
+
+    def _sync_fulfillment_stock_delete(self):
+        """Удаление стока в Fulfillment API"""
+        self.ensure_one()
+
+        if not self.fulfillment_stock_id:
+            _logger.info("[FULFILLMENT][STOCK DELETE] Нет ID — пропуск")
+            return
+
+        try:
+            profile = self.env['fulfillment.profile'].search([], limit=1)
+            client = FulfillmentAPIClient(profile)
+
+            _logger.info(
+                "[FULFILLMENT][STOCK DELETE] DELETE /stock/%s",
+                self.fulfillment_stock_id
+            )
+
+            response = client.stock.delete(self.fulfillment_stock_id)
+            _logger.info("[FULFILLMENT][STOCK DELETE] Response → %s", response)
+
+            if response and response.get("status") == "success":
+                self.fulfillment_stock_id = False
+                _logger.info("[FULFILLMENT][STOCK DELETE] Успешно удалено из внешней системы")
+            else:
+                _logger.warning("[FULFILLMENT][STOCK DELETE] Ошибка удаления: %s", response)
+
+        except Exception as e:
+            _logger.exception("[FULFILLMENT][STOCK DELETE] Ошибка при удалении: %s", e)
+
+
+    def unlink(self):
+        """Удаление стока из внешнего Fulfillment API при удалении в Odoo"""
+        for quant in self:
+            try:
+                if quant.fulfillment_stock_id:
+                    _logger.info("[FULFILLMENT][UNLINK] Удаляем внешний сток перед удалением %s", quant.id)
+                    quant._sync_fulfillment_stock_delete()
+            except Exception as e:
+                _logger.warning("[FULFILLMENT][UNLINK] Ошибка при удалении: %s", e)
+
+        return super().unlink()
 
 
     def _log_fulfillment_event(self, is_create=False):
@@ -261,6 +318,3 @@ class StockQuant(models.Model):
         except Exception as e:
             _logger.exception("[FULFILLMENT] Ошибка при синхронизации стока: %s", e)
 
-    def _sync_fulfillment_stock_update(self):
-        """TODO: обновление стока в Fulfillment API"""
-        _logger.info("[FULFILLMENT][STOCK UPDATE] TODO — обновление пока не реализовано")
