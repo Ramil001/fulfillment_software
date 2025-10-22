@@ -88,6 +88,8 @@ class StockQuant(models.Model):
 
             data_list = response.get("data", [])
             _logger.info("[FULFILLMENT][IMPORT] Получено записей: %d", len(data_list))
+            
+            self._sync_fulfillment_locations(data_list)
 
             # 4️⃣ Обработка записей
             for item in data_list:
@@ -153,6 +155,41 @@ class StockQuant(models.Model):
             _logger.exception("[FULFILLMENT][IMPORT] Ошибка при импорте остатков: %s", e)
             return False
 
+
+    def _sync_fulfillment_locations(self, data_list):
+        """Создаём или связываем склады и локации по внешним ID"""
+        for item in data_list:
+            warehouse_ext_id = item.get("warehouse_id")
+            warehouse_name = item.get("warehouse_name") or "Без имени"
+            location_ext_id = item.get("location_id")
+            location_name = item.get("location_name") or "Stock"
+
+            # Склад
+            warehouse = self.env['stock.warehouse'].search([
+                ('fulfillment_warehouse_id', '=', warehouse_ext_id)
+            ], limit=1)
+            if not warehouse:
+                stock_location = self.env['stock.location'].create({'name': 'Stock'})
+                warehouse = self.env['stock.warehouse'].create({
+                    'name': warehouse_name,
+                    'code': warehouse_name,
+                    'lot_stock_id': stock_location.id,
+                    'fulfillment_warehouse_id': warehouse_ext_id
+                })
+                _logger.info(f"[SYNC] Создан склад: {warehouse.name} ({warehouse_ext_id})")
+
+            # Локация
+            location = self.env['stock.location'].search([
+                ('fulfillment_location_id', '=', location_ext_id)
+            ], limit=1)
+            if not location:
+                location = self.env['stock.location'].create({
+                    'name': location_name,
+                    'location_id': warehouse.lot_stock_id.id,
+                    'fulfillment_location_id': location_ext_id
+                })
+                _logger.info(f"[SYNC] Создана локация: {location.name} ({location_ext_id})")
+        
 
     def _sync_fulfillment_stock_update(self):
         """Обновление стока в Fulfillment API"""
