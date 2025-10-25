@@ -1,66 +1,56 @@
+from odoo.addons.bus.models.bus import dispatch
 from odoo import http
 from odoo.http import request
 import logging
 
 _logger = logging.getLogger(__name__)
 
-
 class FulfillmentWebHookAPI(http.Controller):
-
-    # Общий принцип: у нас есть endpoint на стороне odoo который принимает данные которые нужно обновить по action push, odoo1 -> api -> odoo2
-    # Тут указываю какие ресурсы доступны для обнволения через API
     VALID_RESOURCES = {"transfers", "warehouses", "purchase"}
 
-    @http.route('/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update', type='http', auth='public', methods=['POST'], csrf=False )
-    
-    def update_resource(self, fulfillment_id, resource, **kwargs): 
-        
-        try:
-            data = request.httprequest.get_json(force=True, silent=True)
-        except Exception:
-            data = request.httprequest.data.decode("utf-8")
-
+    @http.route(
+        '/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
+        type='json', auth='public', methods=['POST'], csrf=False
+    )
+    def update_resource(self, fulfillment_id, resource, **kwargs):
+        data = request.httprequest.get_json(force=True, silent=True) or {}
         if resource not in self.VALID_RESOURCES:
-            return request.make_json_response(
-                {"status": "error", "message": f"Invalid resource '{resource}'"},
-                status=400
-            )
+            return {"status": "error", "message": f"Invalid resource '{resource}'"}
 
-        # Диспетчеризация по типу ресурса
+        # отправляем push в UI всем администраторам
+        self._send_push(f"Получено обновление ресурса: {resource}", "info")
+
         handler = getattr(self, f"_process_{resource}", None)
         if not handler:
-            return request.make_json_response(
-                {"status": "error", "message": f"No handler for '{resource}'"},
-                status=500
-            )
+            return {"status": "error", "message": f"No handler for '{resource}'"}
 
         try:
             result = handler(fulfillment_id, data)
         except Exception as e:
             _logger.exception("Error processing resource %s", resource)
-            return request.make_json_response(
-                {"status": "error", "message": str(e)},
-                status=500
-            )
+            self._send_push(f"Ошибка при обновлении ресурса: {e}", "danger")
+            return {"status": "error", "message": str(e)}
 
-        return request.make_json_response({
-            "status": "ok",
-            "fulfillment_id": fulfillment_id,
-            "resource": resource,
-            "result": result,
-        })
+        self._send_push(f"✅ Ресурс '{resource}' успешно обновлён", "success")
 
+        return {"status": "ok", "result": result}
 
-    # Обработчики которые будут вызываться из models конкретного ресурса.
+    def _send_push(self, message, level="info"):
+        """Отправка уведомления всем активным пользователям"""
+        dispatch(
+            request.env.cr.dbname,
+            "fulfillment_notify_channel",
+            {
+                "message": message,
+                "type": level,
+            }
+        )
 
     def _process_transfers(self, fulfillment_id, payload):
-        """Обновление перемещений (stock.picking)"""
         return "transfers handler not yet implemented"
 
     def _process_warehouses(self, fulfillment_id, payload):
-        """Обновление складов (stock.warehouse)"""
         return "warehouses handler not yet implemented"
 
     def _process_purchase(self, fulfillment_id, payload):
-        """Обновление закупок (purchase.order)"""
         return "purchase handler not yet implemented"

@@ -28,3 +28,22 @@ class FulfillmentProducts(models.Model):
         'partner_id',
         string='Fulfillment Partners for Purchase',
     )
+    
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super(FulfillmentProducts, self).create(vals_list)
+        for rec in records:
+            message = f"Продукт создан: {rec.name} (ID {rec.id})"
+            _logger.info(message)
+            rec.env.user.notify_info(message)
+            rec.message_post(body=message)
+        return records
+
+    def write(self, vals):
+        res = super(FulfillmentProducts, self).write(vals)
+        for rec in self:
+            message = f"Продукт обновлён: {rec.name} (ID {rec.id})"
+            _logger.info(message)
+            rec.env.user.notify_info(message)
+            rec.message_post(body=message)
+        return res
