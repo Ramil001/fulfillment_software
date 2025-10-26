@@ -1,56 +1,41 @@
-from odoo.addons.bus.models.bus import dispatch
 from odoo import http
 from odoo.http import request
 import logging
 
 _logger = logging.getLogger(__name__)
 
-class FulfillmentWebHookAPI(http.Controller):
-    VALID_RESOURCES = {"transfers", "warehouses", "purchase"}
+class SimpleNotifyController(http.Controller):
 
-    @http.route(
-        '/fulfillment_software/api/v1/fulfillments/<string:fulfillment_id>/resource/<string:resource>/update',
-        type='json', auth='public', methods=['POST'], csrf=False
-    )
-    def update_resource(self, fulfillment_id, resource, **kwargs):
-        data = request.httprequest.get_json(force=True, silent=True) or {}
-        if resource not in self.VALID_RESOURCES:
-            return {"status": "error", "message": f"Invalid resource '{resource}'"}
+    @http.route('/simple/notify', type='json', auth='public', methods=['POST'], csrf=False)
+    def simple_notify(self, **kwargs):
+        """Отправка уведомления всем пользователям Odoo через bus.bus"""
+        data = request.get_json_data() or {}
 
-        # отправляем push в UI всем администраторам
-        self._send_push(f"Получено обновление ресурса: {resource}", "info")
+        message_text = data.get("message", "Сообщение по умолчанию")
+        title = data.get("title", "Fulfillment API")
+        level = data.get("level", "info")
+        sticky = data.get("sticky", False)
 
-        handler = getattr(self, f"_process_{resource}", None)
-        if not handler:
-            return {"status": "error", "message": f"No handler for '{resource}'"}
-
-        try:
-            result = handler(fulfillment_id, data)
-        except Exception as e:
-            _logger.exception("Error processing resource %s", resource)
-            self._send_push(f"Ошибка при обновлении ресурса: {e}", "danger")
-            return {"status": "error", "message": str(e)}
-
-        self._send_push(f"✅ Ресурс '{resource}' успешно обновлён", "success")
-
-        return {"status": "ok", "result": result}
-
-    def _send_push(self, message, level="info"):
-        """Отправка уведомления всем активным пользователям"""
-        dispatch(
-            request.env.cr.dbname,
-            "fulfillment_notify_channel",
-            {
-                "message": message,
-                "type": level,
+        payload = {
+            "payload": {
+                "type": "fulfillment_notification",  # чтобы JS понял
+                "message": message_text,
+                "title": title,
+                "level": level,
+                "sticky": sticky,
             }
-        )
+        }
 
-    def _process_transfers(self, fulfillment_id, payload):
-        return "transfers handler not yet implemented"
+        users = request.env["res.users"].sudo().search([])
+        for user in users:
+            try:
+                request.env["bus.bus"]._sendone(
+                    "fulfillment_notification",  # канал
+                    payload,                     # сообщение
+                    user.id                       # кому
+                )
+                _logger.info("🔔 Уведомление отправлено пользователю %s: %s", user.id, payload)
+            except Exception as e:
+                _logger.error("❌ Ошибка отправки уведомления пользователю %s: %s", user.id, e)
 
-    def _process_warehouses(self, fulfillment_id, payload):
-        return "warehouses handler not yet implemented"
-
-    def _process_purchase(self, fulfillment_id, payload):
-        return "purchase handler not yet implemented"
+        return {"status": "ok", "sent": message_text}
