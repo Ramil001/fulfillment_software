@@ -1,44 +1,73 @@
 /** @odoo-module **/
+
 import { registry } from "@web/core/registry";
 
 class FulfillmentNotifier {
     constructor(env, { bus_service, notification }) {
+        this.env = env;
         this.bus = bus_service;
         this.notification = notification;
+        this._onNotification = this._onNotification.bind(this);
+        console.log("✅ Fulfillment Notifier JS загружен");
     }
 
     async start() {
         console.log("🟢 FulfillmentNotifier запущен...");
 
-        if (typeof this.bus.isReady === "function") {
+        // Ждем готовности bus service
+        if (this.bus.isReady) {
             await this.bus.isReady();
         }
 
-        // добавляем канал до запуска
-        this.bus.addChannel("fulfillment_notification");
-        console.log("📡 Канал 'fulfillment_notification' добавлен");
+        // Подписка на канал fulfillment_notification
+        this.bus.subscribe("fulfillment_notification", this._onNotification);
+        console.log("📡 Подписан на канал: fulfillment_notification");
 
-        // подписка на уведомления
-        this.bus.addEventListener("notification", (ev) => {
-            const notifications = ev.detail || [];
-            for (const notif of notifications) {
-                const msg = notif.payload;
-                if (msg?.type === "fulfillment_notification") {
-                    console.log("📩 Получено уведомление:", msg);
-                    this.notification.add(msg.message, {
-                        title: msg.title || "Fulfillment API",
-                        type: msg.level || "info",
-                        sticky: msg.sticky || false,
-                        autocloseDelay: 4000,
-                    });
-                }
-            }
+      
+    }
+
+    _onNotification(notification) {
+        console.log("📩 Получено уведомление через bus:", notification);
+        
+        if (notification && notification.type === "fulfillment_notification") {
+            const msg = notification.payload;
+            this._showNotification(msg);
+        }
+    }
+
+    _showNotification(msg) {
+        console.log("🎯 Показываем уведомление:", msg);
+        
+        if (!msg.message) {
+            console.error("❌ Нет сообщения для показа:", msg);
+            return;
+        }
+
+        this.notification.add(msg.message, {
+            title: msg.title || "Fulfillment",
+            type: msg.level || "info",
+            sticky: msg.sticky || false,
         });
+    }
 
-        if (typeof this.bus.start === "function") this.bus.start();
+    // Метод для ручной отправки уведомления (для тестирования)
+    sendTestNotification() {
+        this.notification.add("Тестовое уведомление из Fulfillment Notifier", {
+            title: "Тест",
+            type: "success",
+            sticky: true,
+        });
+    }
+
+    // Метод для очистки подписки
+    destroy() {
+        if (this.bus) {
+            this.bus.unsubscribe("fulfillment_notification", this._onNotification);
+        }
     }
 }
 
+// Регистрация сервиса
 registry.category("services").add("fulfillment_notifier", {
     dependencies: ["bus_service", "notification"],
     async start(env, deps) {
@@ -47,3 +76,5 @@ registry.category("services").add("fulfillment_notifier", {
         return notifier;
     },
 });
+
+export default FulfillmentNotifier;
