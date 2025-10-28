@@ -179,9 +179,13 @@ class FulfillmentPartners(models.Model):
         if not success:
             return self._notification("Ошибка", "Синхронизация не удалась", "danger", sticky=True)
 
-        return self._notification("Синхронизация", "Обновление включилось!", "success", sticky=False,
-                                  extra={'next': {'type': 'ir.actions.client', 'tag': 'reload'}})
-        
+        return {
+                'effect': {
+                    'type': 'rainbow_man',
+                    'message': 'Import success',
+                    'fadeout': 'slow',
+                }
+            }
         
     
 
@@ -205,7 +209,7 @@ class FulfillmentPartners(models.Model):
             ('fulfillment_partner_id', '=', partner_record.fulfillment_id)
         ], limit=1)
         
-        _logger.info(f"🔄 Creating/updating res.partner for {partner_record.name} ({partner_record.fulfillment_id}) with {contact_vals}")
+        _logger.info(f"Creating/updating res.partner for {partner_record.name} ({partner_record.fulfillment_id}) with {contact_vals}")
 
         if contact:
             contact.write(contact_vals)
