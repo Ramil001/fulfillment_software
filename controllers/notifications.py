@@ -5,7 +5,7 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-class SimpleNotifyController(http.Controller):
+class NotificationController(http.Controller):
 
     @http.route('/fulfillment/notify', type='json', auth='public', methods=['POST'], csrf=False)
     def simple_notify(self, **kwargs):
@@ -23,10 +23,9 @@ class SimpleNotifyController(http.Controller):
                 "title": title,
                 "level": level,
                 "sticky": sticky,
+                
             }
         }
-
-        _logger.info("📤 Отправляемый payload: %s", json.dumps(payload, ensure_ascii=False))
 
         users = request.env["res.users"].sudo().search([])
         for user in users:

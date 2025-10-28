@@ -40,21 +40,29 @@ class FulfillmentNotifier {
                 title: "Ошибка формата",
                 type: "danger",
                 sticky: true,
+                buttons: [
+                    {
+                        name: "OK",
+                        primary: true,
+                        onClick: (close) => {
+                            close(); // Закрыть уведомление при клике
+                        },
+                    },
+                ],
+
             });
             return;
         }
-
-        console.log("🔄 Создаем уведомление с параметрами:", {
-            message: msg.message,
-            title: msg.title || "Fulfillment",
-            type: msg.level || "info",
-            sticky: msg.sticky || false
-        });
-
         this.notification.add(msg.message, {
             title: msg.title || "Fulfillment",
             type: msg.level || "info",
             sticky: msg.sticky || false,
+            buttons: [
+                {
+                    name: "OK",
+                    primary: true,
+                },
+            ],
         });
          }
 }
