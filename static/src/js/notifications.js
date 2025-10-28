@@ -61,6 +61,7 @@ class FulfillmentNotifier {
                 {
                     name: "OK",
                     primary: true,
+                    onClick: (close) => close(),
                 },
             ],
         });

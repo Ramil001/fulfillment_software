@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from odoo.exceptions import UserError
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
+from ..lib.utils.notification import FulfillmentNotifier
 
 _logger = logging.getLogger(__name__)
 
@@ -87,15 +88,25 @@ class FulfillmentPartners(models.Model):
     @api.model
     def import_all(self, profile=None):
         """Sync data from API and return proper action"""
+        notifier = FulfillmentNotifier(self.env)
+
         try:
+            notifier.send("Начало полной синхронизации с Fulfillment API", title="Fulfillment Sync", level="info", sticky=True)
+
             if not profile:
+                notifier.send("Не найден активный профиль с API ключом", level="danger", sticky=True)
                 return self._notification("Error", "No active profile with API key", "danger", sticky=True)
 
+            notifier.send("Получение данных из Fulfillment API...", level="info")
             data = self._fetch_api_data(profile)
             if not data:
+                notifier.send("Данные из API не были получены", level="warning", sticky=True)
                 return False
 
+            notifier.send("Обработка полученных данных...", level="info")
             self._process_api_data(data, profile)
+
+            notifier.send("Импорт данных партнёров и связанных складов...", level="info")
 
             for partner in self.search([]):
                 _logger.info(
@@ -104,54 +115,56 @@ class FulfillmentPartners(models.Model):
                     f"Internal={partner.transfers_internal_ids.ids}, "
                     f"Delivery={partner.transfers_delivery_ids.ids}"
                 )
+
+                notifier.send(f"Импорт складов для партнёра {partner.name}", level="info")
                 self.env['stock.warehouse'].sudo().with_context(skip_api_sync=True).import_warehouses(partner)
 
-            # загружаем трансферы
+            notifier.send("Импорт данных о трансферах...", level="info")
+
             for item in data:
                 fulfillment_id = item.get("fulfillment_id")
                 if fulfillment_id:
                     page = 1
                     limit = 100
                     while True:
-                        _logger.info(f"🔄 Начинаем загрузку трансферов для {fulfillment_id}, page={page}, limit={limit}")
+                        notifier.send(f"Загрузка трансферов для {fulfillment_id}, страница {page}", level="info")
+
                         success = self.env['stock.picking'].sudo().with_context(skip_fulfillment_push=True).import_transfers(
                             fulfillment_id=fulfillment_id,
                             page=page,
                             limit=limit
                         )
 
-                        _logger.info(f"✅ Результат import_transfers для {fulfillment_id}, page={page}: {success}")
+                        _logger.info(f"Результат import_transfers для {fulfillment_id}, страница={page}: {success}")
                         if not success or success < limit:
                             break
                         page += 1
 
+            notifier.send("Проверка складов для импорта остатков...", level="info")
 
             fulfillment_warehouses = self.env['stock.warehouse'].search([
-                        ('fulfillment_warehouse_id', '!=', False)
-                    ])
+                ('fulfillment_warehouse_id', '!=', False)
+            ])
 
             if not fulfillment_warehouses:
+                notifier.send("Нет складов с fulfillment_warehouse_id — импорт остатков пропущен", level="warning", sticky=True)
                 _logger.warning("[FULFILLMENT][IMPORT_ALL] Нет складов с fulfillment_warehouse_id — импорт остатков пропущен")
             else:
-                _logger.info(
-                    "[FULFILLMENT][IMPORT_ALL] Импорт остатков для складов: %s",
-                    ', '.join(fulfillment_warehouses.mapped('name'))
-                )
+                notifier.send("Импорт остатков по складам...", level="info")
 
                 stock_model = self.env['stock.quant'].sudo()
                 for warehouse in fulfillment_warehouses:
                     filters = {
                         "warehouse_ids": [warehouse.fulfillment_warehouse_id],
                     }
-                    _logger.info(
-                        "[FULFILLMENT][IMPORT_ALL] 🔄 Импорт остатков для склада %s (%s)",
-                        warehouse.name, warehouse.fulfillment_warehouse_id
-                    )
+
+                    notifier.send(f"Импорт остатков для склада {warehouse.name}", level="info")
+
                     success = stock_model.import_stock(filters=filters)
-                    _logger.info(
-                        "[FULFILLMENT][IMPORT_ALL] ✅ Импорт остатков завершён для %s: %s",
-                        # warehouse.name, success
-                    )
+                    _logger.info(f"[FULFILLMENT][IMPORT_ALL] Импорт остатков завершён для {warehouse.name}: {success}")
+
+            notifier.send("Импорт данных из Fulfillment успешно завершён", level="success", sticky=True)
+
             return {
                 'type': 'ir.actions.act_window',
                 'name': 'Partners',
@@ -166,6 +179,7 @@ class FulfillmentPartners(models.Model):
 
         except Exception as e:
             _logger.error("Sync failed: %s", str(e))
+            notifier.send(f"Ошибка при выполнении синхронизации: {str(e)}", level="danger", sticky=True)
             return self._notification("Error", f"Sync failed: {str(e)}", "danger", sticky=True)
 
 
