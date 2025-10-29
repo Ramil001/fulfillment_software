@@ -9,6 +9,9 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 _logger = logging.getLogger(__name__)
 
 
+
+
+
 # ================== Strategy: Transfer Mappers ==================
 class BaseTransferMapper:
     def build(self, picking, items, warehouse_out_id, warehouse_in_id):
@@ -174,36 +177,46 @@ class FulfillmentTransfers(models.Model):
         readonly=True
     )
 
-    # ===== ORM overrides =====
+    # ===== Onchange handler ===== 
+    @api.onchange('partner_id')
+    def _onchange_partner(self):
+        """Срабатывает при изменении партнёра в stock.picking"""
+        if not self.partner_id:
+            return
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        _logger.info("[Fulfillment][CREATE] Creating %d new stock.picking records", len(vals_list))
+        # Пример действия в onchange
+        self.name = f"{self.partner_id.name}"
 
-        records = super(FulfillmentTransfers, self).create(vals_list)
-        for rec in records:
-            _logger.info("[Fulfillment][CREATE] Record created: %s (id=%s, name=%s, transfer_id=%s)",
-                        rec.picking_type_code, rec.id, rec.name, rec.fulfillment_transfer_id)
+        # Формируем текст уведомления
+        record_name = self.name or "(новый документ)"
+        message = f"В документе {record_name} изменён партнёр на {self.partner_id.display_name}."
+        title = "Изменение партнёра"
 
-            # Проверяем, был ли уже создан трансфер в Fulfillment
-            if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                existing = self.search([
-                    ("name", "=", rec.name),
-                    ("fulfillment_transfer_id", "!=", "Empty")
-                ], limit=1)
+        _logger.info("[STOCK.PICKING][ONCHANGE] partner_id → %s", self.partner_id.display_name)
 
-                if existing:
-                    _logger.warning("[Fulfillment][CREATE] Skipping push for %s — already has transfer_id=%s",
-                                    rec.name, existing.fulfillment_transfer_id)
-                else:
-                    _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
-                    rec._push_to_fulfillment_api()
-            else:
-                _logger.info("[Fulfillment][CREATE] Skip push — already linked to Fulfillment (%s)",
-                            rec.fulfillment_transfer_id)
+        # === Отправляем уведомление через bus ===
+        payload = {
+            "type": "fulfillment_notification",
+            "payload": {
+                "message": message,
+                "title": title,
+                "level": "info",
+                "sticky": False,
+            },
+        }
 
-        return records
+        bus = self.env["bus.bus"].sudo()
+        users = self.env["res.users"].sudo().search([])
 
+        for user in users:
+            partner = user.partner_id
+            if not partner:
+                continue
+            try:
+                bus._sendone(partner, "fulfillment_notification", payload)
+            except Exception as e:
+                _logger.error("[BUS][ERROR] Не удалось отправить уведомление %s: %s", partner.name, e)
+                    
 
     def write(self, vals):
         if self.env.context.get('skip_fulfillment_push'):
