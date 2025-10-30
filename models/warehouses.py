@@ -3,8 +3,6 @@ import logging
 from odoo import models, fields, api
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 from datetime import datetime
-from ...utils.bus_utils import send_notification
-from ...utils.fulfillment_utils import is_partner_fulfillment
 
 
 _logger = logging.getLogger(__name__)
@@ -30,14 +28,13 @@ class FulfillmentWarehouses(models.Model):
         self.name = f"{self.partner_id.name}"
         record_name = self.name or "(новый документ)"
 
-        if is_partner_fulfillment(self.partner_id.id):
+        if self.env['fulfillment.utils'].is_partner_fulfillment(self.partner_id.id):
             title = "Fulfillment Warehouse"
             message = f"This partner ({self.partner_id.display_name}) is managed via Fulfillment."
 
             try:
                 # === Отправляем уведомление всем пользователям ===
-                send_notification(
-                    self.env,
+                self.env['bus.utils'].send_notification(
                     title=title,
                     message=message,
                     level="info",
