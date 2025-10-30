@@ -3,6 +3,9 @@ import logging
 from odoo import models, fields, api
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 from datetime import datetime
+from ...utils.bus_utils import send_notification
+from ...utils.fulfillment_utils import is_partner_fulfillment
+
 
 _logger = logging.getLogger(__name__)
 
@@ -24,38 +27,26 @@ class FulfillmentWarehouses(models.Model):
         if not self.partner_id:
             return
 
-        # Пример действия в onchange
         self.name = f"{self.partner_id.name}"
-
-        # Формируем текст уведомления
         record_name = self.name or "(новый документ)"
-        message = f"В документе {record_name} изменён партнёр на {self.partner_id.display_name}."
-        title = "Изменение партнёра"
 
+        if is_partner_fulfillment(self.partner_id.id):
+            title = "Fulfillment Warehouse"
+            message = f"This partner ({self.partner_id.display_name}) is managed via Fulfillment."
 
-        # === Отправляем уведомление через bus ===
-        payload = {
-            "type": "fulfillment_notification",
-            "payload": {
-                "message": message,
-                "title": title,
-                "level": "info",
-                "sticky": False,
-            },
-        }
-
-        bus = self.env["bus.bus"].sudo()
-        users = self.env["res.users"].sudo().search([])
-
-        for user in users:
-            partner = user.partner_id
-            if not partner:
-                continue
             try:
-                bus._sendone(partner, "fulfillment_notification", payload)
+                # === Отправляем уведомление всем пользователям ===
+                send_notification(
+                    self.env,
+                    title=title,
+                    message=message,
+                    level="info",
+                    sticky=False,
+                )
+                _logger.info("[BUS] Уведомление Fulfillment успешно отправлено.")
             except Exception as e:
-                _logger.error("[BUS][ERROR] Не удалось отправить уведомление %s: %s", partner.name, e)
-    
+                _logger.exception(f"[BUS][ERROR] Ошибка при отправке уведомления: {e}")
+        
     
     
     # ---------------------------
