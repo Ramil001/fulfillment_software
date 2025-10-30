@@ -16,6 +16,48 @@ class FulfillmentWarehouses(models.Model):
     fulfillment_warehouse_id = fields.Char(string="Fulfillment warehouse Id")
     last_update = fields.Datetime(string='Last Update', readonly=True)
     
+    
+    # ===== Onchange handler ===== 
+    @api.onchange('partner_id')
+    def _onchange_partner(self):
+        """Срабатывает при изменении партнёра в stock.picking"""
+        if not self.partner_id:
+            return
+
+        # Пример действия в onchange
+        self.name = f"{self.partner_id.name}"
+
+        # Формируем текст уведомления
+        record_name = self.name or "(новый документ)"
+        message = f"В документе {record_name} изменён партнёр на {self.partner_id.display_name}."
+        title = "Изменение партнёра"
+
+
+        # === Отправляем уведомление через bus ===
+        payload = {
+            "type": "fulfillment_notification",
+            "payload": {
+                "message": message,
+                "title": title,
+                "level": "info",
+                "sticky": False,
+            },
+        }
+
+        bus = self.env["bus.bus"].sudo()
+        users = self.env["res.users"].sudo().search([])
+
+        for user in users:
+            partner = user.partner_id
+            if not partner:
+                continue
+            try:
+                bus._sendone(partner, "fulfillment_notification", payload)
+            except Exception as e:
+                _logger.error("[BUS][ERROR] Не удалось отправить уведомление %s: %s", partner.name, e)
+    
+    
+    
     # ---------------------------
     # CREATE
     # ---------------------------
