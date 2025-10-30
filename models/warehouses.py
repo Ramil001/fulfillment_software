@@ -21,19 +21,28 @@ class FulfillmentWarehouses(models.Model):
     # ===== Onchange handler ===== 
     @api.onchange('partner_id')
     def _onchange_partner(self):
-        """Срабатывает при изменении партнёра в stock.picking"""
+        """Срабатывает при изменении партнёра в stock.warehouse"""
         if not self.partner_id:
             return
 
-        self.name = f"{self.partner_id.name}"
-        record_name = self.name or "(новый документ)"
+        partner = self.partner_id
+        warehouse_name = partner.name or "(новый партнёр)"  # по умолчанию
 
-        if self.env['fulfillment.utils'].is_partner_fulfillment(self.partner_id.id):
+        # Проверяем, связан ли партнёр с Fulfillment
+        if self.env['fulfillment.utils'].is_partner_fulfillment(partner.id):
+            # Берём имя профиля Fulfillment как владельца
+            profile_name = self.env['fulfillment.utils'].get_fulfillment_profile_name()
+
+            # Клиент — это выбранный партнёр
+            client_name = partner.name
+
+            # Формируем имя склада
+            warehouse_name = f"[{profile_name}] (Owner: {profile_name}, Client: {client_name})"
+
+            # Отправляем уведомление
             title = "Fulfillment Warehouse"
-            message = f"This partner ({self.partner_id.display_name}) is managed via Fulfillment."
-
+            message = f"This partner ({partner.display_name}) is managed via Fulfillment."
             try:
-                # === Отправляем уведомление всем пользователям ===
                 self.env['bus.utils'].send_notification(
                     title=title,
                     message=message,
@@ -43,6 +52,10 @@ class FulfillmentWarehouses(models.Model):
                 _logger.info("[BUS] Уведомление Fulfillment успешно отправлено.")
             except Exception as e:
                 _logger.exception(f"[BUS][ERROR] Ошибка при отправке уведомления: {e}")
+
+        # Для обычного партнёра — остаётся просто имя
+        self.name = warehouse_name
+
         
     
     

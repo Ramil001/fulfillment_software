@@ -28,3 +28,16 @@ class FulfillmentUtils(models.AbstractModel):
             return True
 
         return False
+
+
+
+    def get_fulfillment_profile_name(self, profile_id=None):
+        if profile_id:
+            profile = self.env['fulfillment.profile'].browse(profile_id)
+        else:
+            profile = self.env['fulfillment.profile'].search([], limit=1)
+            
+        if profile and profile.exists():
+            return profile.name or "Fulfillment name not found"
+        return False
+    
