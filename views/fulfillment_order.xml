@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Наследуем древовидный вид строк заказа -->
+    <record id="view_order_line_tree_inherit_fulfillment" model="ir.ui.view">
+        <field name="name">sale.order.line.tree.fulfillment.inherit</field>
+        <field name="model">sale.order.line</field>
+        <field name="inherit_id" ref="sale.view_order_line_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="fulfillment_partner_id" widget="many2one"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Наследуем форму строки заказа -->
+    <record id="view_order_line_form_inherit_fulfillment" model="ir.ui.view">
+        <field name="name">sale.order.line.form.fulfillment.inherit</field>
+        <field name="model">sale.order.line</field>
+        <field name="inherit_id" ref="sale.view_order_line_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="fulfillment_partner_id" widget="many2one"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Наследуем форму заказа для отображения в таблице продуктов -->
+    <record id="view_order_form_inherit_fulfillment" model="ir.ui.view">
+        <field name="name">sale.order.form.fulfillment.inherit</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='order_line']/tree//field[@name='product_id']" position="after">
+                <field name="fulfillment_partner_id" widget="many2one"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
