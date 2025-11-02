@@ -1,15 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
-<record id="view_order_line_tree_inherit_custom_note" model="ir.ui.view">
-    <field name="name">sale.order.line.tree.inherit.custom.note</field>
-    <field name="model">sale.order.line</field>
-    <field name="inherit_id" ref="sale.view_order_line_tree"/> <!-- родной tree view -->
+
+<record id="sale_order_line_form_inherit_fulfillment_partner" model="ir.ui.view">
+    <field name="name">sale.order.line.form.inherit.fulfillment.partner</field>
+    <field name="model">sale.order</field> <!-- именно sale.order -->
+    <field name="inherit_id" ref="sale.view_order_form"/> <!-- родная форма Sales Order -->
     <field name="arch" type="xml">
-        <!-- вставляем поле после поля product_id -->
-        <xpath expr="//field[@name='product_id']" position="after">
-            <field name="fulfillment_partner_id"/>
-        </xpath>
+        <!-- вставляем поле после product_id внутри order_line/form -->
+       <xpath expr="//field[@name='order_line']/list//field[@name='route_id']" position="after">
+           <field name="fulfillment_partner_id"/>
+       </xpath>
+
     </field>
 </record>
+
+
 
 </odoo>
