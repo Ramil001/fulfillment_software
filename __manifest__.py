@@ -27,9 +27,9 @@
         'views/fulfillment_transfers.xml',   # Представление для изменения страницы создания скалада
         'views/fulfillment_partners.xml',    # Предстваление старницы партнёра
         'views/fulfillment_contacts.xml',    # Предстваление старницы contact
+        'views/fulfillment_order.xml',
         'views/fulfillment_products.xml',
         'views/fulfillment_locations.xml',
-        'views/fulfillment_order.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
         'views/fulfillment_main.xml',        # Действие
