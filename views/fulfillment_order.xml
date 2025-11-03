@@ -3,10 +3,9 @@
 
 <record id="sale_order_line_form_inherit_fulfillment_partner" model="ir.ui.view">
     <field name="name">sale.order.line.form.inherit.fulfillment.partner</field>
-    <field name="model">sale.order</field> <!-- именно sale.order -->
-    <field name="inherit_id" ref="sale.view_order_form"/> <!-- родная форма Sales Order -->
+    <field name="model">sale.order</field> 
+    <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
-        <!-- вставляем поле после product_id внутри order_line/form -->
        <xpath expr="//field[@name='order_line']/list//field[@name='route_id']" position="after">
            <field name="fulfillment_partner_id"/>
        </xpath>
@@ -14,6 +13,21 @@
     </field>
 </record>
 
+<record id="sale_order_form_fulfillment" model="ir.ui.view">
+ <field name="name">sale.order.form.inherit.fulfillment.tab</field>
+    <field name="model">sale.order</field>
+    <field name="inherit_id" ref="sale.view_order_form"/>
+    <field name="arch" type="xml">
 
+      <xpath expr="//notebook" position="inside">
+        <page string="Fulfillment">
+          <group>
+            <field name="fulfillment_order_id"/>
+          </group>
+        </page>
+      </xpath>
+
+    </field>
+</record>
 
 </odoo>
