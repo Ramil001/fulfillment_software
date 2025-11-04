@@ -7,7 +7,7 @@
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
        <xpath expr="//field[@name='order_line']/list//field[@name='route_id']" position="after">
-           <field name="fulfillment_partner_id"/>
+           <field name="fulfillment_item_manager"/>
        </xpath>
 
     </field>
@@ -19,6 +19,7 @@
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
 
+      <!-- Добавляем новую вкладку внутрь notebook -->
       <xpath expr="//notebook" position="inside">
         <page string="Fulfillment">
           <group>

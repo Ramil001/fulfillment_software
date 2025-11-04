@@ -1,4 +1,4 @@
-from odoo import models, fields
+from odoo import models, fields, api
 
 
 class FulfillmentOrder(models.Model):
@@ -6,12 +6,13 @@ class FulfillmentOrder(models.Model):
     
     fulfillment_order_id = fields.Char(string="Fulfillment Order ID", readonly=True)
          
+    
      
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
-    fulfillment_partner_id = fields.Many2one(
+    fulfillment_item_manager = fields.Many2one(
         'fulfillment.partners',
         string='Fulfillment Delivery',
         help='Кто отправляет этот товар',
