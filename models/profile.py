@@ -57,14 +57,33 @@ class FulfillmentProfile(models.Model):
         string="Last Updated",
         readonly=True
     )
+    
+    
 
     @api.model_create_multi
     def create(self, vals_list):
-        for vals in vals_list:
-            vals['update_at'] = datetime.now()
+        bus = self.env["bus.utils"]
 
+        # сначала просто отправляем уведомление, но НЕ выходим из функции
+        for vals in vals_list:
+            if not vals.get("fulfillment_api_key"):
+                bus.send_notification(
+                    title="Ошибка подключения к API",
+                    message="У Вас не заполнен Fulfillment API Key",
+                    level="info",
+                    sticky=True
+                )
+                
+            vals["update_at"] = datetime.now()
+
+        # создаём записи как обычно
         records = super().create(vals_list)
-        records._sync_with_fulfillment_api()
+
+        # запускаем синхронизацию только для тех, у кого ключ задан
+        records_with_key = records.filtered(lambda r: r.fulfillment_api_key)
+        if records_with_key:
+            records_with_key._sync_with_fulfillment_api()
+
         return records
 
     def write(self, vals):
@@ -75,8 +94,15 @@ class FulfillmentProfile(models.Model):
 
     # --- Sync через API client ---
     def _sync_with_fulfillment_api(self):
+        bus = self.env['bus.utils']
         for record in self:
             if not record.fulfillment_api_key:
+                bus.send_notification(
+                    title="Ошибка подключения к API",
+                    message="У Вас не заполнен Fulfillment API Key",
+                    level="info",
+                    sticky=True
+                )
                 _logger.warning("API ключ не задан — sync пропущен.")
                 continue
 

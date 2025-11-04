@@ -32,18 +32,30 @@ class FulfillmentProducts(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super(FulfillmentProducts, self).create(vals_list)
+        bus = self.env['bus.utils']
         for rec in records:
             message = f"Продукт создан: {rec.name} (ID {rec.id})"
             _logger.info(message)
-            rec.env.user.notify_info(message)
+            bus.send_notification(
+                title="Создание продукта",
+                message=message,
+                level="info",
+                sticky=False
+            )
             rec.message_post(body=message)
         return records
 
     def write(self, vals):
         res = super(FulfillmentProducts, self).write(vals)
+        bus = self.env['bus.utils']
         for rec in self:
             message = f"Продукт обновлён: {rec.name} (ID {rec.id})"
             _logger.info(message)
-            rec.env.user.notify_info(message)
+            bus.send_notification(
+                title="Обновление продукта",
+                message=message,
+                level="info",
+                sticky=False
+            )
             rec.message_post(body=message)
         return res

@@ -3,13 +3,11 @@ import logging
 from datetime import datetime
 from odoo.exceptions import UserError
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
-from ..lib.utils.notification import FulfillmentNotifier
 
 _logger = logging.getLogger(__name__)
 
 
-# Тут мы переопределяем модель парнеров контактов и добавляем нужные поля.
-# ---------- Контакты  -----------#
+# ---------- Контакты ----------
 class FulfillmentOverrideResPartner(models.Model):
     _inherit = 'res.partner'
 
@@ -24,7 +22,7 @@ class FulfillmentOverrideResPartner(models.Model):
         copy=False,
         readonly=True
     )
-    
+
     fulfillment_partner_id = fields.Char(
         string="Fulfillment partner Id",
         index=True,
@@ -33,93 +31,127 @@ class FulfillmentOverrideResPartner(models.Model):
     )
 
 
-# ---------- Партнеры  -----------#
+# ---------- Партнеры ----------
 class FulfillmentPartners(models.Model):
     _name = 'fulfillment.partners'
     _description = 'Fulfillment Partners'
     _inherit = ['mail.thread', 'mail.activity.mixin']
 
-    # Переменная подписки на fulfillment показывает статус, подписан / отписан
     status = fields.Selection([
         ('follow', 'Follow'),
         ('unfollow', 'Unfollow')],
         default='unfollow', tracking=True, required=True)
 
-
-    # Название компании партнера
     name = fields.Char(string="Company name", required=True, readonly=True)
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
-    fulfillment_logo = fields.Binary(string="Logo", attachment=True, help="Upload a logo or photo for this fulfillment partner.")
-    
+    fulfillment_logo = fields.Binary(string="Logo", attachment=True)
     api_domain = fields.Char(string="API", readonly=True)
     webhook_url = fields.Char(string="Webhook", readonly=True)
-    
     created_at = fields.Datetime(string="Date created")
-    
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
-    
-    # эти переменные пока не работают..
+
     warehouses_owner_ids = fields.One2many('stock.warehouse', 'fulfillment_owner_id')
     warehouses_client_ids = fields.One2many('stock.warehouse', 'fulfillment_client_id')
-    
-    transfers_purchase_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Purchase Receipts")
-    transfers_internal_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Internal Transfers")
-    transfers_delivery_ids = fields.One2many('stock.picking','fulfillment_partner_id',string="Delivery Orders")
-    #=========
-    
-    # Ссылка на ID контакта odoo привязанного к fulfillment профилю 
+
+    transfers_purchase_ids = fields.One2many('stock.picking', 'fulfillment_partner_id', string="Purchase Receipts")
+    transfers_internal_ids = fields.One2many('stock.picking', 'fulfillment_partner_id', string="Internal Transfers")
+    transfers_delivery_ids = fields.One2many('stock.picking', 'fulfillment_partner_id', string="Delivery Orders")
+
     partner_id = fields.Many2one(
         'res.partner',
         string="Contact",
         help="Odoo contact linked to this fulfillment partner"
     )
-    
+
+    # ---------- Вспомогательный helper ----------
+    def _notify_bus(self, title, message, level="info", sticky=False):
+        """Упрощённый вызов уведомлений через bus.utils"""
+        try:
+            bus = self.env['bus.utils']
+            bus.send_notification(
+                title=title,
+                message=message,
+                level=level,
+                sticky=sticky
+            )
+        except Exception as e:
+            _logger.warning(f"[BUS_NOTIFY_FAIL] {e}")
+
+    # ---------- Действия ----------
     def action_follow(self):
         self.write({'status': 'follow'})
 
     def action_unfollow(self):
         self.write({'status': 'unfollow'})
-        
-    # Разрешаем использование параметра password в поле
+
     def _valid_field_parameter(self, field, name):
         return name == 'password' or super()._valid_field_parameter(field, name)
 
-    # --- Основная синхронизация ---
+    # ---------- Основная синхронизация ----------
     @api.model
     def import_all(self, profile=None):
-        """Sync data from API and return proper action"""
-        notifier = FulfillmentNotifier(self.env)
-
+        """Полный импорт партнёров и связанных данных"""
+        bus = self.env['bus.utils']
         try:
-            notifier.send("Начало полной синхронизации с Fulfillment API", title="Fulfillment Sync", level="info", sticky=True)
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Начало полной синхронизации с Fulfillment API",
+                level="info",
+                sticky=True
+            )
 
             if not profile:
-                notifier.send("Не найден активный профиль с API ключом", level="danger", sticky=True)
-                return self._notification("Error", "No active profile with API key", "danger", sticky=True)
-
-            notifier.send("Получение данных из Fulfillment API...", level="info")
-            data = self._fetch_api_data(profile)
-            if not data:
-                notifier.send("Данные из API не были получены", level="warning", sticky=True)
+                bus.send_notification(
+                    title="Fulfillment Sync",
+                    message="Не найден активный профиль с API ключом",
+                    level="danger",
+                    sticky=True
+                )
                 return False
 
-            notifier.send("Обработка полученных данных...", level="info")
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Получение данных из Fulfillment API...",
+                level="info"
+            )
+
+            data = self._fetch_api_data(profile)
+            if not data:
+                bus.send_notification(
+                    title="Fulfillment Sync",
+                    message="Данные из API не были получены",
+                    level="warning",
+                    sticky=True
+                )
+                return False
+
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Обработка полученных данных...",
+                level="info"
+            )
             self._process_api_data(data, profile)
 
-            notifier.send("Импорт данных партнёров и связанных складов...", level="info")
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Импорт данных партнёров и связанных складов...",
+                level="info"
+            )
 
             for partner in self.search([]):
-                _logger.info(
-                    f"[IMPORT DONE][{partner.name}] "
-                    f"Purchases={partner.transfers_purchase_ids.ids}, "
-                    f"Internal={partner.transfers_internal_ids.ids}, "
-                    f"Delivery={partner.transfers_delivery_ids.ids}"
+                _logger.info(f"[IMPORT DONE][{partner.name}] Purchases={partner.transfers_purchase_ids.ids}")
+                bus.send_notification(
+                    title="Fulfillment Sync",
+                    message=f"Импорт складов для партнёра {partner.name}",
+                    level="info"
                 )
-
-                notifier.send(f"Импорт складов для партнёра {partner.name}", level="info")
                 self.env['stock.warehouse'].sudo().with_context(skip_api_sync=True).import_warehouses(partner)
 
-            notifier.send("Импорт данных о трансферах...", level="info")
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Импорт данных о трансферах...",
+                level="info"
+            )
 
             for item in data:
                 fulfillment_id = item.get("fulfillment_id")
@@ -127,43 +159,53 @@ class FulfillmentPartners(models.Model):
                     page = 1
                     limit = 100
                     while True:
-                        notifier.send(f"Загрузка трансферов для {fulfillment_id}, страница {page}", level="info")
-
+                        bus.send_notification(
+                            title="Fulfillment Sync",
+                            message=f"Загрузка трансферов для {fulfillment_id}, страница {page}",
+                            level="info"
+                        )
                         success = self.env['stock.picking'].sudo().with_context(skip_fulfillment_push=True).import_transfers(
                             fulfillment_id=fulfillment_id,
                             page=page,
                             limit=limit
                         )
-
-                        _logger.info(f"Результат import_transfers для {fulfillment_id}, страница={page}: {success}")
                         if not success or success < limit:
                             break
                         page += 1
 
-            notifier.send("Проверка складов для импорта остатков...", level="info")
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Проверка складов для импорта остатков...",
+                level="info"
+            )
 
-            fulfillment_warehouses = self.env['stock.warehouse'].search([
+            warehouses = self.env['stock.warehouse'].search([
                 ('fulfillment_warehouse_id', '!=', False)
             ])
-
-            if not fulfillment_warehouses:
-                notifier.send("Нет складов с fulfillment_warehouse_id — импорт остатков пропущен", level="warning", sticky=True)
-                _logger.warning("[FULFILLMENT][IMPORT_ALL] Нет складов с fulfillment_warehouse_id — импорт остатков пропущен")
+            if not warehouses:
+                bus.send_notification(
+                    title="Fulfillment Sync",
+                    message="Нет складов с fulfillment_warehouse_id — импорт остатков пропущен",
+                    level="warning",
+                    sticky=True
+                )
             else:
-                notifier.send("Импорт остатков по складам...", level="info")
+                for warehouse in warehouses:
+                    bus.send_notification(
+                        title="Fulfillment Sync",
+                        message=f"Импорт остатков для склада {warehouse.name}",
+                        level="info"
+                    )
+                    self.env['stock.quant'].sudo().import_stock(
+                        filters={"warehouse_ids": [warehouse.fulfillment_warehouse_id]}
+                    )
 
-                stock_model = self.env['stock.quant'].sudo()
-                for warehouse in fulfillment_warehouses:
-                    filters = {
-                        "warehouse_ids": [warehouse.fulfillment_warehouse_id],
-                    }
-
-                    notifier.send(f"Импорт остатков для склада {warehouse.name}", level="info")
-
-                    success = stock_model.import_stock(filters=filters)
-                    _logger.info(f"[FULFILLMENT][IMPORT_ALL] Импорт остатков завершён для {warehouse.name}: {success}")
-
-            notifier.send("Импорт данных из Fulfillment успешно завершён", level="success", sticky=True)
+            bus.send_notification(
+                title="Fulfillment Sync",
+                message="Импорт данных из Fulfillment успешно завершён",
+                level="success",
+                sticky=True
+            )
 
             return {
                 'type': 'ir.actions.act_window',
@@ -179,39 +221,35 @@ class FulfillmentPartners(models.Model):
 
         except Exception as e:
             _logger.error("Sync failed: %s", str(e))
-            notifier.send(f"Ошибка при выполнении синхронизации: {str(e)}", level="danger", sticky=True)
-            return self._notification("Error", f"Sync failed: {str(e)}", "danger", sticky=True)
-
-
-    
+            bus.send_notification(
+                title="Fulfillment Sync Error",
+                message=f"Ошибка при выполнении синхронизации: {str(e)}",
+                level="danger",
+                sticky=True
+            )
+            return False
 
     def button_run_import_all(self):
-        """Кнопка в интерфейсе"""
+        """Кнопка запуска полной синхронизации"""
         profile = self._get_active_profile()
         success = self.import_all(profile=profile)
-
         if not success:
-            return self._notification("Ошибка", "Синхронизация не удалась", "danger", sticky=True)
-
+            self._notify_bus("Fulfillment Sync", "Синхронизация не удалась", "danger", True)
+            return False
         return {
-                'effect': {
-                    'type': 'rainbow_man',
-                    'message': 'Import success',
-                    'fadeout': 'slow',
-                }
+            'effect': {
+                'type': 'rainbow_man',
+                'message': 'Import success',
+                'fadeout': 'slow',
             }
-        
-    
+        }
 
-    # --- Вспомогательные методы ---
+    # ---------- Контакты ----------
     def import_contacts(self, partner_record):
-        """Создаём или обновляем контакт res.partner с тегом Fulfillment и возвращаем его"""
+        """Создаём или обновляем контакт res.partner"""
         tag = self._get_fulfillment_tag()
-        self._notification("Ошибка", "Импорт контаков", "success", sticky=True)
-        contact = self.env['res.partner'].search([
-            ('fulfillment_partner_id', '=', partner_record.fulfillment_id)
-        ], limit=1)
-        
+        self._notify_bus("Импорт", f"Импорт контактов для {partner_record.name}", "info")
+
         contact_vals = {
             'name': partner_record.name,
             'comment': f"Synced from Fulfillment {partner_record.api_domain or ''}",
@@ -222,54 +260,41 @@ class FulfillmentPartners(models.Model):
         contact = self.env['res.partner'].search([
             ('fulfillment_partner_id', '=', partner_record.fulfillment_id)
         ], limit=1)
-        
-        _logger.info(f"Creating/updating res.partner for {partner_record.name} ({partner_record.fulfillment_id}) with {contact_vals}")
 
         if contact:
             contact.write(contact_vals)
         else:
             contact = self.env['res.partner'].create(contact_vals)
-            
-        partner_record.partner_id = contact.id
-        self.env.cr.commit() 
 
+        partner_record.partner_id = contact.id
+        self.env.cr.commit()
         return contact
 
+    # ---------- Служебные ----------
     def _get_active_profile(self):
-        """Получаем активный профиль с API ключом"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile or not profile.fulfillment_api_key:
-            _logger.error("❌ No active profile with API key")
             raise UserError("No active profile with API key configured")
         return profile
 
     def _fetch_api_data(self, profile):
-        """Получаем список фулфилментов через API client"""
         try:
             client = FulfillmentAPIClient(profile)
-            data = client.fulfillment.list()
-            data = data.get("data", [])
-            _logger.info("📦[JSON][FULFILLMENT LIST][API]: %s", data)
-            _logger.info("Received %s partners from API", len(data))
+            data = client.fulfillment.list().get("data", [])
+            _logger.info("📦 Received %s partners from API", len(data))
             return data
         except FulfillmentAPIError as e:
-            _logger.error(f"❌ API error: {e}")
             raise UserError(str(e))
         except Exception as e:
-            _logger.error(f"❌ Unexpected API error: {e}")
             raise UserError(f"API request failed: {str(e)}")
 
     def _process_api_data(self, data, profile):
-        """Обработка полученных данных и обновление партнеров"""
-        _logger.info(f"[🌙][PROCESS_API]: DATA: {data} PROFILE: {profile}")
         for item in data:
             self.import_partners(item, profile)
 
     def import_partners(self, item, profile):
-        """Создание или обновление партнера"""
         existing = self.search([('fulfillment_id', '=', item['fulfillment_id'])], limit=1)
         created_at = self._normalize_datetime(item.get('created_at'))
-
         vals = {
             'name': item.get('name') or 'Без имени',
             'fulfillment_id': item.get('fulfillment_id'),
@@ -278,54 +303,26 @@ class FulfillmentPartners(models.Model):
             'created_at': created_at,
             'fulfillment_api_key': profile.fulfillment_api_key,
         }
-        
-        _logger.info(f"🔄 Creating/updating fulfillment.partner: {vals}")
-        
+
         if existing:
             existing.write(vals)
             partner_record = existing
         else:
             partner_record = self.create(vals)
 
-        # --- Создание/обновление res.partner ---
         contact = self.import_contacts(partner_record)
-
-        # --- Заполняем ссылку на контакт ---
-        if contact and partner_record.partner_id != contact:
-            partner_record.partner_id = contact.id
+        return partner_record
 
     def _normalize_datetime(self, dt_str):
-        """Нормализация формата даты"""
         if not dt_str:
             return False
-        try:
-            return datetime.strptime(dt_str, '%Y-%m-%dT%H:%M:%S.%fZ')
-        except ValueError:
+        for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ'):
             try:
-                return datetime.strptime(dt_str, '%Y-%m-%dT%H:%M:%SZ')
-            except Exception:
-                _logger.warning(f"Unknown time format: {dt_str}")
-                return False
+                return datetime.strptime(dt_str, fmt)
+            except ValueError:
+                continue
+        return False
 
-    def _notification(self, title, message, type_, sticky=False, extra=None):
-        """Унифицированное уведомление"""
-        notif = {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': title,
-                'message': message,
-                'type': type_,
-                'sticky': sticky,
-            }
-        }
-        if extra:
-            notif['params'].update(extra)
-        return notif
-    
     def _get_fulfillment_tag(self):
-        """Создаём или ищем тег 'Fulfillment'"""
         tag = self.env['res.partner.category'].search([('name', '=', 'Fulfillment')], limit=1)
-        if not tag:
-            tag = self.env['res.partner.category'].create({'name': 'Fulfillment'})
-        return tag
+        return tag or self.env['res.partner.category'].create({'name': 'Fulfillment'})
