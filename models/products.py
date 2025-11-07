@@ -59,3 +59,7 @@ class FulfillmentProducts(models.Model):
             )
             rec.message_post(body=message)
         return res
+    
+    
+    
+    

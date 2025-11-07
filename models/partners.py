@@ -43,6 +43,7 @@ class FulfillmentPartners(models.Model):
         default='unfollow', tracking=True, required=True)
 
     name = fields.Char(string="Company name", required=True, readonly=True)
+    
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
     fulfillment_logo = fields.Binary(string="Logo", attachment=True)
     api_domain = fields.Char(string="API", readonly=True)
