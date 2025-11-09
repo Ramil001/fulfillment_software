@@ -89,7 +89,7 @@ class SaleOrderLine(models.Model):
     
     fulfillment_item_warehouse = fields.Many2one(
         'stock.warehouse',
-        string='Fulfillment Warehouse',
+        string='Warehouse Fulfillment',
         help='Склад, принадлежащий выбранному Fulfillment-партнёру',
         domain="[('fulfillment_owner_id', '=', fulfillment_item_manager)]",
     )
