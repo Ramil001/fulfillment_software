@@ -94,6 +94,35 @@ class SaleOrderLine(models.Model):
         domain="[('fulfillment_owner_id', '=', fulfillment_item_manager)]",
     )
 
+
+    @api.onchange('fulfillment_item_manager')
+    def _onchange_fulfillment_item_manager(self):
+        """Автоматически выбирает склад fulfillment_item_warehouse при смене партнёра"""
+        for line in self:
+            if not line.fulfillment_item_manager:
+                line.fulfillment_item_warehouse = False
+                return
+
+            partner = line.fulfillment_item_manager
+            _logger.info(f"[ONCHANGE] Выбран партнёр {partner.name}")
+
+            warehouse = self.env['stock.warehouse'].search([
+                ('fulfillment_owner_id', '=', partner.id)
+            ], limit=1)
+
+            if not warehouse:
+                warehouse = self.env['stock.warehouse'].search([
+                    ('fulfillment_client_id', '=', partner.id)
+                ], limit=1)
+
+            if warehouse:
+                line.fulfillment_item_warehouse = warehouse.id
+                _logger.info(f"[AUTO] Для партнёра {partner.name} выбран склад {warehouse.name}")
+            else:
+                line.fulfillment_item_warehouse = False
+                _logger.warning(f"[AUTO] Для партнёра {partner.name} не найден склад")
+                
+                
     @api.model_create_multi
     def create(self, vals_list):
         """Перед созданием — проверяем корректность fulfillment_item_manager"""
