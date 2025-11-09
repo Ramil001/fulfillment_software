@@ -86,6 +86,13 @@ class SaleOrderLine(models.Model):
         readonly=True,
         copy=False,
     )
+    
+    fulfillment_item_warehouse = fields.Many2one(
+        'stock.warehouse',
+        string='Fulfillment Warehouse',
+        help='Склад, принадлежащий выбранному Fulfillment-партнёру',
+        domain="[('fulfillment_owner_id', '=', fulfillment_item_manager)]",
+    )
 
     @api.model_create_multi
     def create(self, vals_list):

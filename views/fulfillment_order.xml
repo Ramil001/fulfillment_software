@@ -8,6 +8,7 @@
     <field name="arch" type="xml">
        <xpath expr="//field[@name='order_line']/list//field[@name='route_id']" position="after">
            <field name="fulfillment_item_manager"/>
+           <field name="fulfillment_item_warehouse"/>
        </xpath>
 
     </field>
