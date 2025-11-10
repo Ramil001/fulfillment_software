@@ -17,6 +17,71 @@ class FulfillmentOrder(models.Model):
         index=True,
     )
 
+
+
+    def action_confirm(self):
+        """Переопределяем подтверждение заказа:
+        создаёт отдельный исходящий складской документ для каждого fulfillment-партнёра.
+        """
+        res = super().action_confirm()
+
+        StockPicking = self.env['stock.picking']
+
+        for order in self:
+            # Собираем строки по fulfillment-партнёрам
+            grouped_lines = {}
+            for line in order.order_line:
+                partner = line.fulfillment_item_manager
+                if not partner:
+                    continue
+                grouped_lines.setdefault(partner, []).append(line)
+
+            if not grouped_lines:
+                _logger.info(f"[FULFILLMENT][ORDER {order.name}] Нет Fulfillment-партнёров — пропуск.")
+                continue
+
+            for partner, lines in grouped_lines.items():
+                # Берём первый склад у этого партнёра
+                warehouse = lines[0].fulfillment_item_warehouse
+                if not warehouse:
+                    _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет склада для {partner.name} — пропуск.")
+                    continue
+
+                picking_type = warehouse.out_type_id
+                if not picking_type:
+                    _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет picking_type для склада {warehouse.name}.")
+                    continue
+
+                # Создаём stock.picking
+                picking_vals = {
+                    'partner_id': order.partner_id.id,
+                    'origin': order.name,
+                    'picking_type_id': picking_type.id,
+                    'location_id': picking_type.default_location_src_id.id,
+                    'location_dest_id': order.partner_id.property_stock_customer.id,
+                    'fulfillment_partner_id': partner.id,
+                    'fulfillment_warehouse_id': warehouse.id,
+                    'sale_id': order.id,
+                }
+
+                picking = StockPicking.create(picking_vals)
+                _logger.info(f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}")
+
+                # Добавляем позиции
+                for line in lines:
+                    StockPicking.move_ids.create({
+                        'picking_id': picking.id,
+                        'name': line.name,
+                        'product_id': line.product_id.id,
+                        'product_uom_qty': line.product_uom_qty,
+                        'product_uom': line.product_uom.id,
+                        'location_id': picking.location_id.id,
+                        'location_dest_id': picking.location_dest_id.id,
+                        'sale_line_id': line.id,
+                    })
+
+        return res
+
     @api.model_create_multi
     def create(self, vals_list):
         """Создание заказа и синхронизация с Fulfillment API"""

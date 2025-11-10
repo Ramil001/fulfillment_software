@@ -176,6 +176,12 @@ class FulfillmentTransfers(models.Model):
         help="Fulfillment owner ID",
         readonly=True
     )
+    
+    fulfillment_warehouse_id = fields.Char(
+        string="Fulfillment Warehouse ID",
+        help="External Warehouses ID",
+        copy=False
+    )
 
     # ===== Onchange handler ===== 
     @api.onchange('partner_id')
