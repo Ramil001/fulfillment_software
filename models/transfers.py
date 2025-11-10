@@ -217,6 +217,33 @@ class FulfillmentTransfers(models.Model):
             except Exception as e:
                 _logger.error("[BUS][ERROR] Не удалось отправить уведомление %s: %s", partner.name, e)
                     
+    @api.model_create_multi
+    def create(self, vals_list):
+        _logger.info("[Fulfillment][CREATE] Creating %d new stock.picking records", len(vals_list))
+
+        records = super(FulfillmentTransfers, self).create(vals_list)
+        for rec in records:
+            _logger.info("[Fulfillment][CREATE] Record created: %s (id=%s, name=%s, transfer_id=%s)",
+                        rec.picking_type_code, rec.id, rec.name, rec.fulfillment_transfer_id)
+
+            # Проверяем, был ли уже создан трансфер в Fulfillment
+            if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
+                existing = self.search([
+                    ("name", "=", rec.name),
+                    ("fulfillment_transfer_id", "!=", "Empty")
+                ], limit=1)
+
+                if existing:
+                    _logger.warning("[Fulfillment][CREATE] Skipping push for %s — already has transfer_id=%s",
+                                    rec.name, existing.fulfillment_transfer_id)
+                else:
+                    _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
+                    rec._push_to_fulfillment_api()
+            else:
+                _logger.info("[Fulfillment][CREATE] Skip push — already linked to Fulfillment (%s)",
+                            rec.fulfillment_transfer_id)
+
+        return records
 
     def write(self, vals):
         if self.env.context.get('skip_fulfillment_push'):
