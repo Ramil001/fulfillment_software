@@ -164,12 +164,14 @@ class FulfillmentTransfers(models.Model):
         index=True,
         ondelete='set null'
     )
+    
     fulfillment_transfer_id = fields.Char(
         string="Transfer ID",
         default="Empty",
         help="Fulfillment transfer ID",
         readonly=True
     )
+    
     fulfillment_transfer_owner_id = fields.Char(
         string="Resource owner",
         default="Empty",

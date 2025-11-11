@@ -67,9 +67,9 @@ class FulfillmentOrder(models.Model):
                 picking = StockPicking.create(picking_vals)
                 _logger.info(f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}")
 
-                # Добавляем позиции
+                StockMove = self.env['stock.move']
                 for line in lines:
-                    StockPicking.move_ids.create({
+                    StockMove.create({
                         'picking_id': picking.id,
                         'name': line.name,
                         'product_id': line.product_id.id,
@@ -79,6 +79,8 @@ class FulfillmentOrder(models.Model):
                         'location_dest_id': picking.location_dest_id.id,
                         'sale_line_id': line.id,
                     })
+
+
 
         return res
 
@@ -121,13 +123,16 @@ class FulfillmentOrder(models.Model):
                     "currency": order.currency_id.name or "UAH",
                 }
 
-
                 _logger.info(f"[FULFILLMENT][SYNC] Payload для API: {payload}")
-
                 response = client.order.create(payload)
                 _logger.info(f"[FULFILLMENT][SYNC] Ответ API: {response}")
+                
+                api_order = response.get("order", {})
+                fulfillment_id = api_order.get("order_id") or api_order.get("id")
 
-                order.fulfillment_order_id = response.get("order_id") or response.get("id")
+                order.write({
+                    "fulfillment_order_id": fulfillment_id
+                    }) 
 
             except FulfillmentAPIError as e:
                 _logger.error(f"[FULFILLMENT][ERROR] Ошибка синхронизации заказа {order.name}: {e}")
