@@ -25,11 +25,16 @@ class FulfillmentOrder(models.Model):
         и синхронизирует с внешним Fulfillment API.
         """
         res = super().action_confirm()
+
         StockPicking = self.env['stock.picking']
         StockMove = self.env['stock.move']
 
-        api_url = "https://api.fulfillment.software/api/v1/transfers"
-        api_token = self.env['ir.config_parameter'].sudo().get_param('fulfillment.api_token')
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[FULFILLMENT] Профиль интеграции не найден, пропускаем синхронизацию.")
+            return res
+
+        client = FulfillmentAPIClient(profile)
 
         for order in self:
             grouped_lines = {}
@@ -83,9 +88,12 @@ class FulfillmentOrder(models.Model):
                     })
 
                     move_items.append({
-                        "product_id": line.product_id.default_code or str(line.product_id.id),
-                        "name": line.product_id.name,
-                        "quantity": line.product_uom_qty,
+                        "product_id": (
+                            line.product_id.fulfillment_product_id
+                            or line.product_id.default_code
+                            or str(line.product_id.id)
+                        ),
+                        "quantity": int(line.product_uom_qty),
                         "unit": line.product_uom.name or "Units",
                     })
 
@@ -94,29 +102,40 @@ class FulfillmentOrder(models.Model):
                     payload = {
                         "reference": picking.name,
                         "transfer_type": "outgoing",
-                        "warehouse_out": warehouse.fulfillment_warehouse_id or warehouse.name,
+                        "warehouse_out": (
+                            warehouse.fulfillment_warehouse_id
+                            or warehouse.name
+                            or "UNKNOWN-WH"
+                        ),
                         "warehouse_in": order.partner_id.name or "Customer",
                         "status": "confirmed",
                         "items": move_items,
                     }
-                    headers = {
-                        "Authorization": f"Bearer {api_token}",
-                        "Content-Type": "application/json",
-                    }
 
-                    resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
-                    resp.raise_for_status()
+                    _logger.info(f"[FULFILLMENT][PUSH] Payload для API: {payload}")
 
-                    data = resp.json()
-                    transfer_id = data.get("transfer_id") or data.get("id")
-                    _logger.info(f"[FULFILLMENT][PUSH] Отправлено {picking.name} → Fulfillment ({transfer_id})")
+                    response = client.transfer.create(payload)
+                    _logger.info(f"[FULFILLMENT][PUSH] Ответ API: {response}")
 
-                    picking.write({'fulfillment_transfer_ref': transfer_id})
+                    transfer_id = (
+                        response.get("transfer_id")
+                        or response.get("id")
+                        or response.get("transfer", {}).get("id")
+                    )
 
+                    if transfer_id:
+                        picking.write({'fulfillment_transfer_ref': transfer_id})
+                        _logger.info(f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API.")
+                    else:
+                        _logger.warning(f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}")
+
+                except FulfillmentAPIError as e:
+                    _logger.error(f"[FULFILLMENT][ERROR] Ошибка API при создании трансфера {picking.name}: {e}")
                 except Exception as e:
-                    _logger.error(f"[FULFILLMENT][ERROR] Не удалось синхронизировать {picking.name}: {e}")
+                    _logger.exception(f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}")
 
         return res
+
 
     @api.model_create_multi
     def create(self, vals_list):
