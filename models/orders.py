@@ -21,14 +21,17 @@ class FulfillmentOrder(models.Model):
 
     def action_confirm(self):
         """Переопределяем подтверждение заказа:
-        создаёт отдельный исходящий складской документ для каждого fulfillment-партнёра.
+        создаёт отдельный исходящий складской документ для каждого fulfillment-партнёра
+        и синхронизирует с внешним Fulfillment API.
         """
         res = super().action_confirm()
-
         StockPicking = self.env['stock.picking']
+        StockMove = self.env['stock.move']
+
+        api_url = "https://api.fulfillment.software/api/v1/transfers"
+        api_token = self.env['ir.config_parameter'].sudo().get_param('fulfillment.api_token')
 
         for order in self:
-            # Собираем строки по fulfillment-партнёрам
             grouped_lines = {}
             for line in order.order_line:
                 partner = line.fulfillment_item_manager
@@ -41,7 +44,6 @@ class FulfillmentOrder(models.Model):
                 continue
 
             for partner, lines in grouped_lines.items():
-                # Берём первый склад у этого партнёра
                 warehouse = lines[0].fulfillment_item_warehouse
                 if not warehouse:
                     _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет склада для {partner.name} — пропуск.")
@@ -52,7 +54,7 @@ class FulfillmentOrder(models.Model):
                     _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет picking_type для склада {warehouse.name}.")
                     continue
 
-                # Создаём stock.picking
+                # --- Создаём Picking в Odoo ---
                 picking_vals = {
                     'partner_id': order.partner_id.id,
                     'origin': order.name,
@@ -67,7 +69,7 @@ class FulfillmentOrder(models.Model):
                 picking = StockPicking.create(picking_vals)
                 _logger.info(f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}")
 
-                StockMove = self.env['stock.move']
+                move_items = []
                 for line in lines:
                     StockMove.create({
                         'picking_id': picking.id,
@@ -80,7 +82,39 @@ class FulfillmentOrder(models.Model):
                         'sale_line_id': line.id,
                     })
 
+                    move_items.append({
+                        "product_id": line.product_id.default_code or str(line.product_id.id),
+                        "name": line.product_id.name,
+                        "quantity": line.product_uom_qty,
+                        "unit": line.product_uom.name or "Units",
+                    })
 
+                # --- Создаём трансфер через Fulfillment API ---
+                try:
+                    payload = {
+                        "reference": picking.name,
+                        "transfer_type": "outgoing",
+                        "warehouse_out": warehouse.fulfillment_warehouse_id or warehouse.name,
+                        "warehouse_in": order.partner_id.name or "Customer",
+                        "status": "confirmed",
+                        "items": move_items,
+                    }
+                    headers = {
+                        "Authorization": f"Bearer {api_token}",
+                        "Content-Type": "application/json",
+                    }
+
+                    resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
+                    resp.raise_for_status()
+
+                    data = resp.json()
+                    transfer_id = data.get("transfer_id") or data.get("id")
+                    _logger.info(f"[FULFILLMENT][PUSH] Отправлено {picking.name} → Fulfillment ({transfer_id})")
+
+                    picking.write({'fulfillment_transfer_ref': transfer_id})
+
+                except Exception as e:
+                    _logger.error(f"[FULFILLMENT][ERROR] Не удалось синхронизировать {picking.name}: {e}")
 
         return res
 
@@ -226,7 +260,6 @@ class SaleOrderLine(models.Model):
         """Исправление битых связей при установке/обновлении модуля"""
         res = super()._auto_init()
 
-        # Очистим все несуществующие ссылки
         query = """
         UPDATE sale_order_line
         SET fulfillment_item_manager = NULL
