@@ -1,13 +1,7 @@
-<odoo noupdate="1">
-
-    <!-- Enable Storage Locations -->
-    <record id="stock.group_stock_multi_locations" model="res.groups">
-        <field name="users" eval="[(4, ref('base.user_admin'))]"/>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="apply_stock_settings" model="res.config.settings">
+        <field name="group_stock_multi_locations">True</field>
+        <field name="group_stock_adv_location">True</field>
     </record>
-
-    <!-- Enable Multi-Step Routes -->
-    <record id="stock.group_adv_location" model="res.groups">
-        <field name="users" eval="[(4, ref('base.user_admin'))]"/>
-    </record>
-
 </odoo>

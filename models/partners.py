@@ -229,9 +229,81 @@ class FulfillmentPartners(models.Model):
                 sticky=True
             )
             return False
-
+        
+    def _activate_stock_settings(self):
+        """Активирует необходимые настройки склада, если они еще не активны"""
+        try:
+            env = self.env
+            
+            # Проверяем, не активированы ли уже настройки
+            config_params = env['ir.config_parameter'].sudo()
+            multi_locations_active = config_params.get_param('stock.group_stock_multi_locations') == 'True'
+            
+            # В Odoo 18 может быть другое имя для Multi-Step Routes
+            adv_location_active = config_params.get_param('stock.group_stock_route_planner') == 'True'
+            
+            if multi_locations_active and adv_location_active:
+                _logger.info("✅ Stock settings already activated")
+                return True
+            
+            # Пробуем разные возможные имена групп для Odoo 18
+            group_names_to_try = [
+                'stock.group_stock_multi_locations',  # Storage Locations
+                'stock.group_stock_adv_location',     # Multi-Step Routes (старое)
+                'stock.group_stock_route_planner',    # Multi-Step Routes (новое)
+                'stock.group_adv_location',           # Альтернативное имя
+            ]
+            
+            groups_to_add = []
+            
+            for group_name in group_names_to_try:
+                try:
+                    group = env.ref(group_name)
+                    groups_to_add.append(group.id)
+                    _logger.info(f"✅ Found group: {group_name}")
+                except Exception:
+                    _logger.warning(f"⚠️ Group not found: {group_name}")
+                    continue
+            
+            if not groups_to_add:
+                _logger.warning("❌ No stock groups found in the system")
+                self._notify_bus("Stock Settings", "Группы склада не найдены в системе", "warning")
+                return False
+            
+            # Добавляем группы администратору
+            admin_user = env.ref('base.user_admin')
+            admin_user.sudo().write({
+                'groups_id': [(4, group_id) for group_id in groups_to_add]
+            })
+            
+            # Устанавливаем параметры конфигурации
+            config_params.set_param('stock.group_stock_multi_locations', 'True')
+            
+            # Пробуем разные параметры для Multi-Step Routes
+            for param_name in ['stock.group_stock_adv_location', 'stock.group_stock_route_planner']:
+                try:
+                    config_params.set_param(param_name, 'True')
+                    break
+                except Exception:
+                    continue
+            
+            # Обновляем кэш
+            env['ir.config_parameter'].init(force=True)
+            
+            self._notify_bus("Stock Settings", "Настройки склада активированы", "success")
+            _logger.info("✅ Stock settings activated successfully")
+            return True
+            
+        except Exception as e:
+            self._notify_bus("Stock Settings", f"Ошибка активации настроек: {str(e)}", "warning")
+            _logger.error(f"❌ Error activating stock settings: {str(e)}")
+            return True  # Возвращаем True чтобы синхронизация продолжилась
     def button_run_import_all(self):
         """Кнопка запуска полной синхронизации"""
+        
+        # Активируем настройки склада перед синхронизацией
+        self._activate_stock_settings()
+        
         profile = self._get_active_profile()
         success = self.import_all(profile=profile)
         if not success:
@@ -239,7 +311,7 @@ class FulfillmentPartners(models.Model):
             return False
         return {
             'effect': {
-                'type': 'rainbow_man',
+                'type': 'rainbow_man', 
                 'message': 'Import success',
                 'fadeout': 'slow',
             }

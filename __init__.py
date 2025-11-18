@@ -4,3 +4,4 @@ from . import controllers
 from . import models
 from . import services
 from . import utils
+from . import hooks
