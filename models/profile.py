@@ -14,7 +14,10 @@ class FulfillmentProfile(models.Model):
     @api.model
     def _default_webhook_url(self):
         base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
-        return f"{base_url}/fulfillment/webhook"
+        if not base_url.startswith("http"):
+            base_url = "https://" + base_url
+        return f"{base_url.rstrip('/')}"
+
 
     address = fields.Char(string="Address")
     capabilities_id = fields.Many2one(
