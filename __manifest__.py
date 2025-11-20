@@ -22,7 +22,6 @@
     },
     'data': [
         'security/ir.model.access.csv',     # Права доступа
-        'data/stock_settings.xml',
         'views/views.xml',                  # Представления
         'views/fulfillment_warehouses.xml',  # Представление для изменения страницы создания скалада
         'views/fulfillment_transfers.xml',   # Представление для изменения страницы создания скалада

@@ -69,35 +69,62 @@ class FulfillmentProfile(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        bus = self.env["bus.utils"]
-
-        # сначала просто отправляем уведомление, но НЕ выходим из функции
-        for vals in vals_list:
-            if not vals.get("fulfillment_api_key"):
-                bus.send_notification(
-                    title="Ошибка подключения к API",
-                    message="У Вас не заполнен Fulfillment API Key",
-                    level="info",
-                    sticky=True
-                )
-                
-            vals["update_at"] = datetime.now()
-
-        # создаём записи как обычно
+        # Создаём записи как обычно
         records = super().create(vals_list)
+        _logger.info("[PARTNERS][CREATE] Created partners: %s", records.ids)
 
-        # запускаем синхронизацию только для тех, у кого ключ задан
-        records_with_key = records.filtered(lambda r: r.fulfillment_api_key)
-        if records_with_key:
-            records_with_key._sync_with_fulfillment_api()
+        # Если вызов уже помечен skip_auto_import — ничего не делаем.
+        if self.env.context.get('skip_auto_import'):
+            _logger.debug("[PARTNERS][CREATE] skip_auto_import in context — skipping auto import_all")
+            return records
+
+        # Ищем активный профиль с API ключом
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile or not profile.fulfillment_api_key:
+            _logger.warning("[PARTNERS][CREATE] No active fulfillment.profile with API key — skipping auto import_all")
+            return records
+
+        try:
+            _logger.info(
+                "[PARTNERS][CREATE] Triggering auto import_all() (profile id=%s) ...",
+                profile.id
+            )
+
+            # вызываем метод модели partners с sudo()
+            self.env['fulfillment.partners'].sudo().import_all(profile=profile.sudo())
+
+            _logger.info("[PARTNERS][CREATE] auto import_all() finished")
+
+        except Exception as e:
+            _logger.exception("[PARTNERS][CREATE] auto import_all() failed: %s", e)
 
         return records
 
+
+
+
     def write(self, vals):
         vals['update_at'] = datetime.now()
+
+        # запоминаем старое значение
+        had_key_before = bool(self.fulfillment_api_key)
+        new_key = vals.get("fulfillment_api_key")
+
         result = super().write(vals)
+
+        # всегда синхронизируем профиль (старое поведение)
         self._sync_with_fulfillment_api()
+
+        # 🔥 если ключ появился впервые → запускаем import_all
+        if new_key and not had_key_before:
+            try:
+                _logger.info("[PROFILE][WRITE] fulfillment_api_key added → running import_all()")
+                self.env['fulfillment.partners'].sudo().import_all(profile=self.sudo())
+            except Exception as e:
+                _logger.exception("[PROFILE][WRITE] import_all() failed: %s", e)
+
         return result
+
 
     # --- Sync через API client ---
     def _sync_with_fulfillment_api(self):

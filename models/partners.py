@@ -207,7 +207,6 @@ class FulfillmentPartners(models.Model):
                 level="success",
                 sticky=True
             )
-
             return {
                 'type': 'ir.actions.act_window',
                 'name': 'Partners',
@@ -231,26 +230,30 @@ class FulfillmentPartners(models.Model):
             return False
         
     def _activate_stock_settings(self):
+        _logger.info("⚙ Enabling Storage Locations via Settings Wizard...")
         try:
-            # Storage Locations: работает
-            self.env['ir.config_parameter'].sudo().set_param('stock.storage_locations', 'True')
-
-            # Multi-Step Routes: через implied_group
-            settings = self.env['res.config.settings'].sudo().create({
+            Settings = self.env['res.config.settings'].sudo()
+            
+            # Создаем настройки. Важно: иногда нужно получить default значения,
+            # но для принудительного включения True должно хватить.
+            config = Settings.create({
+                'group_stock_multi_locations': True,
                 'group_stock_adv_location': True,
             })
-            settings.execute()
+            
+            # Принудительно вызываем execute
+            config.execute()
+            
+            # ЛАЙФХАК: Иногда execute() не срабатывает, если Odoo считает, 
+            # что значения не изменились.
+            # Можно попробовать напрямую вызвать методы установки значений, если они есть,
+            # но Вариант 1 все равно надежнее.
 
-            _logger.info("✔ Storage Locations & Multi-Step Routes enabled in Odoo 18")
+            _logger.info("✔ Settings applied")
             return True
-
         except Exception as e:
-            _logger.error(f"Error enabling stock settings: {e}")
+            _logger.error(f"❌ Error: {e}")
             return False
-
-
-
-        
         
     def button_run_import_all(self):
         """Кнопка запуска полной синхронизации"""
@@ -270,7 +273,6 @@ class FulfillmentPartners(models.Model):
                 'fadeout': 'slow',
             }
         }
-
     # ---------- Контакты ----------
     def import_contacts(self, partner_record):
         """Создаём или обновляем контакт res.partner"""
