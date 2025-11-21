@@ -49,6 +49,53 @@ class FulfillmentOrder(models.Model):
                 continue
 
             for partner, lines in grouped_lines.items():
+
+                # === Создать товары в Fulfillment API, если их нет ===
+                for line in lines:
+                    product = line.product_id
+                    tmpl = product.product_tmpl_id
+
+                    if tmpl.fulfillment_product_id:
+                        continue  # уже создан
+
+                    product_payload = {
+                        "name": tmpl.name,
+                        "sku": tmpl.default_code or f"SKU-{tmpl.id}",
+                        "barcode": tmpl.barcode or str(tmpl.id).zfill(6),
+                    }
+
+                    try:
+                        resp = client.product.create(product_payload)
+                        _logger.info("[Fulfillment][SaleOrder][Product][Create] %s -> %s", tmpl.name, resp)
+
+                        if resp and resp.get("status") == "success":
+                            new_id = resp["data"].get("product_id")
+
+                            if new_id:
+                                tmpl.product_variant_id.fulfillment_product_id = new_id
+                                _logger.info(
+                                    "[Fulfillment][SaleOrder] Saved product_id %s for %s",
+                                    new_id, tmpl.name
+                                )
+                            else:
+                                _logger.warning(
+                                    "[Fulfillment][SaleOrder] No product_id in API response for %s",
+                                    tmpl.name
+                                )
+
+                    except FulfillmentAPIError as e:
+                        _logger.error(
+                            "[Fulfillment][SaleOrder][Product][API Error] %s: %s",
+                            tmpl.name, e
+                        )
+
+                    except Exception as e:
+                        _logger.exception(
+                            "[Fulfillment][SaleOrder][Product][Unexpected] %s: %s",
+                            tmpl.name, e
+                        )
+
+                # === Продолжение твоей логики ===
                 warehouse = lines[0].fulfillment_item_warehouse
                 if not warehouse:
                     _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет склада для {partner.name} — пропуск.")
@@ -56,7 +103,9 @@ class FulfillmentOrder(models.Model):
 
                 picking_type = warehouse.out_type_id
                 if not picking_type:
-                    _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет picking_type для склада {warehouse.name}.")
+                    _logger.warning(
+                        f"[FULFILLMENT][ORDER {order.name}] Нет picking_type для склада {warehouse.name}."
+                    )
                     continue
 
                 # --- Создаём Picking в Odoo ---
@@ -72,10 +121,13 @@ class FulfillmentOrder(models.Model):
                 }
 
                 picking = StockPicking.create(picking_vals)
-                _logger.info(f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}")
+                _logger.info(
+                    f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}"
+                )
 
                 move_items = []
                 for line in lines:
+
                     StockMove.create({
                         'picking_id': picking.id,
                         'name': line.name,
@@ -125,16 +177,25 @@ class FulfillmentOrder(models.Model):
 
                     if transfer_id:
                         picking.write({'fulfillment_transfer_ref': transfer_id})
-                        _logger.info(f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API.")
+                        _logger.info(
+                            f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API."
+                        )
                     else:
-                        _logger.warning(f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}")
+                        _logger.warning(
+                            f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}"
+                        )
 
                 except FulfillmentAPIError as e:
-                    _logger.error(f"[FULFILLMENT][ERROR] Ошибка API при создании трансфера {picking.name}: {e}")
+                    _logger.error(
+                        f"[FULFILLMENT][ERROR] Ошибка API при создании трансфера {picking.name}: {e}"
+                    )
                 except Exception as e:
-                    _logger.exception(f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}")
+                    _logger.exception(
+                        f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}"
+                    )
 
         return res
+
 
 
     @api.model_create_multi

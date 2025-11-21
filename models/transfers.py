@@ -102,7 +102,7 @@ class FulfillmentItemBuilder:
             try:
                 resp = self.client.product.create(product_payload)
                 if resp and resp.get('status') == 'success':
-                    tmpl.fulfillment_product_id = resp['data'].get('product_id')
+                    tmpl.product_variant_id.fulfillment_product_id = resp['data'].get('product_id')
                     _logger.info("[Fulfillment][Create] Remote product %s -> %s",
                                  tmpl.name, tmpl.fulfillment_product_id)
             except Exception as e:
