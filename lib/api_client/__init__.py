@@ -5,8 +5,9 @@ from .transfer import TransferAPI
 from .product import ProductAPI
 from .fulfillment import FulfillmentAPI
 from .location import LocationAPI
-from . stock import StockAPI
-from . order import OrderAPI
+from .stock import StockAPI
+from .order import OrderAPI
+from .contact import ContactAPI
 
 __all__ = [
     'FulfillmentAPIClient',
@@ -19,4 +20,5 @@ __all__ = [
     'LocationAPI',
     'StockAPI',
     'OrderAPI',
+    'ContactAPI',
 ]

@@ -214,9 +214,56 @@ class FulfillmentOrder(models.Model):
 
         for order in records:
             try:
+                partner = order.partner_id
+
+                # === 1. Создание контакта в Fulfillment API ===
+                if not partner.fulfillment_contact_id:
+                    contact_payload = {
+                        "type": "CUSTOMER",
+                        "name": partner.name,
+                        "email": partner.email or "",
+                        "phone": partner.phone or "",
+                        "street": partner.street or "",
+                        "street2": partner.street2 or "",
+                        "city": partner.city or "",
+                        "zip": partner.zip or "",
+                        "country": partner.country_id.name if partner.country_id else "",
+                        "isCompany": partner.is_company,
+                        "companyName": partner.name if partner.is_company else None,
+                        "parentId": None,
+                    }
+
+                    try:
+                        _logger.info(f"[FULFILLMENT][CONTACT][CREATE] Payload: {contact_payload}")
+                        contact_resp = client.contact.create(contact_payload)
+                        _logger.info(f"[FULFILLMENT][CONTACT][CREATE] Response: {contact_resp}")
+
+                        # API sometimes returns a list, sometimes an object
+                        if isinstance(contact_resp, list) and contact_resp:
+                            contact_id = contact_resp[0].get("id")
+                        else:
+                            contact_id = contact_resp.get("id")
+
+                        if contact_id:
+                            partner.write({"fulfillment_contact_id": contact_id})
+                            _logger.info(
+                                f"[FULFILLMENT][CONTACT] Saved contact_id {contact_id} for partner {partner.name}"
+                            )
+                        else:
+                            _logger.warning(
+                                f"[FULFILLMENT][CONTACT] API returned no id for partner {partner.name}"
+                            )
+
+                    except FulfillmentAPIError as e:
+                        _logger.error(f"[FULFILLMENT][CONTACT][ERROR] Ошибка API: {e}")
+                    except Exception as e:
+                        _logger.exception(f"[FULFILLMENT][CONTACT][UNEXPECTED]: {e}")
+
+                # === 2. Формируем payload заказа ===
                 payload = {
                     "order_name": order.name,
                     "order_id": order.id,
+                    "customer_id": partner.fulfillment_contact_id,  # <-- ВАЖНО!
                     "items": [
                         {
                             "product_id": (
@@ -237,21 +284,23 @@ class FulfillmentOrder(models.Model):
                     "currency": order.currency_id.name or "UAH",
                 }
 
+                # === 3. Отправляем заказ ===
                 _logger.info(f"[FULFILLMENT][SYNC] Payload для API: {payload}")
                 response = client.order.create(payload)
                 _logger.info(f"[FULFILLMENT][SYNC] Ответ API: {response}")
-                
+
                 api_order = response.get("order", {})
                 fulfillment_id = api_order.get("order_id") or api_order.get("id")
 
                 order.write({
                     "fulfillment_order_id": fulfillment_id
-                    }) 
+                })
 
             except FulfillmentAPIError as e:
                 _logger.error(f"[FULFILLMENT][ERROR] Ошибка синхронизации заказа {order.name}: {e}")
             except Exception as e:
                 _logger.exception(f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке заказа {order.name}: {e}")
+
 
         return records
 
@@ -265,6 +314,7 @@ class SaleOrderLine(models.Model):
         string='Fulfillment Delivery',
         help='Кто отправляет этот товар',
     )
+    
     fulfillment_line_id = fields.Char(
         string="Fulfillment Line ID",
         readonly=True,

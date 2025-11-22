@@ -29,6 +29,13 @@ class FulfillmentOverrideResPartner(models.Model):
         copy=False,
         readonly=True
     )
+    
+    fulfillment_contact_id = fields.Char(
+        string="Fulfillment Contact Id",
+        index=True,
+        copy=False,
+        readonly=True
+    )
 
 
 # ---------- Партнеры ----------

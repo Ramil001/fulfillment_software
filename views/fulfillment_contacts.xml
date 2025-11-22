@@ -9,6 +9,7 @@
             <xpath expr="//notebook" position="inside">
                 <page string="Fulfillment">
                     <group>
+                        <field name="fulfillment_contact_id"></field>
                         <field name="fulfillment_partner_id" />
                         <field name="fulfillment_warehouse_id"/>
                         <field name="linked_warehouse_id"/>
