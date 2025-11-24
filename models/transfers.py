@@ -33,7 +33,7 @@ class IncomingTransferMapper(BaseTransferMapper):
 
 class OutgoingTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out_id, warehouse_in_id):
-        return {
+        base_payload = {
             "reference": picking.name or picking.origin or "Odoo",
             "partner": picking.partner_id.name if picking.partner_id else None,
             "warehouse_out": warehouse_out_id,
@@ -41,7 +41,9 @@ class OutgoingTransferMapper(BaseTransferMapper):
             "status": picking.state or "draft",
             "items": items,
         }
-
+        
+        _logger.info("[Fulfillment][Mapper] Built base payload for outgoing transfer")
+        return base_payload
 
 class InternalTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out_id, warehouse_in_id):
@@ -254,29 +256,31 @@ class FulfillmentTransfers(models.Model):
         return records
 
     def write(self, vals):
-        if self.env.context.get('skip_fulfillment_push'):
-            return super(FulfillmentTransfers, self).write(vals)
-
         res = super(FulfillmentTransfers, self).write(vals)
 
-        # логируем обновление
         for rec in self:
             _logger.info("[Fulfillment][WRITE] Updated %s with vals=%s", rec.name, vals)
 
-            # вызываем пуш, если уже есть внешний ID
-            if rec.fulfillment_transfer_id and rec.fulfillment_transfer_id != "Empty":
-                # если изменились важные поля, делаем апдейт
-                trigger_fields = {'move_ids', 'state', 'partner_id', 'location_id', 'location_dest_id'}
-                if trigger_fields.intersection(vals.keys()):
-                    _logger.info("[Fulfillment][WRITE] Detected change in %s — pushing update to API", 
-                                trigger_fields.intersection(vals.keys()))
+            trigger_fields = {'move_ids', 'state', 'partner_id', 'location_id', 'location_dest_id'}
+
+            # Проверяем, есть ли партнер и fulfillment_contact_id
+            has_contact = rec.partner_id and getattr(rec.partner_id, "fulfillment_contact_id", False)
+
+            # Если есть внешний ID или партнёр теперь готов для outgoing
+            if rec.picking_type_code == 'outgoing' and has_contact:
+                # Для новых записей без transfer_id — пушим создание
+                if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
+                    _logger.info("[Fulfillment][WRITE] Outgoing picking with contact, creating transfer in API")
                     rec._push_to_fulfillment_api()
-                else:
-                    _logger.debug("[Fulfillment][WRITE] No relevant changes for API push in %s", rec.name)
+                # Для существующих — пушим обновление
+                elif trigger_fields.intersection(vals.keys()):
+                    _logger.info("[Fulfillment][WRITE] Detected relevant change — pushing update to API")
+                    rec._push_to_fulfillment_api()
             else:
-                _logger.debug("[Fulfillment][WRITE] No fulfillment_transfer_id yet, skipping push")
+                _logger.debug("[Fulfillment][WRITE] Skipping push — no contact or not outgoing")
 
         return res
+
 
     
     
@@ -289,6 +293,9 @@ class FulfillmentTransfers(models.Model):
          - иначе ищем запись в fulfillment.partners по partner_id
          - если всё это не даёт результата, возвращаем None
         """
+        
+        _logger.error("🔥🔥🔥 PUSH CALLED FOR: %s", self.name)
+
         if not partner:
             return None
 
@@ -329,34 +336,23 @@ class FulfillmentTransfers(models.Model):
     def _push_to_fulfillment_api(self):
         self.ensure_one()
         _logger.info(
-            "[Fulfillment][PUSH] Called for picking: %s (id=%s, transfer_id=%s, type=%s, state=%s)",
-            self.name, self.id, self.fulfillment_transfer_id, self.picking_type_code, self.state
+            "[Fulfillment][PUSH] Called for picking: %s (id=%s, transfer_id=%s, type=%s, state=%s, partner=%s)",
+            self.name, self.id, self.fulfillment_transfer_id, self.picking_type_code, self.state,
+            self.partner_id.name if self.partner_id else "None"
         )
 
-
+        # Проверяем move_ids - если пустые, возможно нужно подождать
         if not self.move_ids:
             _logger.warning("[Fulfillment][PUSH] Skip — no move_ids for %s", self.name)
+            # Но возможно это временно, проверяем есть ли связанные заказы
+            if self.sale_id and self.sale_id.order_line:
+                _logger.info("[Fulfillment][PUSH] But has sale order with lines, moves may be created later")
             return
 
         # Проверим наличие API клиента
         client = self.fulfillment_api
         if not client:
             _logger.error("[Fulfillment][PUSH] API client unavailable for %s", self.name)
-            return
-        # диагностика
-        try:
-            self._get_operation_type(self)
-        except Exception:
-            # не критично — продолжаем, но логируем
-            _logger.exception("[Fulfillment] error while getting operation type")
-
-        if not self.move_ids:
-            _logger.debug("[Fulfillment] skip %s - no move_ids", self.name)
-            return
-
-        client = self.fulfillment_api
-        if not client:
-            _logger.warning("[Fulfillment] API client not available for %s", self.name)
             return
 
         # Items
@@ -384,31 +380,32 @@ class FulfillmentTransfers(models.Model):
         # --- Determine per picking type ---
         if self.picking_type_code == 'incoming':
             _logger.info("[Fulfillment] Processing INCOMING for %s", self.name)
-
-            # warehouse_out: склад партнёра (прямо из контакта)
             warehouse_out_id = getattr(partner, "fulfillment_warehouse_id", None)
-            _logger.info("  - partner warehouse ext id: %s", warehouse_out_id)
-
-            # warehouse_in: наш склад (через location_dest_id)
+            
             dest_wh = self.env['stock.warehouse'].search([('lot_stock_id', '=', self.location_dest_id.id)], limit=1)
             warehouse_in_id = getattr(dest_wh, "fulfillment_warehouse_id", None) if dest_wh else None
-            _logger.info("  - dest warehouse: %s -> %s", getattr(dest_wh, "name", ""), warehouse_in_id)
 
-            # профили
             fulfillment_out = self._get_partner_fulfillment_profile_id(partner)
             fulfillment_in = my_fulfillment_id
-
 
         elif self.picking_type_code == 'outgoing':
             _logger.info("[Fulfillment] Processing OUTGOING for %s", self.name)
             # откуда
             src_wh = self.env['stock.warehouse'].search([('lot_stock_id', '=', self.location_id.id)], limit=1)
             warehouse_out_id = getattr(src_wh, "fulfillment_warehouse_id", None) if src_wh else None
-            # кому
+            
+            # кому - ВАЖНО: берем fulfillment_warehouse_id, а не имя!
             warehouse_in_id = getattr(self.partner_id, "fulfillment_warehouse_id", None)
 
             fulfillment_out = my_fulfillment_id
             fulfillment_in = self._get_partner_fulfillment_profile_id(self.partner_id)
+
+            # Детальная отладка
+            _logger.info("[Fulfillment][DEBUG] Outgoing transfer details:")
+            _logger.info("  - partner: %s", self.partner_id.name)
+            _logger.info("  - fulfillment_contact_id: %s", getattr(self.partner_id, "fulfillment_contact_id", None))
+            _logger.info("  - fulfillment_warehouse_id: %s", warehouse_in_id)
+            _logger.info("  - fulfillment_profile_id: %s", fulfillment_in)
 
         elif self.picking_type_code == 'internal':
             _logger.info("[Fulfillment] Processing INTERNAL for %s", self.name)
@@ -424,25 +421,51 @@ class FulfillmentTransfers(models.Model):
         else:
             _logger.warning("[Fulfillment] Unknown picking_type_code=%s for %s", self.picking_type_code, self.name)
 
-        # --- Build payload and explicitly include fulfillment owners ---
+        # --- Build payload через адаптер ---
         payload = PickingAdapter.to_api_payload(self, items, warehouse_out_id, warehouse_in_id)
-        # explicitly add fulfillment ownership info so remote system knows кто чей
+
+        # --- ВАЖНО: Добавляем контакты для outgoing трансферов ---
+        if self.picking_type_code == 'outgoing' and self.partner_id:
+            contact_id = getattr(self.partner_id, "fulfillment_contact_id", None)
+            if contact_id:
+                payload["contacts"] = [{"contactId": str(contact_id), "role": "DELIVERY"}]
+                _logger.info("[Fulfillment] Added contact %s to payload for partner %s", contact_id, self.partner_id.name)
+            else:
+                _logger.warning("[Fulfillment] No fulfillment_contact_id for partner %s", self.partner_id.name)
+                self._debug_partner_contacts(self.partner_id)
+
+        # --- Далее пушим transfer ---
+        if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
+            response = client.transfer.create(payload)
+        else:
+            response = client.transfer.update(self.fulfillment_transfer_id, payload)
+
+        # Добавляем fulfillment профили
         if fulfillment_out:
             payload['fulfillment_out'] = fulfillment_out
         if fulfillment_in:
             payload['fulfillment_in'] = fulfillment_in
 
-        _logger.info("[Fulfillment][Payload][%s]\n%s", self.picking_type_code,
-                     json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-
+        # Детальное логирование финального payload
+        _logger.info("[Fulfillment][Final Payload for %s]", self.picking_type_code)
+        _logger.info("  - reference: %s", payload.get("reference"))
+        _logger.info("  - warehouse_out: %s", payload.get("warehouse_out"))
+        _logger.info("  - warehouse_in: %s", payload.get("warehouse_in"))
+        _logger.info("  - contacts: %s", payload.get("contacts", []))
+        _logger.info("  - fulfillment_out: %s", payload.get("fulfillment_out"))
+        _logger.info("  - fulfillment_in: %s", payload.get("fulfillment_in"))
+        _logger.info("  - items count: %s", len(payload.get("items", [])))
 
         # --- Sync ---
         try:
             # Создаём трансфер только если ещё нет связанного ID
             if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
+                _logger.info("[Fulfillment][CREATE] Sending transfer to API with %d contacts", 
+                            len(payload.get("contacts", [])))
                 response = client.transfer.create(payload)
-                _logger.info("[Fulfillment][CREATE] Sent new transfer payload: %s", payload)
-                _logger.info("[Fulfillment][CREATE] Raw API response: %s", response)
+                
+                _logger.info("[Fulfillment][CREATE] API response received, contacts in response: %s", 
+                            response.get('contacts', []) if isinstance(response, dict) else 'Unknown')
 
                 if isinstance(response, dict):
                     vals = {
@@ -451,29 +474,48 @@ class FulfillmentTransfers(models.Model):
                         "state": response.get("status") or "draft",
                     }
 
-                    # Дополнительные поля при необходимости
                     if response.get("fulfillment_in"):
                         vals["fulfillment_transfer_owner_id"] = response["fulfillment_in"]
 
                     self.write(vals)
                     _logger.info(
-                        "[Fulfillment][CREATE] Updated transfer %s with new fulfillment_transfer_id=%s",
+                        "[Fulfillment][CREATE] Updated transfer %s with fulfillment_transfer_id=%s",
                         self.name, response.get("transfer_id")
                     )
                 else:
                     _logger.warning("[Fulfillment][CREATE] Unexpected API response type: %s", type(response))
 
             else:
-                # Если есть ID — просто обновляем на API
+                # Если есть ID — обновляем на API
                 response = client.transfer.update(self.fulfillment_transfer_id, payload)
-                _logger.info("[Fulfillment][UPDATE] Pushed transfer update for %s. API response: %s",
-                             self.fulfillment_transfer_id, response)
+                _logger.info("[Fulfillment][UPDATE] Pushed transfer update for %s", self.fulfillment_transfer_id)
 
         except Exception as e:
             _logger.error("[Fulfillment][ERROR] Failed to sync transfer %s: %s", self.name, e, exc_info=True)
 
-
-
+    def _debug_partner_contacts(self, partner):
+        """Метод для отладки контактов партнера"""
+        _logger.info("[Fulfillment][DEBUG] Checking contacts for partner %s:", partner.name)
+        
+        # 1. Прямо из партнера
+        contact_id = getattr(partner, 'fulfillment_contact_id', None)
+        _logger.info("  - Direct fulfillment_contact_id: %s", contact_id)
+        
+        # 2. Через linked_warehouse
+        if hasattr(partner, 'linked_warehouse_id') and partner.linked_warehouse_id:
+            wh_contact = getattr(partner.linked_warehouse_id, 'fulfillment_contact_id', None)
+            _logger.info("  - From linked_warehouse: %s", wh_contact)
+        
+        # 3. Через fulfillment.partners
+        try:
+            fp = self.env['fulfillment.partners'].search([('partner_id', '=', partner.id)], limit=1)
+            if fp:
+                fp_contact = getattr(fp, 'fulfillment_contact_id', None)
+                _logger.info("  - From fulfillment.partners: %s", fp_contact)
+        except Exception as e:
+            _logger.debug("  - Error searching fulfillment.partners: %s", e)
+            
+            
     # ----- API client -----
     @property
     def fulfillment_api(self):
@@ -517,165 +559,159 @@ class FulfillmentTransfers(models.Model):
         return True
 
     def _import_transfer(self, transfer):
-        """Импорт одного transfer в Odoo"""
-        remote_id = transfer.get("transfer_id")
-        reference = transfer.get("reference")
-        wh_in_ext = transfer.get("warehouse_in")
-        wh_out_ext = transfer.get("warehouse_out")
+        """Импорт входящего Transfer из Fulfillment в Odoo."""
 
-        if not remote_id:
-            _logger.warning("[Fulfillment] Transfer без ID пропущен: %s", transfer)
+        picking_obj = self.env["stock.picking"]
+        partner_obj = self.env["res.partner"]
+        product_obj = self.env["product.product"]
+
+        external_id = transfer.get("id")
+        transfer_type = transfer.get("type")
+        contacts = transfer.get("contacts") or []
+        items = transfer.get("items") or []
+
+        if not external_id:
+            _logger.error("[Fulfillment][IMPORT] Transfer без ID — пропуск")
             return False
 
-        # 🔍 Ищем по внешним ID соответствующие склады
-        warehouse_in = self.env["stock.warehouse"].search(
-            [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
-        )
-        warehouse_out = self.env["stock.warehouse"].search(
-            [("fulfillment_warehouse_id", "=", wh_out_ext)], limit=1
-        )
-
-        location_id = warehouse_out.lot_stock_id.id if warehouse_out else False
-        location_dest_id = warehouse_in.lot_stock_id.id if warehouse_in else False
-
-        partner = self.env["res.partner"].search(
-            [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
-        )
-
-        picking = self.search([("fulfillment_transfer_id", "=", remote_id)], limit=1)
-        
-        picking_type_id = self._map_type(transfer)
-        picking_type = self.env["stock.picking.type"].browse(picking_type_id)
-        type_code = picking_type.code if picking_type else "unknown"
-
-        wh_code = warehouse_out.code or warehouse_in.code or "WH"
-        type_short = {
-            "incoming": "IN",
-            "outgoing": "OUT",
-            "internal": "INT"
-        }.get(type_code, "UNK")
-
-
-        hash_part = str(remote_id)[:8]
-        name = f"[F] {wh_code}/{type_short}/{hash_part}"
-        
-        vals = {
-            "name": name,
-            "fulfillment_transfer_id": remote_id,
-            "state": transfer.get("status") or "draft",
-            "picking_type_id": self._map_type(transfer),
-            "partner_id": partner.id if partner else False,
-            "location_id": location_id,
-            "location_dest_id": location_dest_id,
-        }
-
+        # Проверяем существующий
+        picking = picking_obj.search([("fulfillment_transfer_id", "=", external_id)], limit=1)
         if picking:
-            picking.write(vals)
-            _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, remote_id)
-        else:
-            picking = self.create(vals)
-            _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, remote_id)
-            
-        # --- Создание/обновление товарных позиций ---
-        items = transfer.get("items", [])
-        if not items:
-            _logger.info("[Fulfillment] Transfer %s без items, пропущен", remote_id)
+            _logger.info(f"[Fulfillment][IMPORT] Transfer {external_id} уже существует → {picking.name}")
             return picking
 
-        Move = self.env["stock.move"]
-        ProductTmpl = self.env["product.template"]
+        # ============================================================
+        #               ИМПОРТ КОНТАКТА CUSTOMER
+        # ============================================================
+        customer_contact = next(
+            (c for c in contacts if c.get("role") == "CUSTOMER"),
+            None
+        )
 
-        for item in items:
-            Move = self.env["stock.move"]
-            ProductTmpl = self.env["product.template"]
+        partner_id = False
+        if customer_contact:
+            partner_id = self._import_fulfillment_contact(customer_contact)
 
-            # --- универсально достаём данные ---
-            product_data = item.get("product") or {}
-            fulfillment_product_id = (
-                item.get("product_id")  # при POST
-                or product_data.get("product_id")  # при GET
-            )
+        # ============================================================
+        #         Определяем тип операции и Picking Type
+        # ============================================================
 
-            prod_name = product_data.get("name") or "Unnamed Product"
-            sku = product_data.get("sku") or f"F-{fulfillment_product_id}"
-            barcode = product_data.get("barcode")
+        picking_type_code = "incoming" if transfer_type == "INBOUND" else "outgoing"
 
-            # --- поиск продукта в Odoo ---
-            product_tmpl = False
-            if fulfillment_product_id:
-                product_tmpl = ProductTmpl.search([
-                    ("fulfillment_product_id", "=", fulfillment_product_id)
-                ], limit=1)
+        picking_type = self.env["stock.picking.type"].search(
+            [("code", "=", picking_type_code)],
+            limit=1
+        )
 
-            if not product_tmpl and sku:
-                product_tmpl = ProductTmpl.search([
-                    ("default_code", "=", sku)
-                ], limit=1)
+        if not picking_type:
+            raise UserError(f"Не найден picking type для типа {picking_type_code}")
 
-            # --- если нет, создаём ---
-            if not product_tmpl:
-                create_vals = {
-                    "name": prod_name,
-                    "type": "consu",
-                    "is_storable": True,
-                    "uom_id": self.env.ref("uom.product_uom_unit").id,
-                    "uom_po_id": self.env.ref("uom.product_uom_unit").id,
-                    "default_code": sku,
-                    "fulfillment_product_id": fulfillment_product_id,
-                }
-                if barcode:
-                    create_vals["barcode"] = barcode
+        # ============================================================
+        #          Создаём stock.picking (пустой, без move)
+        # ============================================================
 
-                product_tmpl = ProductTmpl.create(create_vals)
+        vals = {
+            "picking_type_id": picking_type.id,
+            "origin": transfer.get("reference") or external_id,
+            "scheduled_date": transfer.get("dateCreated") or fields.Datetime.now(),
+            "fulfillment_transfer_id": external_id,
+        }
 
-                if not product_tmpl.product_variant_ids:
-                    product_tmpl._create_variant_ids()
-                    product_tmpl.flush_recordset()
+        if partner_id:
+            vals["partner_id"] = partner_id
 
-                _logger.info(
-                    "[Fulfillment][Import] Создан продукт '%s' (fulfillment_product_id=%s)",
-                    prod_name, fulfillment_product_id
-                )
+        picking = picking_obj.create(vals)
 
-            else:
-                if not product_tmpl.fulfillment_product_id and fulfillment_product_id:
-                    product_tmpl.fulfillment_product_id = fulfillment_product_id
-                    _logger.info(
-                        "[Fulfillment][Import] Обновлён product '%s' -> fulfillment_product_id=%s",
-                        product_tmpl.name, fulfillment_product_id
-                    )
+        _logger.info(f"[Fulfillment][IMPORT] Создан Transfer {external_id} → {picking.name}")
 
+        # ============================================================
+        #                 Создаём Stock Moves
+        # ============================================================
 
-            # --- создаём move ---
-            product_id = product_tmpl.product_variant_id.id
-            quantity = float(item.get("quantity") or 0.0)
+        for line in items:
+            sku = line.get("sku")
+            qty = line.get("quantity") or 0
+
+            if not sku:
+                _logger.error(f"[Fulfillment][IMPORT] Пропуск строки — нет SKU")
+                continue
+
+            product = product_obj.search([("default_code", "=", sku)], limit=1)
+
+            if not product:
+                _logger.error(f"[Fulfillment][IMPORT] Пропуск — SKU {sku} не найден в Odoo")
+                continue
 
             move_vals = {
-                "name": prod_name,
-                "product_id": product_id,
-                "product_uom_qty": quantity,
-                "product_uom": product_tmpl.uom_id.id,
+                "name": product.name,
+                "product_id": product.id,
+                "product_uom": product.uom_id.id,
+                "product_uom_qty": qty,
                 "picking_id": picking.id,
-                "location_id": location_id,
-                "location_dest_id": location_dest_id,
-                "state": "draft",
+                "location_id": picking.location_id.id,
+                "location_dest_id": picking.location_dest_id.id,
             }
 
-            existing_move = Move.search([
-                ("picking_id", "=", picking.id),
-                ("product_id", "=", product_id)
-            ], limit=1)
+            self.env["stock.move"].create(move_vals)
 
-            if existing_move:
-                existing_move.write(move_vals)
-            else:
-                Move.create(move_vals)
+        picking.action_confirm()
 
-                
-                
+        _logger.info(f"[Fulfillment][IMPORT] Transfer {external_id} полностью импортирован")
+
         return picking
 
 
+
+
+    def _import_fulfillment_contact(self, contact_data):
+        """
+        Создаёт или обновляет контакт по данным Fulfillment.
+        Возвращает partner_id.
+        """
+        if not contact_data:
+            return False
+
+        cid = contact_data.get("contactId")
+        info = contact_data.get("contact") or {}
+
+        name = info.get("name") or "NoName"
+        phone = info.get("phone") or ""
+        email = info.get("email") or ""
+
+        Partner = self.env["res.partner"]
+
+        # 1) Ищем по fulfillment_contact_id
+        partner = Partner.search([("fulfillment_contact_id", "=", cid)], limit=1)
+
+        # 2) fallback: ищем по имени+телефону
+        if not partner:
+            domain = [("name", "=", name)]
+            if phone:
+                domain.append(("phone", "=", phone))
+            partner = Partner.search(domain, limit=1)
+
+        # 3) Создаём нового
+        if not partner:
+            partner = Partner.create({
+                "name": name,
+                "phone": phone,
+                "email": email,
+                "fulfillment_contact_id": cid,
+            })
+            _logger.info(
+                "[Fulfillment][Import] Создан контакт %s (%s)",
+                name, cid
+            )
+            return partner.id
+
+        # 4) Если нашли — обновляем внешний ID (если пустой)
+        if not partner.fulfillment_contact_id and cid:
+            partner.fulfillment_contact_id = cid
+
+        # 5) Можно обновлять имя / телефон / email, если хочешь:
+        # partner.write({"phone": phone, "email": email})
+
+        return partner.id
 
 
     def _map_type(self, transfer):

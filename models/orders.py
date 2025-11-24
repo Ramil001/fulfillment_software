@@ -151,6 +151,8 @@ class FulfillmentOrder(models.Model):
 
                 # --- Создаём трансфер через Fulfillment API ---
                 try:
+                    receiver_id = order.partner_shipping_id.fulfillment_contact_id
+                    
                     payload = {
                         "reference": picking.name,
                         "transfer_type": "outgoing",
@@ -163,6 +165,12 @@ class FulfillmentOrder(models.Model):
                         "status": "confirmed",
                         "items": move_items,
                     }
+                    
+                    if receiver_id:
+                        payload["contacts"] = [{
+                            "contactId": receiver_id,
+                            "role": "CUSTOMER"
+                        }]
 
                     _logger.info(f"[FULFILLMENT][PUSH] Payload для API: {payload}")
 
@@ -176,7 +184,7 @@ class FulfillmentOrder(models.Model):
                     )
 
                     if transfer_id:
-                        picking.write({'fulfillment_transfer_ref': transfer_id})
+                        picking.write({'fulfillment_transfer_id': transfer_id})
                         _logger.info(
                             f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API."
                         )
@@ -261,9 +269,9 @@ class FulfillmentOrder(models.Model):
 
                 # === 2. Формируем payload заказа ===
                 payload = {
-                    "order_name": order.name,
-                    "order_id": order.id,
-                    "customer_id": partner.fulfillment_contact_id,  # <-- ВАЖНО!
+                    "external_order_id": order.name,
+                    "notes": order.note or "",
+                    
                     "items": [
                         {
                             "product_id": (
@@ -280,9 +288,24 @@ class FulfillmentOrder(models.Model):
                         }
                         for line in order.order_line
                     ],
-                    "total": float(order.amount_total),
-                    "currency": order.currency_id.name or "UAH",
+
+                    "contacts": [
+                        {
+                            "role": "customer",
+                            "contact_id": order.partner_id.fulfillment_contact_id
+                        },
+                        *[
+                            {
+                                "role": "delivery",
+                                "contact_id": line.fulfillment_item_manager.partner_id.fulfillment_contact_id
+                            }
+                            for line in order.order_line
+                            if line.fulfillment_item_manager and line.fulfillment_item_manager.partner_id.fulfillment_contact_id
+                        ]
+                    ]
+
                 }
+
 
                 # === 3. Отправляем заказ ===
                 _logger.info(f"[FULFILLMENT][SYNC] Payload для API: {payload}")
@@ -314,7 +337,6 @@ class SaleOrderLine(models.Model):
         string='Fulfillment Delivery',
         help='Кто отправляет этот товар',
     )
-    
     fulfillment_line_id = fields.Char(
         string="Fulfillment Line ID",
         readonly=True,
