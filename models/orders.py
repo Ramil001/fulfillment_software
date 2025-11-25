@@ -5,7 +5,7 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 
 _logger = logging.getLogger(__name__)
 
-
+# Нужно добавить статусы и блокировку
 
 class FulfillmentOrder(models.Model):
     _inherit = 'sale.order'
