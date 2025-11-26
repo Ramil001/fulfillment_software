@@ -159,6 +159,12 @@ class WarehouseMapper:
 class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
 
+
+    @api.depends('state')
+    def _compute_push_status(self):
+        for rec in self:
+            if rec.state and rec.picking_type_code in ('outgoing','incoming','internal'):
+                rec._push_to_fulfillment_api()
     # ===== fields =====
     fulfillment_partner_id = fields.Many2one(
         'fulfillment.partners',

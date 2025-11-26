@@ -201,11 +201,13 @@ class FulfillmentOrder(models.Model):
                     _logger.exception(
                         f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}"
                     )
-
+            self.action_lock()
         return res
 
 
-
+    def action_unlock(self):
+        raise UserError("Разблокировка заказа запрещена.")
+    
     @api.model_create_multi
     def create(self, vals_list):
         """Создание заказа и синхронизация с Fulfillment API"""
