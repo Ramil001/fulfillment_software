@@ -160,11 +160,14 @@ class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
 
 
+
+
     @api.depends('state')
     def _compute_push_status(self):
         for rec in self:
             if rec.state and rec.picking_type_code in ('outgoing','incoming','internal'):
                 rec._push_to_fulfillment_api()
+                
     # ===== fields =====
     fulfillment_partner_id = fields.Many2one(
         'fulfillment.partners',
@@ -194,6 +197,23 @@ class FulfillmentTransfers(models.Model):
     )
 
     # ===== Onchange handler ===== 
+    
+    @api.onchange('state')
+    def _onchange_state(self):
+
+        old_state = self._origin.state if self._origin else 'draft (NEW)'        
+        new_state = self.state
+        
+        if old_state != new_state:
+            _logger.info(
+                "[STOCK.PICKING][STATE_CHANGE] Трансфер '%s' изменил состояние: %s → %s", 
+                self.name or "Новый трансфер",
+                old_state, 
+                new_state
+            )
+        return {}
+    
+    
     @api.onchange('partner_id')
     def _onchange_partner(self):
         """Срабатывает при изменении партнёра в stock.picking"""
@@ -262,30 +282,50 @@ class FulfillmentTransfers(models.Model):
         return records
 
     def write(self, vals):
+
+        # 1. Сохраняем старые состояния ДО write()
+        state_before = {rec.id: rec.state for rec in self}
+
         res = super(FulfillmentTransfers, self).write(vals)
 
         for rec in self:
             _logger.info("[Fulfillment][WRITE] Updated %s with vals=%s", rec.name, vals)
 
             trigger_fields = {'move_ids', 'state', 'partner_id', 'location_id', 'location_dest_id'}
-
-            # Проверяем, есть ли партнер и fulfillment_contact_id
             has_contact = rec.partner_id and getattr(rec.partner_id, "fulfillment_contact_id", False)
 
-            # Если есть внешний ID или партнёр теперь готов для outgoing
+            # 2. Проверяем смену состояния
+            old_state = state_before.get(rec.id)
+            new_state = rec.state
+
+            state_changed = old_state != new_state
+
+            if state_changed:
+                _logger.info(
+                    "[Fulfillment][STATE CHANGE] %s: %s → %s",
+                    rec.name, old_state, new_state
+                )
+
+            # 3. Fulfillment логика
             if rec.picking_type_code == 'outgoing' and has_contact:
-                # Для новых записей без transfer_id — пушим создание
+
+                # Новый трансфер — создаём в API
                 if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                    _logger.info("[Fulfillment][WRITE] Outgoing picking with contact, creating transfer in API")
+                    _logger.info("[Fulfillment][WRITE] Outgoing picking with contact — creating transfer in API")
                     rec._push_to_fulfillment_api()
-                # Для существующих — пушим обновление
-                elif trigger_fields.intersection(vals.keys()):
-                    _logger.info("[Fulfillment][WRITE] Detected relevant change — pushing update to API")
+
+                # Обновляем в API если:
+                #  - статус поменялся
+                #  - или изменилось одно из триггерных полей
+                elif state_changed or trigger_fields.intersection(vals.keys()):
+                    _logger.info("[Fulfillment][WRITE] Pushing update to API (state changed or field changed)")
                     rec._push_to_fulfillment_api()
+
             else:
                 _logger.debug("[Fulfillment][WRITE] Skipping push — no contact or not outgoing")
 
         return res
+
 
 
     
