@@ -281,53 +281,147 @@ class FulfillmentTransfers(models.Model):
 
         return records
 
-    def write(self, vals):
+    def _log_state_transition(self, rec, old_state, new_state, source):
+        if old_state == new_state:
+            return
 
-        # 1. Сохраняем старые состояния ДО write()
-        state_before = {rec.id: rec.state for rec in self}
+        # ЛОГ
+        _logger.info(
+            "[Fulfillment][STATE CHANGE][%s] %s: %s → %s",
+            source or "write",
+            rec.name or ("id=%s" % rec.id),
+            old_state,
+            new_state
+        )
+
+        # ЕСЛИ НЕТ transfer_id → пуш невозможен
+        if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
+            _logger.warning(
+                "[Fulfillment][STATE CHANGE] Skipped API push — no fulfillment_transfer_id"
+            )
+            return
+
+        # ОТПРАВЛЯЕМ СТАТУС В API
+        rec._push_status_update(new_state)
+
+
+    # правка write (оставляем твою логику, добавляем debug и сравнение old/new)
+    def write(self, vals):
+        # debug — убедимся что write вообще вызывается
+        _logger.debug("[Fulfillment][WRITE CALLED] ids=%s vals=%s model=%s", self.ids, vals, self._name)
+
+        # сохраняем состояния ДО write
+        old_states = {rec.id: rec.state for rec in self}
 
         res = super(FulfillmentTransfers, self).write(vals)
 
         for rec in self:
+            old_state = old_states.get(rec.id)
+            new_state = rec.state
+            # единая логика логирования
+            self._log_state_transition(rec, old_state, new_state, "write")
+
+            # --- твоя существующая логика (копируй как есть) ---
             _logger.info("[Fulfillment][WRITE] Updated %s with vals=%s", rec.name, vals)
 
             trigger_fields = {'move_ids', 'state', 'partner_id', 'location_id', 'location_dest_id'}
             has_contact = rec.partner_id and getattr(rec.partner_id, "fulfillment_contact_id", False)
 
-            # 2. Проверяем смену состояния
-            old_state = state_before.get(rec.id)
-            new_state = rec.state
-
-            state_changed = old_state != new_state
-
-            if state_changed:
-                _logger.info(
-                    "[Fulfillment][STATE CHANGE] %s: %s → %s",
-                    rec.name, old_state, new_state
-                )
-
-            # 3. Fulfillment логика
             if rec.picking_type_code == 'outgoing' and has_contact:
-
-                # Новый трансфер — создаём в API
                 if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                    _logger.info("[Fulfillment][WRITE] Outgoing picking with contact — creating transfer in API")
+                    _logger.info("[Fulfillment][WRITE] Outgoing picking with contact, creating transfer in API")
+                    # возможно, желаешь асинхронно — но оставляем синхронно
                     rec._push_to_fulfillment_api()
-
-                # Обновляем в API если:
-                #  - статус поменялся
-                #  - или изменилось одно из триггерных полей
-                elif state_changed or trigger_fields.intersection(vals.keys()):
-                    _logger.info("[Fulfillment][WRITE] Pushing update to API (state changed or field changed)")
+                elif trigger_fields.intersection(vals.keys()):
+                    _logger.info("[Fulfillment][WRITE] Detected relevant change — pushing update to API")
                     rec._push_to_fulfillment_api()
-
             else:
                 _logger.debug("[Fulfillment][WRITE] Skipping push — no contact or not outgoing")
 
         return res
 
+    # Перехватываем action методы — паттерн: save old state, вызвать super(), залогировать
+    def action_confirm(self):
+        old_states = {rec.id: rec.state for rec in self}
+        res = super(FulfillmentTransfers, self).action_confirm()
+        for rec in self:
+            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_confirm")
+        return res
+
+    def action_assign(self):
+        old_states = {rec.id: rec.state for rec in self}
+        res = super(FulfillmentTransfers, self).action_assign()
+        for rec in self:
+            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_assign")
+        return res
+
+    def button_validate(self):
+        old_states = {rec.id: rec.state for rec in self}
+        res = super(FulfillmentTransfers, self).button_validate()
+        for rec in self:
+            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "button_validate")
+        return res
+
+    # Иногда используется action_done / _action_done — пробуем переопределить безопасно
+    def action_done(self):
+        old_states = {rec.id: rec.state for rec in self}
+        res = super(FulfillmentTransfers, self).action_done()
+        for rec in self:
+            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_done")
+        return res
+
+    def action_cancel(self):
+        old_states = {rec.id: rec.state for rec in self}
+        res = super(FulfillmentTransfers, self).action_cancel()
+        for rec in self:
+            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_cancel")
+        return res
+
+    def _push_status_update(self, new_state):
+        client = self.fulfillment_api
+
+        payload = {
+            "status": new_state
+        }
+
+        try:
+            client.transfer.update(self.fulfillment_transfer_id, payload)
+            _logger.info(
+                "[Fulfillment][API] Status pushed to API: transfer=%s status=%s",
+                self.fulfillment_transfer_id,
+                new_state
+            )
+
+        except Exception as e:
+            _logger.error(
+                "[Fulfillment][API ERROR] Failed to push status for %s: %s",
+                self.fulfillment_transfer_id,
+                str(e)
+            )
 
 
+
+    @api.onchange('state')
+    def _onchange_state(self):
+        # 1. Получаем старое состояние из self._origin
+        # self._origin содержит значения полей до их изменения в форме.
+        # Проверяем на None, если это новая (еще не сохраненная) запись.
+        old_state = self._origin.state if self._origin else 'draft (NEW)'
+        
+        # 2. Получаем новое состояние из текущего объекта self
+        new_state = self.state
+        
+        # 3. Выводим информацию в лог, если состояние изменилось
+        if old_state != new_state:
+            _logger.info(
+                "[STOCK.PICKING][STATE_CHANGE] Трансфер '%s' изменил состояние: %s → %s", 
+                self.name or "Новый трансфер",
+                old_state, 
+                new_state
+            )
+        
+        # onchange должен вернуть словарь (или None), а не False, для корректной работы
+        return {}
     
     
     # ===== helpers =====
