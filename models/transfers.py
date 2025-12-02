@@ -160,13 +160,6 @@ class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
 
 
-
-
-    @api.depends('state')
-    def _compute_push_status(self):
-        for rec in self:
-            if rec.state and rec.picking_type_code in ('outgoing','incoming','internal'):
-                rec._push_to_fulfillment_api()
                 
     # ===== fields =====
     fulfillment_partner_id = fields.Many2one(
@@ -257,29 +250,33 @@ class FulfillmentTransfers(models.Model):
     def create(self, vals_list):
         _logger.info("[Fulfillment][CREATE] Creating %d new stock.picking records", len(vals_list))
 
+        # создание записей
         records = super(FulfillmentTransfers, self).create(vals_list)
-        for rec in records:
-            _logger.info("[Fulfillment][CREATE] Record created: %s (id=%s, name=%s, transfer_id=%s)",
-                        rec.picking_type_code, rec.id, rec.name, rec.fulfillment_transfer_id)
 
-            # Проверяем, был ли уже создан трансфер в Fulfillment
-            if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                existing = self.search([
-                    ("name", "=", rec.name),
-                    ("fulfillment_transfer_id", "!=", "Empty")
-                ], limit=1)
+        # проверка контекста — пропустить push
+        if not self.env.context.get("skip_fulfillment_push"):
+            for rec in records:
+                _logger.info("[Fulfillment][CREATE] Record created: %s (id=%s, name=%s, transfer_id=%s)",
+                            rec.picking_type_code, rec.id, rec.name, rec.fulfillment_transfer_id)
 
-                if existing:
-                    _logger.warning("[Fulfillment][CREATE] Skipping push for %s — already has transfer_id=%s",
-                                    rec.name, existing.fulfillment_transfer_id)
+                if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
+                    existing = self.search([
+                        ("name", "=", rec.name),
+                        ("fulfillment_transfer_id", "!=", "Empty")
+                    ], limit=1)
+
+                    if existing:
+                        _logger.warning("[Fulfillment][CREATE] Skipping push for %s — already has transfer_id=%s",
+                                        rec.name, existing.fulfillment_transfer_id)
+                    else:
+                        _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
+                        rec._push_to_fulfillment_api()
                 else:
-                    _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
-                    rec._push_to_fulfillment_api()
-            else:
-                _logger.info("[Fulfillment][CREATE] Skip push — already linked to Fulfillment (%s)",
-                            rec.fulfillment_transfer_id)
+                    _logger.info("[Fulfillment][CREATE] Skip push — already linked to Fulfillment (%s)",
+                                rec.fulfillment_transfer_id)
 
         return records
+
 
     def _log_state_transition(self, rec, old_state, new_state, source):
         if old_state == new_state:
@@ -307,10 +304,14 @@ class FulfillmentTransfers(models.Model):
 
     # правка write (оставляем твою логику, добавляем debug и сравнение old/new)
     def write(self, vals):
-        # debug — убедимся что write вообще вызывается
+        
         _logger.debug("[Fulfillment][WRITE CALLED] ids=%s vals=%s model=%s", self.ids, vals, self._name)
 
-        # сохраняем состояния ДО write
+
+        if self.env.context.get("skip_fulfillment_push"):
+            return super().write(vals)
+        
+        
         old_states = {rec.id: rec.state for rec in self}
 
         res = super(FulfillmentTransfers, self).write(vals)
@@ -378,26 +379,23 @@ class FulfillmentTransfers(models.Model):
         return res
 
     def _push_status_update(self, new_state):
-        client = self.fulfillment_api
+        if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
+            _logger.warning("Skip status push – no transfer_id yet")
+            return
 
-        payload = {
-            "status": new_state
-        }
+        client = self.fulfillment_api
+        if not client:
+            return
+
+        payload = {"status": new_state}
 
         try:
             client.transfer.update(self.fulfillment_transfer_id, payload)
-            _logger.info(
-                "[Fulfillment][API] Status pushed to API: transfer=%s status=%s",
-                self.fulfillment_transfer_id,
-                new_state
-            )
-
+            _logger.info("[Fulfillment][API] Status pushed: %s -> %s",
+                        self.fulfillment_transfer_id, new_state)
         except Exception as e:
-            _logger.error(
-                "[Fulfillment][API ERROR] Failed to push status for %s: %s",
-                self.fulfillment_transfer_id,
-                str(e)
-            )
+            _logger.error("[Fulfillment][API ERROR] Failed status push: %s", e)
+
 
 
 
@@ -700,13 +698,15 @@ class FulfillmentTransfers(models.Model):
 
     def _import_transfer(self, transfer):
         """Импорт одного transfer в Odoo"""
-        remote_id = transfer.get("transfer_id")
+        remote_id = str(transfer.get("transfer_id"))
         reference = transfer.get("reference")
         wh_in_ext = transfer.get("warehouse_in")
         wh_out_ext = transfer.get("warehouse_out")
+        status = transfer.get("status")
 
         contacts = transfer.get("contacts") or []
 
+        
         if not remote_id:
             _logger.warning("[Fulfillment] Transfer без ID пропущен: %s", transfer)
             return False
@@ -790,17 +790,17 @@ class FulfillmentTransfers(models.Model):
 
         hash_part = str(remote_id)[:8]
         name = f"[F] {wh_code}/{type_short}/{hash_part}"
-
+        
         vals = {
             "name": name,
             "fulfillment_transfer_id": remote_id,
-            "state": transfer.get("status") or "draft",
+            "state": status or "draft",
             "picking_type_id": picking_type_id,
             "partner_id": partner_id,
             "location_id": location_id,
             "location_dest_id": location_dest_id,
         }
-
+        _logger.info(f"[Fulfillment][Software][Transfer ID] [%s] [Status] %s ||||| %s", remote_id, status, vals)
         if picking:
             picking.write(vals)
             _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, remote_id)
@@ -808,6 +808,24 @@ class FulfillmentTransfers(models.Model):
             picking = self.create(vals)
             _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, remote_id)
 
+
+        status_map = {
+            "draft": lambda p: None,
+            "confirmed": lambda p: p.action_confirm(),
+            "assigned": lambda p: p.action_assign(),
+            "done": lambda p: p.action_done(),
+            "cancel": lambda p: p.action_cancel(),
+        }
+
+        # если пришёл статус из API и он поддерживается
+        if status in status_map:
+            try:
+                status_map[status](picking)
+                _logger.info("[Fulfillment] Статус picking %s обновлён через метод → %s", picking.name, status)
+            except Exception as e:
+                _logger.warning("[Fulfillment] Не удалось установить статус %s для picking %s: %s", status, picking.name, e)
+        else:
+            _logger.warning("[Fulfillment] Статус %s из API не поддерживается для picking %s", status, picking.name)
         # ============================================================
         # Создание/обновление товарных позиций
         # ============================================================
