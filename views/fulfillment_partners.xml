@@ -92,7 +92,6 @@
                       <field name="location_id"/>
                       <field name="location_dest_id" />
                       <field name="fulfillment_partner_id" />
-                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
                     <form>
@@ -103,7 +102,6 @@
                         <field name="location_id"/>
                         <field name="location_dest_id" />
                         <field name="fulfillment_partner_id" />
-                        <field name="move_ids_without_package" />
                         <field name="state"/>
                       </group>
                     </form>
@@ -119,7 +117,6 @@
                       <field name="location_id"/>
                       <field name="location_dest_id" />
                       <field name="fulfillment_partner_id" />
-                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
                     <form>
@@ -130,7 +127,6 @@
                         <field name="location_id"/>
                         <field name="location_dest_id" />
                         <field name="fulfillment_partner_id" />
-                        <field name="move_ids_without_package" />
                         <field name="state"/>
                       </group>
                     </form>
@@ -146,7 +142,6 @@
                       <field name="location_id"/>
                       <field name="location_dest_id" />
                       <field name="fulfillment_partner_id" />
-                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
                     <form>
@@ -157,7 +152,6 @@
                         <field name="location_id"/>
                         <field name="location_dest_id" />
                         <field name="fulfillment_partner_id" />
-                        <field name="move_ids_without_package" />
                         <field name="state"/>
                       </group>
                     </form>
