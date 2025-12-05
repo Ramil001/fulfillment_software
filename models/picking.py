@@ -61,19 +61,30 @@ class StockWarehouse(models.Model):
     def _update_return_types_for_warehouse(self, warehouse):
         _logger.info("[Warehouse][SCAN] Recompute picking types for %s", warehouse.name)
 
+        # Получаем все OUT picking types для этого склада
         picking_types = self.env["stock.picking.type"].search([
-            ('warehouse_id', '=', warehouse.id),
             ('code', '=', 'outgoing'),
+            ('warehouse_id', '=', warehouse.id),
         ])
 
         if not picking_types:
             _logger.warning("[Warehouse][NO OUT] No outgoing picking types for warehouse %s", warehouse.name)
             return
 
-        # Первый OUT тип — эталонный
-        return_type = picking_types[:1]
+        # Фильтруем только те picking types, где исходная локация относится к складу
+        warehouse_location = warehouse.lot_stock_id
+        relevant_picking_types = picking_types.filtered(
+            lambda pt: pt.default_location_src_id == warehouse_location
+        )
 
-        for pt in picking_types:
+        if not relevant_picking_types:
+            _logger.warning("[Warehouse][NO RELEVANT OUT] No outgoing picking types with source location for warehouse %s", warehouse.name)
+            return
+
+        # Берем первый как эталон
+        return_type = relevant_picking_types[:1]
+
+        for pt in relevant_picking_types:
             pt.return_picking_type_id = return_type.id
             _logger.info(
                 "[Warehouse][SET] %s → return_picking_type_id = %s",
