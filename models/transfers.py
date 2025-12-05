@@ -697,21 +697,19 @@ class FulfillmentTransfers(models.Model):
         return True
 
     def _import_transfer(self, transfer):
-        """Импорт одного transfer в Odoo"""
+        """Импорт одного transfer в Odoo с корректным применением статуса."""
         remote_id = str(transfer.get("transfer_id"))
         reference = transfer.get("reference")
         wh_in_ext = transfer.get("warehouse_in")
         wh_out_ext = transfer.get("warehouse_out")
         status = transfer.get("status")
-
         contacts = transfer.get("contacts") or []
 
-        
         if not remote_id:
             _logger.warning("[Fulfillment] Transfer без ID пропущен: %s", transfer)
             return False
 
-        # 🔍 Ищем по внешним ID соответствующие склады
+        # 🔍 Ищем склады по внешнему ID
         warehouse_in = self.env["stock.warehouse"].search(
             [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
         )
@@ -743,7 +741,6 @@ class FulfillmentTransfers(models.Model):
             )
 
             if not partner:
-                # fallback поиск по имени+телефону
                 domain = [("name", "=", cname)]
                 if cphone:
                     domain.append(("phone", "=", cphone))
@@ -756,10 +753,7 @@ class FulfillmentTransfers(models.Model):
                     "email": cemail,
                     "fulfillment_contact_id": cid,
                 })
-                _logger.info(
-                    "[Fulfillment][Import] Создан новый контакт: %s (%s)",
-                    cname, cid
-                )
+                _logger.info("[Fulfillment][Import] Создан новый контакт: %s (%s)", cname, cid)
             else:
                 if not partner.fulfillment_contact_id and cid:
                     partner.fulfillment_contact_id = cid
@@ -782,25 +776,19 @@ class FulfillmentTransfers(models.Model):
         type_code = picking_type.code if picking_type else "unknown"
 
         wh_code = warehouse_out.code or warehouse_in.code or "WH"
-        type_short = {
-            "incoming": "IN",
-            "outgoing": "OUT",
-            "internal": "INT"
-        }.get(type_code, "UNK")
-
+        type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
         hash_part = str(remote_id)[:8]
         name = f"[F] {wh_code}/{type_short}/{hash_part}"
-        
+
         vals = {
             "name": name,
             "fulfillment_transfer_id": remote_id,
-            "state": status or "draft",
             "picking_type_id": picking_type_id,
             "partner_id": partner_id,
             "location_id": location_id,
             "location_dest_id": location_dest_id,
         }
-        _logger.info(f"[Fulfillment][Software][Transfer ID] [%s] [Status] %s ||||| %s", remote_id, status, vals)
+
         if picking:
             picking.write(vals)
             _logger.info("[Fulfillment] Обновлён picking %s из transfer %s", picking.name, remote_id)
@@ -808,7 +796,76 @@ class FulfillmentTransfers(models.Model):
             picking = self.create(vals)
             _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, remote_id)
 
+        # ============================================================
+        # Создание/обновление товарных позиций
+        # ============================================================
+        items = transfer.get("items", [])
+        if items:
+            Move = self.env["stock.move"]
+            ProductTmpl = self.env["product.template"]
 
+            for item in items:
+                product_data = item.get("product") or {}
+                fulfillment_product_id = item.get("product_id") or product_data.get("product_id")
+
+                prod_name = product_data.get("name") or "Unnamed Product"
+                sku = product_data.get("sku") or f"F-{fulfillment_product_id}"
+                barcode = product_data.get("barcode")
+
+                product_tmpl = False
+                if fulfillment_product_id:
+                    product_tmpl = ProductTmpl.search(
+                        [("fulfillment_product_id", "=", fulfillment_product_id)], limit=1
+                    )
+                if not product_tmpl and sku:
+                    product_tmpl = ProductTmpl.search([("default_code", "=", sku)], limit=1)
+
+                if not product_tmpl:
+                    create_vals = {
+                        "name": prod_name,
+                        "type": "consu",
+                        "is_storable": True,
+                        "uom_id": self.env.ref("uom.product_uom_unit").id,
+                        "uom_po_id": self.env.ref("uom.product_uom_unit").id,
+                        "default_code": sku,
+                        "fulfillment_product_id": fulfillment_product_id,
+                    }
+                    if barcode:
+                        create_vals["barcode"] = barcode
+
+                    product_tmpl = ProductTmpl.create(create_vals)
+                    if not product_tmpl.product_variant_ids:
+                        product_tmpl._create_variant_ids()
+                        product_tmpl.flush_recordset()
+
+                    _logger.info("[Fulfillment][Import] Создан продукт '%s' (fulfillment_product_id=%s)", prod_name, fulfillment_product_id)
+                else:
+                    if not product_tmpl.fulfillment_product_id and fulfillment_product_id:
+                        product_tmpl.fulfillment_product_id = fulfillment_product_id
+
+                product_id = product_tmpl.product_variant_id.id
+                quantity = float(item.get("quantity") or 0.0)
+
+                move_vals = {
+                    "name": prod_name,
+                    "product_id": product_id,
+                    "product_uom_qty": quantity,
+                    "product_uom": product_tmpl.uom_id.id,
+                    "picking_id": picking.id,
+                    "location_id": location_id,
+                    "location_dest_id": location_dest_id,
+                    "state": "draft",
+                }
+
+                existing_move = Move.search([("picking_id", "=", picking.id), ("product_id", "=", product_id)], limit=1)
+                if existing_move:
+                    existing_move.write(move_vals)
+                else:
+                    Move.create(move_vals)
+
+        # ============================================================
+        # Применяем статус через методы Odoo после создания moves
+        # ============================================================
         status_map = {
             "draft": lambda p: None,
             "confirmed": lambda p: p.action_confirm(),
@@ -817,7 +874,6 @@ class FulfillmentTransfers(models.Model):
             "cancel": lambda p: p.action_cancel(),
         }
 
-        # если пришёл статус из API и он поддерживается
         if status in status_map:
             try:
                 status_map[status](picking)
@@ -826,87 +882,9 @@ class FulfillmentTransfers(models.Model):
                 _logger.warning("[Fulfillment] Не удалось установить статус %s для picking %s: %s", status, picking.name, e)
         else:
             _logger.warning("[Fulfillment] Статус %s из API не поддерживается для picking %s", status, picking.name)
-        # ============================================================
-        # Создание/обновление товарных позиций
-        # ============================================================
-        items = transfer.get("items", [])
-        if not items:
-            _logger.info("[Fulfillment] Transfer %s без items, пропущен", remote_id)
-            return picking
-
-        Move = self.env["stock.move"]
-        ProductTmpl = self.env["product.template"]
-
-        for item in items:
-            product_data = item.get("product") or {}
-            fulfillment_product_id = item.get("product_id") or product_data.get("product_id")
-
-            prod_name = product_data.get("name") or "Unnamed Product"
-            sku = product_data.get("sku") or f"F-{fulfillment_product_id}"
-            barcode = product_data.get("barcode")
-
-            product_tmpl = False
-            if fulfillment_product_id:
-                product_tmpl = ProductTmpl.search([
-                    ("fulfillment_product_id", "=", fulfillment_product_id)
-                ], limit=1)
-
-            if not product_tmpl and sku:
-                product_tmpl = ProductTmpl.search([
-                    ("default_code", "=", sku)
-                ], limit=1)
-
-            if not product_tmpl:
-                create_vals = {
-                    "name": prod_name,
-                    "type": "consu",
-                    "is_storable": True,
-                    "uom_id": self.env.ref("uom.product_uom_unit").id,
-                    "uom_po_id": self.env.ref("uom.product_uom_unit").id,
-                    "default_code": sku,
-                    "fulfillment_product_id": fulfillment_product_id,
-                }
-                if barcode:
-                    create_vals["barcode"] = barcode
-
-                product_tmpl = ProductTmpl.create(create_vals)
-                if not product_tmpl.product_variant_ids:
-                    product_tmpl._create_variant_ids()
-                    product_tmpl.flush_recordset()
-
-                _logger.info(
-                    "[Fulfillment][Import] Создан продукт '%s' (fulfillment_product_id=%s)",
-                    prod_name, fulfillment_product_id
-                )
-            else:
-                if not product_tmpl.fulfillment_product_id and fulfillment_product_id:
-                    product_tmpl.fulfillment_product_id = fulfillment_product_id
-
-            product_id = product_tmpl.product_variant_id.id
-            quantity = float(item.get("quantity") or 0.0)
-
-            move_vals = {
-                "name": prod_name,
-                "product_id": product_id,
-                "product_uom_qty": quantity,
-                "product_uom": product_tmpl.uom_id.id,
-                "picking_id": picking.id,
-                "location_id": location_id,
-                "location_dest_id": location_dest_id,
-                "state": "draft",
-            }
-
-            existing_move = Move.search([
-                ("picking_id", "=", picking.id),
-                ("product_id", "=", product_id)
-            ], limit=1)
-
-            if existing_move:
-                existing_move.write(move_vals)
-            else:
-                Move.create(move_vals)
 
         return picking
+
 
 
 
