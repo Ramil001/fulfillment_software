@@ -24,7 +24,19 @@ class FulfillmentOrder(models.Model):
         создаёт отдельный исходящий складской документ для каждого fulfillment-партнёра
         и синхронизирует с внешним Fulfillment API.
         """
-        res = super().action_confirm()
+        res = super(FulfillmentOrder, self).action_confirm()
+        
+        for order in self:
+            # Проверяем все линии заказа
+            delete_picking = True
+            for line in order.order_line:
+                if not line.fulfillment_item_manager or not line.fulfillment_item_warehouse:
+                    delete_picking = False
+                    break  # достаточно одного, чтобы не удалять
+
+            if delete_picking and order.picking_ids:
+                order.picking_ids.unlink()
+    
 
         StockPicking = self.env['stock.picking']
         StockMove = self.env['stock.move']
@@ -202,6 +214,9 @@ class FulfillmentOrder(models.Model):
                         f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}"
                     )
             self.action_lock()
+     
+
+
         return res
 
 
