@@ -795,7 +795,7 @@ class FulfillmentTransfers(models.Model):
         else:
             picking = self.create(vals)
             _logger.info("[Fulfillment] Создан новый picking %s из transfer %s", picking.name, remote_id)
-
+            
         # ============================================================
         # Создание/обновление товарных позиций
         # ============================================================
@@ -863,28 +863,33 @@ class FulfillmentTransfers(models.Model):
                 else:
                     Move.create(move_vals)
 
-        # ============================================================
-        # Применяем статус через методы Odoo после создания moves
-        # ============================================================
-        status_map = {
-            "draft": lambda p: None,
-            "confirmed": lambda p: p.action_confirm(),
-            "assigned": lambda p: p.action_assign(),
-            "done": lambda p: p.action_done(),
-            "cancel": lambda p: p.action_cancel(),
-        }
+   
+        try:
+            picking._apply_status(status)
+            _logger.info("[Fulfillment] Статус picking %s обновлён → %s", picking.name, status)
+        except Exception as e:
+            _logger.warning("[Fulfillment] Ошибка установки статуса %s для %s: %s", status, picking.name, e)
 
-        if status in status_map:
-            try:
-                status_map[status](picking)
-                _logger.info("[Fulfillment] Статус picking %s обновлён через метод → %s", picking.name, status)
-            except Exception as e:
-                _logger.warning("[Fulfillment] Не удалось установить статус %s для picking %s: %s", status, picking.name, e)
-        else:
-            _logger.warning("[Fulfillment] Статус %s из API не поддерживается для picking %s", status, picking.name)
+                        
 
         return picking
 
+
+    def _apply_status(self, status):
+        self.ensure_one()
+
+        if status in ("confirmed", "assigned", "done") and self.state == "draft":
+            self.action_confirm()
+
+        if status in ("assigned", "done") and self.state in ("draft", "confirmed"):
+            self.action_assign()
+
+        if status == "done" and self.state != "done":
+            # Лучше button_validate(), так как оно вызывает проверки
+            self.button_validate()
+
+        if status == "cancel" and self.state != "cancel":
+            self.action_cancel()
 
 
 
