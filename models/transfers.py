@@ -363,7 +363,6 @@ class FulfillmentTransfers(models.Model):
             self._log_state_transition(rec, old_states.get(rec.id), rec.state, "button_validate")
         return res
 
-    # Иногда используется action_done / _action_done — пробуем переопределить безопасно
     def action_done(self):
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_done()
@@ -667,6 +666,7 @@ class FulfillmentTransfers(models.Model):
 
     # ----- Загрузка трансферов -----
     @api.model
+    # Два метода схожих по названию, один загрузка всех трансферов, второй одного трансфера
     def import_transfers(self, fulfillment_id=None, page=1, limit=50):
         """Загружает трансферы из Fulfillment API"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -970,9 +970,7 @@ class FulfillmentTransfers(models.Model):
         op_type = self.env["stock.picking.type"].search([("code", "=", op_code)], limit=1)
         return op_type.id if op_type else False
 
-    
-    
-
+ 
     # ----- Определение типа -----
     def _get_operation_type(self, picking):
         if not picking.picking_type_id:

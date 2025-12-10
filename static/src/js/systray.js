@@ -31,6 +31,10 @@ class SystrayIcon extends Component {
             name: "Partners Fulfillment",
         });
     }
+    
+    runImportAll() {
+        this.action.doAction("fulfillment_software.action_run_import_all");
+    }
 }
 
 SystrayIcon.components = { Dropdown, DropdownItem };

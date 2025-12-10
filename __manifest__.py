@@ -30,6 +30,7 @@
         'views/fulfillment_order.xml',
         'views/fulfillment_products.xml',
         'views/fulfillment_locations.xml',
+        'data/action_import_all.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
         'views/fulfillment_main.xml',        # Действие

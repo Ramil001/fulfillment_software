@@ -20,10 +20,6 @@ class FulfillmentOrder(models.Model):
 
 
     def action_confirm(self):
-        """Переопределяем подтверждение заказа:
-        создаёт отдельный исходящий складской документ для каждого fulfillment-партнёра
-        и синхронизирует с внешним Fulfillment API.
-        """
         res = super().action_confirm()
 
         StockPicking = self.env['stock.picking']
