@@ -15,7 +15,7 @@
       </div>
       <t t-set-slot="content">
         <DropdownItem onSelected="() => this.runImportAll()">
-                    Sync All
+                    Run import all
         </DropdownItem>
         <DropdownItem onSelected="() => this.openProfiles()">
           Profiles
