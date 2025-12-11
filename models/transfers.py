@@ -875,21 +875,49 @@ class FulfillmentTransfers(models.Model):
         return picking
 
 
-    def _apply_status(self, status):
+    def _apply_status(self, target_status):
+        """
+        Прогоняет picking через промежуточные статусы до уровня target_status.
+        Не понижает статус, не проводит повторно.
+        
+        Цепочка Odoo:
+        draft -> confirmed -> assigned -> done
+        """
+
         self.ensure_one()
+        state = self.state
 
-        if status in ("confirmed", "assigned", "done") and self.state == "draft":
+        sequence = ["draft", "confirmed", "assigned", "done"]
+        if target_status not in sequence:
+            _logger.warning(f"[Fulfillment] Unknown status: {target_status}")
+            return
+
+        # индекс текущего и целевого состояния
+        current_i = sequence.index(state)
+        target_i = sequence.index(target_status)
+
+        # если документ уже на том же уровне или выше — ничего не делаем
+        if current_i >= target_i:
+            return
+
+        # Шаги переходов вверх
+        # draft → confirmed
+        if current_i < sequence.index("confirmed") and target_i >= sequence.index("confirmed"):
             self.action_confirm()
+            state = self.state
 
-        if status in ("assigned", "done") and self.state in ("draft", "confirmed"):
+        # confirmed → assigned
+        if state == "confirmed" and target_i >= sequence.index("assigned"):
             self.action_assign()
+            state = self.state
 
-        if status == "done" and self.state != "done":
-            # Лучше button_validate(), так как оно вызывает проверки
+        # assigned → done
+        if state == "assigned" and target_i >= sequence.index("done"):
             self.button_validate()
+            state = self.state
 
-        if status == "cancel" and self.state != "cancel":
-            self.action_cancel()
+        return
+
 
 
 

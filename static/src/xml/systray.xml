@@ -14,9 +14,11 @@
         </div>
       </div>
       <t t-set-slot="content">
+
         <DropdownItem onSelected="() => this.runImportAll()">
                     Run import all
         </DropdownItem>
+
         <DropdownItem onSelected="() => this.openProfiles()">
           Profiles
         </DropdownItem>
@@ -24,6 +26,7 @@
         <DropdownItem onSelected="() => this.openPartners()">
           Partners
         </DropdownItem>
+        
       </t>
     </Dropdown>
   </t>
