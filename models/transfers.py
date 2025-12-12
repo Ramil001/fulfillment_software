@@ -113,7 +113,7 @@ class FulfillmentItemBuilder:
         return tmpl.fulfillment_product_id
 
 
-# ================== Mapper ==================
+
 class WarehouseMapper:
     def __init__(self, env):
         self.env = env
@@ -155,13 +155,9 @@ class WarehouseMapper:
         return warehouse.fulfillment_warehouse_id if warehouse else None
 
 
-# ================== Main Model ==================
 class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'
 
-
-                
-    # ===== fields =====
     fulfillment_partner_id = fields.Many2one(
         'fulfillment.partners',
         string="Fulfillment Partner",
@@ -189,7 +185,8 @@ class FulfillmentTransfers(models.Model):
         copy=False
     )
 
-    # ===== Onchange handler ===== 
+
+
     
     @api.onchange('state')
     def _onchange_state(self):
@@ -213,10 +210,8 @@ class FulfillmentTransfers(models.Model):
         if not self.partner_id:
             return
 
-        # Пример действия в onchange
         self.name = f"{self.partner_id.name}"
 
-        # Формируем текст уведомления
         record_name = self.name or "(новый документ)"
         message = f"В документе {record_name} изменён партнёр на {self.partner_id.display_name}."
         title = "Изменение партнёра"
@@ -245,6 +240,7 @@ class FulfillmentTransfers(models.Model):
                 bus._sendone(partner, "fulfillment_notification", payload)
             except Exception as e:
                 _logger.error("[BUS][ERROR] Не удалось отправить уведомление %s: %s", partner.name, e)
+                    
                     
     @api.model_create_multi
     def create(self, vals_list):
@@ -291,18 +287,15 @@ class FulfillmentTransfers(models.Model):
             new_state
         )
 
-        # ЕСЛИ НЕТ transfer_id → пуш невозможен
         if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
             _logger.warning(
                 "[Fulfillment][STATE CHANGE] Skipped API push — no fulfillment_transfer_id"
             )
             return
 
-        # ОТПРАВЛЯЕМ СТАТУС В API
         rec._push_status_update(new_state)
 
 
-    # правка write (оставляем твою логику, добавляем debug и сравнение old/new)
     def write(self, vals):
         
         _logger.debug("[Fulfillment][WRITE CALLED] ids=%s vals=%s model=%s", self.ids, vals, self._name)
@@ -341,7 +334,6 @@ class FulfillmentTransfers(models.Model):
 
         return res
 
-    # Перехватываем action методы — паттерн: save old state, вызвать super(), залогировать
     def action_confirm(self):
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_confirm()
@@ -400,15 +392,9 @@ class FulfillmentTransfers(models.Model):
 
     @api.onchange('state')
     def _onchange_state(self):
-        # 1. Получаем старое состояние из self._origin
-        # self._origin содержит значения полей до их изменения в форме.
-        # Проверяем на None, если это новая (еще не сохраненная) запись.
         old_state = self._origin.state if self._origin else 'draft (NEW)'
-        
-        # 2. Получаем новое состояние из текущего объекта self
         new_state = self.state
         
-        # 3. Выводим информацию в лог, если состояние изменилось
         if old_state != new_state:
             _logger.info(
                 "[STOCK.PICKING][STATE_CHANGE] Трансфер '%s' изменил состояние: %s → %s", 
@@ -417,11 +403,9 @@ class FulfillmentTransfers(models.Model):
                 new_state
             )
         
-        # onchange должен вернуть словарь (или None), а не False, для корректной работы
         return {}
     
     
-    # ===== helpers =====
     def _get_partner_fulfillment_profile_id(self, partner):
         """
         Возвращает fulfillment_profile_id партнёра (строка) или None.
@@ -938,17 +922,14 @@ class FulfillmentTransfers(models.Model):
 
         Partner = self.env["res.partner"]
 
-        # 1) Ищем по fulfillment_contact_id
         partner = Partner.search([("fulfillment_contact_id", "=", cid)], limit=1)
 
-        # 2) fallback: ищем по имени+телефону
         if not partner:
             domain = [("name", "=", name)]
             if phone:
                 domain.append(("phone", "=", phone))
             partner = Partner.search(domain, limit=1)
 
-        # 3) Создаём нового
         if not partner:
             partner = Partner.create({
                 "name": name,
@@ -962,44 +943,32 @@ class FulfillmentTransfers(models.Model):
             )
             return partner.id
 
-        # 4) Если нашли — обновляем внешний ID (если пустой)
         if not partner.fulfillment_contact_id and cid:
             partner.fulfillment_contact_id = cid
-
-        # 5) Можно обновлять имя / телефон / email, если хочешь:
-        # partner.write({"phone": phone, "email": email})
 
         return partner.id
 
 
-    def _map_type(self, transfer):
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
+    def _map_type(self, transfer, current_picking=None):
+        tr_type = transfer.get("transfer_type")
+        type_map = {
+            "incoming": "incoming",
+            "outgoing": "outgoing",
+            "internal": "internal",
+        }
+
+        if tr_type in type_map:
+            op_code = type_map[tr_type]
+        else:
+            # fallback
+            if current_picking:
+                return current_picking.picking_type_id.id
             return False
 
-        my_fulfillment_id = profile.fulfillment_profile_id
-        wh_in = transfer.get("fulfillment_in")
-        wh_out = transfer.get("fulfillment_out")
-
-        if wh_in == wh_out:
-            op_code = "internal"
-        elif wh_in == my_fulfillment_id:
-            op_code = "incoming"
-        elif wh_out == my_fulfillment_id:
-            op_code = "outgoing"
-        else:
-            op_code = transfer.get("type") or "internal"
-
-        _logger.info(
-            "[Fulfillment][_map_type] transfer=%s wh_in=%s wh_out=%s my=%s => %s",
-            transfer.get("id"), wh_in, wh_out, my_fulfillment_id, op_code
-        )
-
         op_type = self.env["stock.picking.type"].search([("code", "=", op_code)], limit=1)
-        return op_type.id if op_type else False
+        return op_type.id if op_type else (current_picking.picking_type_id.id if current_picking else False)
 
- 
-    # ----- Определение типа -----
+
     def _get_operation_type(self, picking):
         if not picking.picking_type_id:
             _logger.warning("[FULFILLMENT] Picking %s has no picking_type_id", picking.name)

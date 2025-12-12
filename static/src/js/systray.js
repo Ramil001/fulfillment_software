@@ -27,7 +27,7 @@ class SystrayIcon extends Component {
             type: "ir.actions.act_window",
             res_model: "fulfillment.partners",
             views: [[false, "list"], [false, "form"]],
-            target: "new", // <<< тоже в диалоге
+            target: "new",
             name: "Partners Fulfillment",
         });
     }
