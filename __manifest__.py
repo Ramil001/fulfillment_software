@@ -9,7 +9,7 @@
     'website': "https://fulfillment.software/",
     'application': True,
     'category': 'Inventory',
-    'version': '0.2',
+    'version': '0.3',
     'license': "OEEL-1",
     'depends': ['base', 'contacts', 'account' ,'web','mail', 'purchase', 'stock', 'product', 'sale_management', 'account_invoice_extract'],
     'assets': {
@@ -21,22 +21,21 @@
         ],
     },
     'data': [
-        'security/ir.model.access.csv',     # Права доступа
-        'views/views.xml',                  # Представления
-        'views/fulfillment_warehouses.xml',  # Представление для изменения страницы создания скалада
-        'views/fulfillment_transfers.xml',   # Представление для изменения страницы создания скалада
-        'views/fulfillment_partners.xml',    # Предстваление старницы партнёра
-        'views/fulfillment_contacts.xml',    # Предстваление старницы contact
+        'security/ir.model.access.csv',     
+        'views/views.xml',                  
+        'views/fulfillment_warehouses.xml',  
+        'views/fulfillment_transfers.xml',   
+        'views/fulfillment_partners.xml',    
+        'views/fulfillment_contacts.xml',    
         'views/fulfillment_order.xml',
         'views/fulfillment_products.xml',
         'views/fulfillment_locations.xml',
         'data/action_import_all.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
-        'views/fulfillment_main.xml',        # Действие
-        'views/menu.xml',                   # Меню (после действия)
+        'views/fulfillment_main.xml',        
+        'views/menu.xml',                   
     ],
-    # "post_init_hook": "post_init_hook",
     'demo': [
         'demo/demo.xml',
     ],

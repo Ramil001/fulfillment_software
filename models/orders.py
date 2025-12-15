@@ -1,4 +1,5 @@
-from odoo import models, fields, api, tools
+from odoo import models, fields, api
+from odoo.exceptions import UserError
 import logging
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 
