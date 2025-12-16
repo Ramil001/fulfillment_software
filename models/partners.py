@@ -49,12 +49,12 @@ class FulfillmentPartners(models.Model):
         ('unfollow', 'Unfollow')],
         default='unfollow', tracking=True, required=True)
 
-    name = fields.Char(string="Company name", required=True, readonly=True)
-    
+
     fulfillment_id = fields.Char(string="Fulfillment ID", required=True, index=True, readonly=True)
+    name = fields.Char(string="Company name", required=True, readonly=True)
     fulfillment_logo = fields.Binary(string="Logo", attachment=True)
     api_domain = fields.Char(string="API", readonly=True)
-    webhook_url = fields.Char(string="Webhook", readonly=True)
+    webhook_domain = fields.Char(string="Webhook domain", help="A webhook is the URL of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources.")
     created_at = fields.Datetime(string="Date created")
     fulfillment_api_key = fields.Char(string="X-Fulfillment-API-Key")
 
@@ -71,7 +71,12 @@ class FulfillmentPartners(models.Model):
         help="Odoo contact linked to this fulfillment partner"
     )
 
-    # ---------- Вспомогательный helper ----------
+
+    def action_fill_webhook_domain(self):
+            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+            for rec in self:
+                rec.webhook_domain = base_url
+                
     def _notify_bus(self, title, message, level="info", sticky=False):
         """Упрощённый вызов уведомлений через bus.utils"""
         try:
@@ -335,7 +340,7 @@ class FulfillmentPartners(models.Model):
             'name': item.get('name') or 'Без имени',
             'fulfillment_id': item.get('fulfillment_id'),
             'api_domain': item.get('api_domain'),
-            'webhook_url': item.get('webhook_url'),
+            'webhook_domain': item.get('webhook_domain'),
             'created_at': created_at,
             'fulfillment_api_key': profile.fulfillment_api_key,
         }

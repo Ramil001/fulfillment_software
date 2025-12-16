@@ -42,10 +42,13 @@
                                 <field name="address"/>
                             </group>
                             <group>
-                                <separator string="API integration" colspan="2"/>
+                                <separator string="API connection" colspan="2"/>
                                 <field name="api_domain" />
-                                <field name="webhook_url" />
                                 <field name="fulfillment_api_key" password="True"/>
+                            </group>
+                            <group>
+                                <separator string="Webhook"/>
+                                <field name="webhook_domain" placeholder="example.com'" />
                             </group>
                             <group >
                                 <separator string="Connect with Fulfillment Software" colspan="2"/>
@@ -53,26 +56,7 @@
                                 <field name="fulfillment_profile_id"></field>
                             </group>
                         </group>
-                        <!-- capabilities -->
-                        <group string="Capabilities">
-                            <field name="capabilities_id">
-                                <form>
-                                    <group>
-                                        <field name="version"/>
-                                    </group>
-                                    <group string="Picking Types">
-                                        <field name="picking_outgoing"/>
-                                        <field name="picking_returns"/>
-                                        <field name="picking_dropshipping"/>
-                                        <field name="picking_crossdock"/>
-                                        <field name="picking_internal"/>
-                                    </group>
-                                    <group>
-                                        <field name="fulfillment_api_key"/>
-                                    </group>
-                                </form>
-                            </field>
-                        </group>
+                       
                     </sheet>
                 </form>
             </field>

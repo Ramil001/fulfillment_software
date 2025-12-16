@@ -19,7 +19,6 @@ class FulfillmentOrder(models.Model):
     )
 
 
-
     def action_confirm(self):
         res = super().action_confirm()
 

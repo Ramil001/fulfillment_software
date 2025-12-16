@@ -22,9 +22,10 @@
     },
     'data': [
         'security/ir.model.access.csv',     
+        'views/fulfillment_profile.xml',     
         'views/views.xml',                  
         'views/fulfillment_warehouses.xml',  
-        'views/fulfillment_transfers.xml',   
+        'views/fulfillment_transfers.xml',    
         'views/fulfillment_partners.xml',    
         'views/fulfillment_contacts.xml',    
         'views/fulfillment_order.xml',
