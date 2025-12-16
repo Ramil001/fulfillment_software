@@ -28,7 +28,7 @@ class FulfillmentProfile(models.Model):
         help="API domain, to backend fulfillment.software",
         default="api.fulfillment.software"
     )
-    webhook_domain = fields.Char(string="Webhook domain", help="A webhook is the domain of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources.")
+    webhook_domain = fields.Char(string="Webhook domain", help="A webhook is the domain of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources.", default="example.com")
 
     email = fields.Char(string="Email")
     fulfillment_api_key = fields.Char(
@@ -56,6 +56,69 @@ class FulfillmentProfile(models.Model):
     )
     
     
+    
+    
+    def action_set_current_domain(self):
+        """Установить текущий домен в поле webhook_domain"""
+        for record in self:
+            # Пробуем получить домен из текущего запроса
+            domain = self._get_domain_from_request()
+            
+            if domain and domain not in ['localhost', '127.0.0.1']:
+                record.webhook_domain = domain
+                return
+            
+            # Если не получилось из request, пробуем из параметров
+            domain = self._get_domain_from_config()
+            if domain:
+                record.webhook_domain = domain
+    
+    def _get_domain_from_request(self):
+        """Получить домен из текущего HTTP запроса"""
+        try:
+            from odoo.http import request
+            if request and hasattr(request, 'httprequest'):
+                # Получаем хост из заголовков
+                host = request.httprequest.host
+                
+                # Проверяем заголовки, которые могут содержать реальный домен
+                forwarded_host = request.httprequest.headers.get('X-Forwarded-Host')
+                if forwarded_host:
+                    host = forwarded_host
+                
+                # Убираем порт если есть
+                domain = host.split(':')[0]
+                
+                # Проверяем что это не localhost
+                if domain and domain not in ['localhost', '127.0.0.1']:
+                    return domain
+        except (RuntimeError, AttributeError):
+            pass
+        return False
+    
+    def _get_domain_from_config(self):
+        """Получить домен из конфигурации"""
+        config_param = self.env['ir.config_parameter'].sudo()
+        
+        # Пробуем разные параметры
+        web_base_url = config_param.get_param('web.base.url', '')
+        
+        if web_base_url:
+            parsed = urlparse(web_base_url)
+            if parsed.hostname and parsed.hostname not in ['localhost', '127.0.0.1']:
+                return parsed.hostname
+        
+        # Пробуем другие возможные параметры
+        for param_name in ['web.base.url.freeze', 'web.base.url.mycompany', 'website.domain']:
+            url = config_param.get_param(param_name, '')
+            if url:
+                parsed = urlparse(url if '://' in url else f'http://{url}')
+                if parsed.hostname and parsed.hostname not in ['localhost', '127.0.0.1']:
+                    return parsed.hostname
+        
+        return False
+        
+        
     def action_fill_webhook_domain(self):
         base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
         for rec in self:

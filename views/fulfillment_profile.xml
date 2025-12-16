@@ -34,6 +34,7 @@
                             <group col="2">
                                     <separator string="Webhook" colspan="2"/>
                                     <field name="webhook_domain" placeholder="example.com"/>
+                                    
                             </group>
            
                             

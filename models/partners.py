@@ -315,7 +315,7 @@ class FulfillmentPartners(models.Model):
     def _get_active_profile(self):
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile or not profile.fulfillment_api_key:
-            raise UserError("No active profile with API key configured")
+            raise UserError("You need to set the API key in the Fulfillment settings.")
         return profile
 
     def _fetch_api_data(self, profile):
