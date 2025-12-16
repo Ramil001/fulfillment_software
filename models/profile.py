@@ -1,4 +1,5 @@
 from odoo import models, fields, api
+import requests
 from datetime import datetime
 import logging
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
@@ -6,7 +7,6 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 _logger = logging.getLogger(__name__)
 
 
-## Revision
 class FulfillmentProfile(models.Model):
     _name = 'fulfillment.profile'
     _description = 'Fulfillment Profile'
@@ -64,22 +64,25 @@ class FulfillmentProfile(models.Model):
     
     
     def _check_availiable_webhook(self):
-        """
-        Проверяет доступность вебхука: делает GET-запрос к https://{webhook_domain}/fulfillment/status
-        и обновляет поле is_available_webhook.
-        """
         for record in self:
-            record.is_available_webhook = 'unavailable'
-            if not record.webhook_domain:
-                continue
-            url = f"https://{record.webhook_domain}/fulfillment/status"
-            try:
-                response = requests.get(url, timeout=5)
-                if response.status_code == 200 and response.json().get('status') == 'ok':
-                    record.is_available_webhook = 'available'
-            except Exception:
-                record.is_available_webhook = 'unavailable'
-    
+            status = 'unavailable'
+
+            if record.webhook_domain:
+                url = f"https://{record.webhook_domain}/fulfillment/status"
+                try:
+                    response = requests.get(url, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('status') == 'ok':
+                            status = 'available'
+                except Exception:
+                    pass
+
+            # ❗ Пишем БЕЗ повторного вызова write-логики
+            super(FulfillmentProfile, record.with_context(skip_webhook_check=True)).write({
+                'is_available_webhook': status
+            })
+
     
     
     def action_set_current_domain(self):
@@ -195,6 +198,11 @@ class FulfillmentProfile(models.Model):
 
         result = super().write(vals)
         
+        self._check_availiable_webhook()
+        
+        if not self.env.context.get('skip_webhook_check'):
+            self._check_availiable_webhook()
+
         self._sync_with_fulfillment_api()
 
         if new_key and not had_key_before:

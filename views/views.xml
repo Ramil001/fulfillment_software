@@ -50,10 +50,9 @@
                                 <separator string="Webhook"/>
                                 <field name="webhook_domain" placeholder="example.com" required="1" />
                                  <field name="is_available_webhook" widget="badge"
-                                    options="{'classes': {
-                                        'available': 'badge rounded-pill text-bg-success',
-                                        'unavailable': 'badge rounded-pill text-bg-danger'
-                                    }}"/>
+                                    decoration-success="is_available_webhook == 'available'"
+                                    decoration-warning="is_available_webhook == 'unavailable'"
+                                 />
                                  <button 
                                     name="action_set_current_domain" 
                                     type="object" 

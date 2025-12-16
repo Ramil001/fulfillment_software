@@ -1,4 +1,3 @@
-import json
 from odoo import http
 from odoo.http import request
 import logging
@@ -13,10 +12,3 @@ class FulfillmentUpdateController(http.Controller):
         return {"status": "ok", "sent": data}
     
     
-    @http.route('/fulfillment/status', type="http", auth="public")
-    def status(self):
-        return request.make_response(
-            '{"status": "ok"}',
-            headers=[('Content-Type', 'application/json')]
-        )
-        

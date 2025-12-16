@@ -3,3 +3,4 @@
 from . import notifications
 from . import updates
 from . import import_rpc
+from . import webhooks
