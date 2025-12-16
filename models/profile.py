@@ -38,7 +38,7 @@ class FulfillmentProfile(models.Model):
         string="Fulfillment Application Key",
         readonly=True
     )
-    name = fields.Char(string="Fulfillment name")
+    name = fields.Char(string="Company name")
     phone = fields.Char(string="Phone number")
     state_id = fields.Many2one(
         'res.country.state',
@@ -50,11 +50,35 @@ class FulfillmentProfile(models.Model):
         ('not_verification', 'Not verification')],
         default='not_verification')
 
+    is_available_webhook = fields.Selection([
+        ('available', 'Available'),
+        ('unavailable', 'Unavailable')],
+        default='unavailable', string="Availiable webhook")
+    
+    
     update_at = fields.Datetime(
         string="Last Updated",
         readonly=True
     )
     
+    
+    
+    def _check_availiable_webhook(self):
+        """
+        Проверяет доступность вебхука: делает GET-запрос к https://{webhook_domain}/fulfillment/status
+        и обновляет поле is_available_webhook.
+        """
+        for record in self:
+            record.is_available_webhook = 'unavailable'
+            if not record.webhook_domain:
+                continue
+            url = f"https://{record.webhook_domain}/fulfillment/status"
+            try:
+                response = requests.get(url, timeout=5)
+                if response.status_code == 200 and response.json().get('status') == 'ok':
+                    record.is_available_webhook = 'available'
+            except Exception:
+                record.is_available_webhook = 'unavailable'
     
     
     
@@ -170,11 +194,9 @@ class FulfillmentProfile(models.Model):
         new_key = vals.get("fulfillment_api_key")
 
         result = super().write(vals)
-
-        # всегда синхронизируем профиль (старое поведение)
+        
         self._sync_with_fulfillment_api()
 
-        # 🔥 если ключ появился впервые → запускаем import_all
         if new_key and not had_key_before:
             try:
                 _logger.info("[PROFILE][WRITE] fulfillment_api_key added → running import_all()")

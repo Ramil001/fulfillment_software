@@ -25,7 +25,7 @@
                     <sheet>
                         <group col="2">
                             <group>
-                                <separator string="Contact info" colspan="2"/>
+                                <separator string="About your company" colspan="2"/>
                                 <field name="name"/>
                                 <field name="phone"/>
                                 <field name="email"/>
@@ -49,6 +49,11 @@
                             <group>
                                 <separator string="Webhook"/>
                                 <field name="webhook_domain" placeholder="example.com" required="1" />
+                                 <field name="is_available_webhook" widget="badge"
+                                    options="{'classes': {
+                                        'available': 'badge rounded-pill text-bg-success',
+                                        'unavailable': 'badge rounded-pill text-bg-danger'
+                                    }}"/>
                                  <button 
                                     name="action_set_current_domain" 
                                     type="object" 
