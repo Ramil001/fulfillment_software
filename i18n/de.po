@@ -1,0 +1,23 @@
+msgid "Fulfillment Profile"
+msgstr "Fulfillment-Profil"
+
+msgid "Address"
+msgstr "Adresse"
+
+msgid "Capabilities"
+msgstr "Funktionen"
+
+msgid "Country"
+msgstr "Land"
+
+msgid "API domain"
+msgstr "API-Domain"
+
+msgid "API domain, to backend fulfillment.software"
+msgstr "API-Domain für das Backend fulfillment.software"
+
+msgid "Webhook domain"
+msgstr "Webhook-Domain"
+
+msgid "A webhook is the domain of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources."
+msgstr "Ein Webhook ist die Domain der Website, auf der Ihr Odoo läuft. Er wird benötigt, um Aktualisierungen auszulösen, wenn Ressourcen aktualisiert werden müssen."

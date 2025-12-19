@@ -1,4 +1,4 @@
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 import requests
 from datetime import datetime
 import logging
@@ -12,7 +12,7 @@ class FulfillmentProfile(models.Model):
     _description = 'Fulfillment Profile'
     
 
-    address = fields.Char(string="Address")
+    address = fields.Char(string=_("Address"))
     capabilities_id = fields.Many2one(
         'fulfillment.profile.capabilities',
         string="Capabilities",
