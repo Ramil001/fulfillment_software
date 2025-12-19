@@ -221,12 +221,12 @@ class FulfillmentProfile(models.Model):
         for record in self:
             if not record.fulfillment_api_key:
                 bus.send_notification(
-                    title="Ошибка подключения к API",
-                    message="У Вас не заполнен Fulfillment API Key",
+                    title="API connection error",
+                    message="You have not filled in the Fulfillment API Key",
                     level="info",
                     sticky=True
                 )
-                _logger.warning("API ключ не задан — sync пропущен.")
+                _logger.warning("API key not set — sync skipped")
                 continue
 
             client = FulfillmentAPIClient(record)

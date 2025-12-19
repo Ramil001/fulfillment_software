@@ -108,7 +108,7 @@ class FulfillmentPartners(models.Model):
         try:
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Начало полной синхронизации с Fulfillment API",
+                message="Start of full synchronization with Fulfillment API",
                 level="info",
                 sticky=True
             )
@@ -116,7 +116,7 @@ class FulfillmentPartners(models.Model):
             if not profile:
                 bus.send_notification(
                     title="Fulfillment Sync",
-                    message="Не найден активный профиль с API ключом",
+                    message="No active profile with API key found",
                     level="danger",
                     sticky=True
                 )
@@ -124,7 +124,7 @@ class FulfillmentPartners(models.Model):
 
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Получение данных из Fulfillment API...",
+                message="Getting data from the Fulfillment API...",
                 level="info"
             )
 
@@ -132,7 +132,7 @@ class FulfillmentPartners(models.Model):
             if not data:
                 bus.send_notification(
                     title="Fulfillment Sync",
-                    message="Данные из API не были получены",
+                    message="Data from the API was not received",
                     level="warning",
                     sticky=True
                 )
@@ -140,14 +140,14 @@ class FulfillmentPartners(models.Model):
 
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Обработка полученных данных...",
+                message="Processing of the received data...",
                 level="info"
             )
             self._process_api_data(data, profile)
 
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Импорт данных партнёров и связанных складов...",
+                message="Importing partner and related warehouse data...",
                 level="info"
             )
 
@@ -155,14 +155,14 @@ class FulfillmentPartners(models.Model):
                 _logger.info(f"[IMPORT DONE][{partner.name}] Purchases={partner.transfers_purchase_ids.ids}")
                 bus.send_notification(
                     title="Fulfillment Sync",
-                    message=f"Импорт складов для партнёра {partner.name}",
+                    message=f"Importing warehouses for a partner {partner.name}",
                     level="info"
                 )
                 self.env['stock.warehouse'].sudo().with_context(skip_api_sync=True).import_warehouses(partner)
 
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Импорт данных о трансферах...",
+                message="Importing transfer data...",
                 level="info"
             )
 
@@ -174,7 +174,7 @@ class FulfillmentPartners(models.Model):
                     while True:
                         bus.send_notification(
                             title="Fulfillment Sync",
-                            message=f"Загрузка трансферов для {fulfillment_id}, страница {page}",
+                            message=f"Downloading transfers for {fulfillment_id}, page {page}",
                             level="info"
                         )
                         success = self.env['stock.picking'].sudo().with_context(skip_fulfillment_push=True).import_transfers(
@@ -188,7 +188,7 @@ class FulfillmentPartners(models.Model):
 
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Проверка складов для импорта остатков...",
+                message="Checking warehouses for importing balances...",
                 level="info"
             )
 
@@ -198,7 +198,7 @@ class FulfillmentPartners(models.Model):
             if not warehouses:
                 bus.send_notification(
                     title="Fulfillment Sync",
-                    message="Нет складов с fulfillment_warehouse_id — импорт остатков пропущен",
+                    message="No warehouses with fulfillment_warehouse_id — import of balances skipped",
                     level="warning",
                     sticky=True
                 )
@@ -206,7 +206,7 @@ class FulfillmentPartners(models.Model):
                 for warehouse in warehouses:
                     bus.send_notification(
                         title="Fulfillment Sync",
-                        message=f"Импорт остатков для склада {warehouse.name}",
+                        message=f"Importing balances for warehouse {warehouse.name}",
                         level="info"
                     )
                     self.env['stock.quant'].sudo().import_stock(
@@ -215,7 +215,7 @@ class FulfillmentPartners(models.Model):
 
             bus.send_notification(
                 title="Fulfillment Sync",
-                message="Импорт данных из Fulfillment успешно завершён",
+                message="Data import from Fulfillment successfully completed",
                 level="success",
                 sticky=True
             )
@@ -235,7 +235,7 @@ class FulfillmentPartners(models.Model):
             _logger.error("Sync failed: %s", str(e))
             bus.send_notification(
                 title="Fulfillment Sync Error",
-                message=f"Ошибка при выполнении синхронизации: {str(e)}",
+                message=f"Error during synchronization: {str(e)}",
                 level="danger",
                 sticky=True
             )
@@ -253,14 +253,10 @@ class FulfillmentPartners(models.Model):
                 'group_stock_adv_location': True,
             })
             
-            # Принудительно вызываем execute
+           
             config.execute()
             
-            # ЛАЙФХАК: Иногда execute() не срабатывает, если Odoo считает, 
-            # что значения не изменились.
-            # Можно попробовать напрямую вызвать методы установки значений, если они есть,
-            # но Вариант 1 все равно надежнее.
-
+           
             _logger.info("✔ Settings applied")
             return True
         except Exception as e:
@@ -276,7 +272,7 @@ class FulfillmentPartners(models.Model):
         profile = self._get_active_profile()
         success = self.import_all(profile=profile)
         if not success:
-            self._notify_bus("Fulfillment Sync", "Синхронизация не удалась", "danger", True)
+            self._notify_bus("Fulfillment Sync", "Synchronization failed", "danger", True)
             return False
         return {
             'effect': {
@@ -289,7 +285,7 @@ class FulfillmentPartners(models.Model):
     def import_contacts(self, partner_record):
         """Создаём или обновляем контакт res.partner"""
         tag = self._get_fulfillment_tag()
-        self._notify_bus("Импорт", f"Импорт контактов для {partner_record.name}", "info")
+        self._notify_bus("Import", f"Import contacts for {partner_record.name}", "info")
 
         contact_vals = {
             'name': partner_record.name,
@@ -322,7 +318,7 @@ class FulfillmentPartners(models.Model):
         try:
             client = FulfillmentAPIClient(profile)
             data = client.fulfillment.list().get("data", [])
-            _logger.info("📦 Received %s partners from API", len(data))
+            _logger.info("Received %s partners from API", len(data))
             return data
         except FulfillmentAPIError as e:
             raise UserError(str(e))
@@ -337,7 +333,7 @@ class FulfillmentPartners(models.Model):
         existing = self.search([('fulfillment_id', '=', item['fulfillment_id'])], limit=1)
         created_at = self._normalize_datetime(item.get('created_at'))
         vals = {
-            'name': item.get('name') or 'Без имени',
+            'name': item.get('name') or 'Without name',
             'fulfillment_id': item.get('fulfillment_id'),
             'api_domain': item.get('api_domain'),
             'webhook_domain': item.get('webhook_domain'),
