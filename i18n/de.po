@@ -1,23 +1,918 @@
-msgid "Fulfillment Profile"
-msgstr "Fulfillment-Profil"
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* fulfillment_software
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 18.0+e\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-12-19 08:32+0000\n"
+"PO-Revision-Date: 2025-12-19 08:32+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
 
-msgid "Address"
-msgstr "Adresse"
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__webhook_domain
+msgid ""
+"A webhook is the URL of the site where your Odoo runs. It is necessary to "
+"call the update function when your Odoo needs to update resources."
+msgstr ""
+"Ein Webhook ist die URL der Website, auf der Ihr Odoo läuft. Er ist "
+"erforderlich, um die Aktualisierungsfunktion aufzurufen, wenn Odoo "
+"Ressourcen aktualisieren muss."
 
-msgid "Capabilities"
-msgstr "Funktionen"
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_profile__webhook_domain
+msgid ""
+"A webhook is the domain of the site where your Odoo runs. It is necessary to"
+" call the update function when your Odoo needs to update resources."
+msgstr ""
+"Ein Webhook ist die Domain der Website, auf der Ihr Odoo läuft. Er ist "
+"erforderlich, um die Aktualisierungsfunktion aufzurufen, wenn Odoo "
+"Ressourcen aktualisieren muss."
 
-msgid "Country"
-msgstr "Land"
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__api_domain
+msgid "API"
+msgstr "API"
 
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "API connection"
+msgstr "API-Verbindung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__api_domain
 msgid "API domain"
 msgstr "API-Domain"
 
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_profile__api_domain
 msgid "API domain, to backend fulfillment.software"
-msgstr "API-Domain für das Backend fulfillment.software"
+msgstr "API-Domain zum Backend von fulfillment.software"
 
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "About your company"
+msgstr "Über Ihr Unternehmen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_needaction
+msgid "Action Needed"
+msgstr "Aktion erforderlich"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_ids
+msgid "Activities"
+msgstr "Aktivitäten"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_exception_decoration
+msgid "Activity Exception Decoration"
+msgstr "Kennzeichnung von Aktivitätsausnahmen"
+
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_state
+msgid "Activity State"
+msgstr "Aktivitätsstatus"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_type_icon
+msgid "Activity Type Icon"
+msgstr "Symbol des Aktivitätstyps"
+
+#. module: fulfillment_software
+#. odoo-python
+#: code:addons/fulfillment_software/models/profile.py:0
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__address
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "Address"
+msgstr "Adresse"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_attachment_count
+msgid "Attachment Count"
+msgstr "Anzahl der Anhänge"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "Auto Setup Domain"
+msgstr "Domain automatisch einrichten"
+
+#. module: fulfillment_software
+#: model:ir.model.fields.selection,name:fulfillment_software.selection__fulfillment_profile__is_available_webhook__available
+msgid "Available"
+msgstr "Verfügbar"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__is_available_webhook
+msgid "Availiable webhook"
+msgstr "Verfügbarer Webhook"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_bus_utils
+msgid "Bus notification utilities"
+msgstr "Bus-Benachrichtigungswerkzeuge"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__capabilities_id
+msgid "Capabilities"
+msgstr "Funktionen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__state_id
+msgid "City/Region"
+msgstr "Stadt / Region"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__name
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__name
+msgid "Company name"
+msgstr "Firmenname"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "Connect with Fulfillment Software"
+msgstr "Mit Fulfillment Software verbinden"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_res_partner
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__partner_id
+msgid "Contact"
+msgstr "Kontakt"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__country_id
+msgid "Country"
+msgstr "Land"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__create_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__create_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__create_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__create_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__create_uid
+msgid "Created by"
+msgstr "Erstellt von"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__create_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__create_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__create_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__create_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__create_date
+msgid "Created on"
+msgstr "Erstellt am"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_warehouse__fulfillment_owner_id
+msgid "Creator fulfillment Id"
+msgstr "Fulfillment-ID des Erstellers"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_warehouse__fulfillment_client_id
+msgid "Customer fulfillment Id"
+msgstr "Fulfillment-ID des Kunden"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__created_at
+msgid "Date created"
+msgstr "Erstellungsdatum"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__transfers_delivery_ids
+msgid "Delivery Orders"
+msgstr "Lieferaufträge"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Delivery Orders (Outgoing)"
+msgstr "Lieferaufträge (Ausgehend)"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__description
+msgid "Description"
+msgstr "Beschreibung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__display_name
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__display_name
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__display_name
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__display_name
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__display_name
+msgid "Display Name"
+msgstr "Anzeigename"
+
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__email
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__email
+msgid "Email"
+msgstr "E-Mail"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_stock_picking__fulfillment_warehouse_id
+msgid "External Warehouses ID"
+msgstr "Externe Lager-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_stock_quant__fulfillment_stock_id
+msgid "External fulfillment system stock identifier"
+msgstr "Externe Fulfillment-System Lagerkennung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_stock_location__fulfillment_location_id
+msgid "External location ID from Fulfillment system"
+msgstr "Externe Standort-ID aus Fulfillment-System"
+
+#. module: fulfillment_software
+#: model:ir.model.fields.selection,name:fulfillment_software.selection__fulfillment_partners__status__follow
+msgid "Follow"
+msgstr "Folgen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_follower_ids
+msgid "Followers"
+msgstr "Follower"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_partner_ids
+msgid "Followers (Partners)"
+msgstr "Follower (Partner)"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__activity_type_icon
+msgid "Font awesome icon e.g. fa-tasks"
+msgstr "Font-Awesome-Symbol z.B. fa-tasks"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.sale_order_form_fulfillment
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_partner_form_fulfillment
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_products_form_inherit_fulfillment
+msgid "Fulfillment"
+msgstr "Fulfillment"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__fulfillment_profile_id
+msgid "Fulfillment Application Key"
+msgstr "Fulfillment-Anwendungsschlüssel"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_partner__fulfillment_contact_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_users__fulfillment_contact_id
+msgid "Fulfillment Contact Id"
+msgstr "Fulfillment-Kontakt-ID"
+
+#. module: fulfillment_software
+#: model:ir.actions.act_window,name:fulfillment_software.fulfillment_main
+#: model:ir.model,name:fulfillment_software.model_fulfillment_dashboard
+msgid "Fulfillment Dashboard"
+msgstr "Fulfillment-Dashboard"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_tree
+msgid "Fulfillment Dashboards"
+msgstr "Fulfillment-Dashboards"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_sale_order_line__fulfillment_item_manager
+msgid "Fulfillment Delivery"
+msgstr "Fulfillment-Lieferung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__fulfillment_id
+msgid "Fulfillment ID"
+msgstr "Fulfillment-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_sale_order_line__fulfillment_line_id
+msgid "Fulfillment Line ID"
+msgstr "Fulfillment-Zeilen-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_location__fulfillment_location_id
+msgid "Fulfillment Location ID"
+msgstr "Fulfillment-Standort-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_sale_order__fulfillment_order_id
+msgid "Fulfillment Order ID"
+msgstr "Fulfillment-Auftrags-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_product__fulfillment_owner_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_template__fulfillment_owner_id
+msgid "Fulfillment Owner ID"
+msgstr "Fulfillment-Eigentümer-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_picking__fulfillment_partner_id
+msgid "Fulfillment Partner"
+msgstr "Fulfillment-Partner"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_fulfillment_partners
+msgid "Fulfillment Partners"
+msgstr "Fulfillment-Partner"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_product__purchase_fulfillment_partner_ids
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_template__purchase_fulfillment_partner_ids
+msgid "Fulfillment Partners for Purchase"
+msgstr "Fulfillment-Partner für Einkäufe"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_product__sale_fulfillment_partner_ids
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_template__sale_fulfillment_partner_ids
+msgid "Fulfillment Partners for Sale"
+msgstr "Fulfillment-Partner für Verkauf"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_product__fulfillment_product_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_product_template__fulfillment_product_id
+msgid "Fulfillment Product ID"
+msgstr "Fulfillment-Produkt-ID"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_fulfillment_profile
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "Fulfillment Profile"
+msgstr "Fulfillment-Profil"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_fulfillment_profile_capabilities
+msgid "Fulfillment Profile Capabilities"
+msgstr "Funktionen des Fulfillment-Profils"
+
+#. module: fulfillment_software
+#. odoo-javascript
+#: code:addons/fulfillment_software/static/src/xml/systray.xml:0
+#: model:ir.ui.menu,name:fulfillment_software.menu_fulfillment_root
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_transfers_form_inherit_fulfillment
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_warehouse_form_inherit_fulfillment
+msgid "Fulfillment Software"
+msgstr "Fulfillment-Software"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_quant__fulfillment_stock_id
+msgid "Fulfillment Stock ID"
+msgstr "Fulfillment-Lager-ID"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_fulfillment_subscription
+msgid "Fulfillment Subscription"
+msgstr "Fulfillment-Abonnement"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_picking__fulfillment_warehouse_id
+msgid "Fulfillment Warehouse ID"
+msgstr "Fulfillment-Lager-ID"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_fulfillment_utils
+msgid "Fulfillment helper utils"
+msgstr "Fulfillment-Hilfswerkzeuge"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_stock_picking__fulfillment_transfer_owner_id
+msgid "Fulfillment owner ID"
+msgstr "Fulfillment-Eigentümer-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_partner__fulfillment_partner_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_users__fulfillment_partner_id
+msgid "Fulfillment partner Id"
+msgstr "Fulfillment-Partner-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_purchase_order__fulfillment_purchase_id
+msgid "Fulfillment purchase_id"
+msgstr "Fulfillment-Bestell-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_warehouse__is_fulfillment
+msgid "Fulfillment storage"
+msgstr "Fulfillment-Lager"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_stock_picking__fulfillment_transfer_id
+msgid "Fulfillment transfer ID"
+msgstr "Fulfillment-Transfer-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_partner__fulfillment_warehouse_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_users__fulfillment_warehouse_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_warehouse__fulfillment_warehouse_id
+msgid "Fulfillment warehouse Id"
+msgstr "Fulfillment-Lager-ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__has_message
+msgid "Has Message"
+msgstr "Hat Nachricht"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "I Rent"
+msgstr "Ich miete"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "I Rent Out"
+msgstr "Ich vermiete"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__id
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__id
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__id
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__id
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__id
+msgid "ID"
+msgstr "ID"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_exception_icon
+msgid "Icon"
+msgstr "Symbol"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__activity_exception_icon
+msgid "Icon to indicate an exception activity."
+msgstr "Symbol zur Anzeige einer Ausnahmeaktivität."
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__message_needaction
+msgid "If checked, new messages require your attention."
+msgstr "Wenn aktiviert, erfordern neue Nachrichten Ihre Aufmerksamkeit."
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__message_has_error
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__message_has_sms_error
+msgid "If checked, some messages have a delivery error."
+msgstr "Wenn aktiviert, haben einige Nachrichten einen Zustellfehler."
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_warehouse_form_inherit_fulfillment
+msgid "Info"
+msgstr "Information"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__transfers_internal_ids
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Internal Transfers"
+msgstr "Interne Transfers"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_stock_location
+msgid "Inventory Locations"
+msgstr "Lagerorte"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_is_follower
+msgid "Is Follower"
+msgstr "Ist Follower"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_warehouse__last_update
+msgid "Last Update"
+msgstr "Letzte Aktualisierung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__update_at
+msgid "Last Updated"
+msgstr "Zuletzt aktualisiert"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__write_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__write_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__write_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__write_uid
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__write_uid
+msgid "Last Updated by"
+msgstr "Zuletzt aktualisiert von"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__write_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__write_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__write_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__write_date
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__write_date
+msgid "Last Updated on"
+msgstr "Zuletzt aktualisiert am"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_partner__linked_warehouse_id
+#: model:ir.model.fields,field_description:fulfillment_software.field_res_users__linked_warehouse_id
+msgid "Linked warehouse"
+msgstr "Verknüpftes Lager"
+
+#. module: fulfillment_software
+#: model:ir.ui.menu,name:fulfillment_software.menu_fulfillment_partners
+msgid "List of Partners"
+msgstr "Partnerliste"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__fulfillment_logo
+msgid "Logo"
+msgstr "Logo"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_has_error
+msgid "Message Delivery error"
+msgstr "Nachrichten-Zustellfehler"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_ids
+msgid "Messages"
+msgstr "Nachrichten"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__my_activity_date_deadline
+msgid "My Activity Deadline"
+msgstr "Meine Aktivitätsfrist"
+
+#. module: fulfillment_software
+#: model:ir.actions.act_window,name:fulfillment_software.fulfillment_my_account
+msgid "My Fulfillment Account"
+msgstr "Mein Fulfillment-Konto"
+
+#. module: fulfillment_software
+#: model:ir.actions.server,name:fulfillment_software.action_my_fulfillment_profile
+msgid "My Fulfillment Profile"
+msgstr "Mein Fulfillment-Profil"
+
+#. module: fulfillment_software
+#: model:ir.ui.menu,name:fulfillment_software.menu_fulfillment_profile
+msgid "My account"
+msgstr "Mein Konto"
+
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__name
+msgid "Name"
+msgstr "Name"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_date_deadline
+msgid "Next Activity Deadline"
+msgstr "Nächste Aktivitätsfrist"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_summary
+msgid "Next Activity Summary"
+msgstr "Nächste Aktivitätszusammenfassung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_type_id
+msgid "Next Activity Type"
+msgstr "Nächster Aktivitätstyp"
+
+#. module: fulfillment_software
+#: model:ir.model.fields.selection,name:fulfillment_software.selection__fulfillment_profile__verification_account__not_verification
+msgid "Not verification"
+msgstr "Nicht verifiziert"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_needaction_counter
+msgid "Number of Actions"
+msgstr "Anzahl der Aktionen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_has_error_counter
+msgid "Number of errors"
+msgstr "Anzahl der Fehler"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__message_needaction_counter
+msgid "Number of messages requiring action"
+msgstr "Anzahl der Nachrichten, die Aktion erfordern"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__message_has_error_counter
+msgid "Number of messages with delivery error"
+msgstr "Anzahl der Nachrichten mit Zustellfehler"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__partner_id
+msgid "Odoo contact linked to this fulfillment partner"
+msgstr "Odoo-Kontakt, der diesem Fulfillment-Partner zugeordnet ist"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Partner Details"
+msgstr "Partnerdetails"
+
+#. module: fulfillment_software
+#. odoo-javascript
+#: code:addons/fulfillment_software/static/src/xml/systray.xml:0
+#: model:ir.actions.act_window,name:fulfillment_software.action_fulfillment_partners
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_list
+msgid "Partners"
+msgstr "Partner"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__phone
+msgid "Phone"
+msgstr "Telefon"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__phone
+msgid "Phone number"
+msgstr "Telefonnummer"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__picking_crossdock
+msgid "Picking Crossdock"
+msgstr "Crossdock-Picking"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__picking_dropshipping
+msgid "Picking Dropshipping"
+msgstr "Dropshipping-Picking"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__picking_internal
+msgid "Picking Internal"
+msgstr "Internes Picking"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__picking_outgoing
+msgid "Picking Outgoing"
+msgstr "Ausgehendes Picking"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__picking_returns
+msgid "Picking Returns"
+msgstr "Retouren-Picking"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_product_template
+msgid "Product"
+msgstr "Produkt"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Products"
+msgstr "Produkte"
+
+
+#. module: fulfillment_software
+#. odoo-javascript
+#: code:addons/fulfillment_software/static/src/xml/systray.xml:0
+msgid "Profiles"
+msgstr "Profile"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_purchase_order
+msgid "Purchase Order"
+msgstr "Bestellung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__transfers_purchase_ids
+msgid "Purchase Receipts"
+msgstr "Eingangsbelege"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Purchases (Incoming)"
+msgstr "Eingehende Bestellungen"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_stock_quant
+msgid "Quants"
+msgstr "Quanten"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_picking__fulfillment_transfer_owner_id
+msgid "Resource owner"
+msgstr "Ressourceninhaber"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__activity_user_id
+msgid "Responsible User"
+msgstr "Verantwortlicher Benutzer"
+
+#. module: fulfillment_software
+#: model:ir.actions.server,name:fulfillment_software.action_run_import_all
+msgid "Run Import All"
+msgstr "Import für alle ausführen"
+
+#. module: fulfillment_software
+#. odoo-javascript
+#: code:addons/fulfillment_software/static/src/xml/systray.xml:0
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_list
+msgid "Run import all"
+msgstr "Import für alle ausführen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__message_has_sms_error
+msgid "SMS Delivery error"
+msgstr "SMS-Zustellfehler"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_sale_order
+msgid "Sales Order"
+msgstr "Verkaufsauftrag"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_sale_order_line
+msgid "Sales Order Line"
+msgstr "Verkaufsauftragszeile"
+
+#. module: fulfillment_software
+#: model:ir.ui.menu,name:fulfillment_software.menu_fulfillment_stocks
+msgid "Services & Prices"
+msgstr "Dienstleistungen & Preise"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Set domain"
+msgstr "Domain festlegen"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_warehouse_form_inherit_fulfillment
+msgid "Settings"
+msgstr "Einstellungen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__status
+msgid "Status"
+msgstr "Status"
+
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__activity_state
+msgid ""
+"Status based on activities\n"
+"Overdue: Due date is already passed\n"
+"Today: Activity date is today\n"
+"Planned: Future activities."
+msgstr ""
+"Status basierend auf Aktivitäten\n"
+"Überfällig: Fälligkeitsdatum ist bereits überschritten\n"
+"Heute: Aktivitätsdatum ist heute\n"
+"Geplant: Zukünftige Aktivitäten."
+
+#. module: fulfillment_software
+#: model:ir.ui.menu,name:fulfillment_software.menu_fulfillment_settings
+msgid "Support"
+msgstr "Support"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_stock_picking
+msgid "Transfer"
+msgstr "Transfer"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_stock_picking__fulfillment_transfer_id
+msgid "Transfer ID"
+msgstr "Transfer-ID"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Transfers"
+msgstr "Transfers"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__activity_exception_decoration
+msgid "Type of the exception activity on record."
+msgstr "Typ der Ausnahmeaktivität im Datensatz."
+
+#. module: fulfillment_software
+#: model:ir.model.fields.selection,name:fulfillment_software.selection__fulfillment_profile__is_available_webhook__unavailable
+msgid "Unavailable"
+msgstr "Nicht verfügbar"
+
+#. module: fulfillment_software
+#: model:ir.model.fields.selection,name:fulfillment_software.selection__fulfillment_partners__status__unfollow
+msgid "Unfollow"
+msgstr "Nicht mehr folgen"
+
+#. module: fulfillment_software
+#: model_terms:ir.actions.act_window,help:fulfillment_software.action_fulfillment_partners
+msgid "Update a new fulfillment partner"
+msgstr "Fulfillment-Partner aktualisieren oder erstellen"
+
+#. module: fulfillment_software
+#: model:ir.model.fields.selection,name:fulfillment_software.selection__fulfillment_profile__verification_account__verification
+msgid "Verification"
+msgstr "Verifizierung"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__verification_account
+msgid "Verification Account"
+msgstr "Verifizierungskonto"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__version
+msgid "Version capabilities"
+msgstr "Versionsfunktionen"
+
+#. module: fulfillment_software
+#: model:ir.model,name:fulfillment_software.model_stock_warehouse
+msgid "Warehouse"
+msgstr "Lagerhaus"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_sale_order_line__fulfillment_item_warehouse
+msgid "Warehouse Fulfillment"
+msgstr "Fulfillment-Lager"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_res_partner__linked_warehouse_id
+#: model:ir.model.fields,help:fulfillment_software.field_res_users__linked_warehouse_id
+msgid "Warehouse that this contact represents"
+msgstr "Lager, das dieser Kontakt repräsentiert"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_partners_form
+msgid "Warehouses"
+msgstr "Lagerhäuser"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__warehouses_client_ids
+msgid "Warehouses Client"
+msgstr "Kundenlager"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__warehouses_owner_ids
+msgid "Warehouses Owner"
+msgstr "Eigentümerlager"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "Webhook"
+msgstr "Webhook"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__webhook_domain
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__webhook_domain
 msgid "Webhook domain"
 msgstr "Webhook-Domain"
 
-msgid "A webhook is the domain of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources."
-msgstr "Ein Webhook ist die Domain der Website, auf der Ihr Odoo läuft. Er wird benötigt, um Aktualisierungen auszulösen, wenn Ressourcen aktualisiert werden müssen."
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__website_message_ids
+msgid "Website Messages"
+msgstr "Website-Nachrichten"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_fulfillment_partners__website_message_ids
+msgid "Website communication history"
+msgstr "Kommunikationsverlauf der Website"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_partners__fulfillment_api_key
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile__fulfillment_api_key
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_profile_capabilities__fulfillment_api_key
+msgid "X-Fulfillment-API-Key"
+msgstr "X-Fulfillment-API-Key"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_profile_form
+msgid "example.com"
+msgstr "example.com"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__dashboard_id
+msgid "Дашборд"
+msgstr "Dashboard"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__subscription_count
+msgid "Количество подписок"
+msgstr "Anzahl der Abonnements"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_sale_order_line__fulfillment_item_manager
+msgid "Кто отправляет этот товар"
+msgstr "Wer sendet diesen Artikel"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_subscription__name
+msgid "Название подписки"
+msgstr "Abonnementname"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__subscription_ids
+msgid "Подписки"
+msgstr "Abonnements"
+
+#. module: fulfillment_software
+#: model_terms:ir.ui.view,arch_db:fulfillment_software.view_fulfillment_tree
+msgid "Подписок"
+msgstr "Abonnements"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,help:fulfillment_software.field_sale_order_line__fulfillment_item_warehouse
+msgid "Склад, принадлежащий выбранному Fulfillment-партнёру"
+msgstr "Lager, das dem ausgewählten Fulfillment-Partner gehört"
+
+#. module: fulfillment_software
+#: model:ir.model.fields,field_description:fulfillment_software.field_fulfillment_dashboard__warehouse_ids
+msgid "Склады"
+msgstr "Lagerhäuser"
