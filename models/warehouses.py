@@ -3,6 +3,7 @@ import logging
 from odoo import models, fields, api
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 from datetime import datetime
+from odoo.exceptions import UserError
 
 
 _logger = logging.getLogger(__name__)
@@ -193,6 +194,12 @@ class FulfillmentWarehouses(models.Model):
     def write(self, vals):
         _logger.info(f"[WAREHOUSE][WRITE][START] ids={self.ids}, vals={vals}, context={self.env.context}")
 
+
+            # Проверка владельца
+        for wh in self:
+            if not self._is_warehouse_creator(wh.id):
+                raise UserError("Вы не являетесь владельцем этого склада и не можете его редактировать")
+
         if self.env.context.get('skip_api_sync'):
             _logger.info(f"[WAREHOUSE][WRITE][SKIP_API_SYNC] ids={self.ids}")
             vals['last_update'] = datetime.now()
@@ -290,7 +297,7 @@ class FulfillmentWarehouses(models.Model):
         try:
             profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
             if not profile or not profile.fulfillment_api_key:
-                _logger.error("[Logger][Error]: [IMPORT][WAREHOUSES] No profile with API key")
+                _logger.error("[Logger][Error]: [IMPORT][WAREHOUSES] Not Fulfillment API Key")
                 return
             client = FulfillmentAPIClient(profile)
             response = client.fulfillment.list_warehouses(fulfillment_partner.fulfillment_id)
@@ -312,41 +319,27 @@ class FulfillmentWarehouses(models.Model):
                     wh_id = wh.get("warehouse_id")
                     _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
 
-                    warehouse = self.search([
-                        ('company_id', '=', self.env.company.id),
-                        ('fulfillment_warehouse_id', '=', wh_id)
-                    ], limit=1)
-                    
-                    base_name = wh.get("name") or "Warehouse"
-                    base_code =(wh.get("code") or wh.get("short_name") or "WH").lower()
-                    
+                    warehouse = existing_map.get(wh_id)
+
+                    # уникальный код
+                    code = wh.get("code") or wh.get("name") or "WH"
+                    original_code = code
+                    suffix = 1
+                    while self.search_count([("code", "=", code), ("id", "!=", warehouse.id if warehouse else 0)]):
+                        code = f"{original_code}_{suffix}"
+                        suffix += 1
+
                     # уникальное имя
+                    base_name = wh.get("name") or "Warehouse"
                     unique_name = base_name
                     suffix = 1
-                    while self.search_count([
-                        ("name", "=", unique_name),
-                        ("company_id", "=", self.env.company.id),
-                        ("id", "!=", warehouse.id if warehouse else 0),
-                    ]):
+                    while self.search_count([("name", "=", unique_name), ("id", "!=", warehouse.id if warehouse else 0)]):
                         unique_name = f"{base_name} ({suffix})"
                         suffix += 1
 
-                     
-                     
-                    unique_code = base_code
-                    suffix = 1
-                    while self.search_count([
-                        ("code", "=", unique_code),
-                        ("company_id", "=", self.env.company.id),
-                        ("id", "!=", warehouse.id if warehouse else 0),
-                    ]):
-                        unique_code = f"{base_code}_{suffix}"
-                        suffix += 1
-
-
                     vals = {
                         "name": unique_name,
-                        "code": unique_code,
+                        "code": code,
                         "fulfillment_warehouse_id": wh_id,
                         "active": True,
                     }
@@ -394,12 +387,58 @@ class FulfillmentWarehouses(models.Model):
             _logger.exception(f"[Logger][Exception]: [IMPORT][WAREHOUSES] Fatal error: {str(e)}")
             self.env.cr.rollback()
 
-
-
-
     # ---------------------------
     # HELPERS
     # ---------------------------
+    def _is_warehouse_creator(self, warehouse_id):
+        """Check if the current user is the owner of the warehouse.
+
+        Rules:
+            1. If warehouse.fulfillment_owner_id is empty → user is owner.
+            2. Otherwise, compare warehouse.fulfillment_owner_id.fulfillment_id
+            with the current active profile's fulfillment_profile_id.
+            3. If current profile.fulfillment_profile_id is empty → user is owner.
+
+        Args:
+            warehouse_id (int): ID of the warehouse.
+
+        Returns:
+            bool: True if user is owner, False otherwise.
+
+        Raises:
+            UserError: If warehouse not found.
+        """
+        warehouse = self.browse(warehouse_id)
+        if not warehouse.exists():
+            raise UserError("Warehouse not found")
+
+        # No owner → user is owner
+        if not warehouse.fulfillment_owner_id:
+            _logger.debug(f"_is_warehouse_creator: warehouse {warehouse.id} has no owner → True")
+            return True
+
+        # Get current active fulfillment profile
+        profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+        # If profile or profile.fulfillment_profile_id is empty → user is owner
+        if not profile or not profile.fulfillment_profile_id:
+            _logger.debug(f"_is_warehouse_creator: current profile missing → True")
+            return True
+
+        # Compare warehouse owner with current profile
+        owner_fulfillment_id = getattr(warehouse.fulfillment_owner_id.sudo(), 'fulfillment_id', False)
+        is_owner = owner_fulfillment_id == profile.fulfillment_profile_id
+
+        _logger.debug(
+            f"_is_warehouse_creator: warehouse={warehouse.id}, "
+            f"owner_fulfillment_id={owner_fulfillment_id}, "
+            f"profile_id={profile.fulfillment_profile_id}, result={is_owner}"
+        )
+        return is_owner
+
+
+
+
+
     @api.model
     def _get_or_create_warehouse_contact(self, parent_partner, warehouse_name):
         if not parent_partner or not parent_partner.exists():
