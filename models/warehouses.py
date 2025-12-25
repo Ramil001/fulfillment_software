@@ -30,14 +30,14 @@ class FulfillmentWarehouses(models.Model):
 
         # Проверяем, связан ли партнёр с Fulfillment
         if self.env['fulfillment.utils'].is_partner_fulfillment(partner.id):
+            
             # Берём имя профиля Fulfillment как владельца
-            profile_name = self.env['fulfillment.utils'].get_fulfillment_profile_name()
+            fulfillment_name = self.env['fulfillment.utils'].get_fulfillment_profile_name()
 
             # Клиент — это выбранный партнёр
             client_name = partner.name
-
             # Формируем имя склада
-            warehouse_name = f"[{profile_name}] (Owner: {profile_name}, Client: {client_name})"
+            warehouse_name = f"{client_name} ⮕ {fulfillment_name}"
 
             # Отправляем уведомление
             title = "Fulfillment Warehouse"
@@ -290,7 +290,7 @@ class FulfillmentWarehouses(models.Model):
         try:
             profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
             if not profile or not profile.fulfillment_api_key:
-                _logger.error("[Logger][Error]: [IMPORT][WAREHOUSES] Нет профиля с API ключом")
+                _logger.error("[Logger][Error]: [IMPORT][WAREHOUSES] No profile with API key")
                 return
             client = FulfillmentAPIClient(profile)
             response = client.fulfillment.list_warehouses(fulfillment_partner.fulfillment_id)
@@ -312,27 +312,41 @@ class FulfillmentWarehouses(models.Model):
                     wh_id = wh.get("warehouse_id")
                     _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
 
-                    warehouse = existing_map.get(wh_id)
-
-                    # уникальный код
-                    code = wh.get("code") or wh.get("name") or "WH"
-                    original_code = code
-                    suffix = 1
-                    while self.search_count([("code", "=", code), ("id", "!=", warehouse.id if warehouse else 0)]):
-                        code = f"{original_code}_{suffix}"
-                        suffix += 1
-
-                    # уникальное имя
+                    warehouse = self.search([
+                        ('company_id', '=', self.env.company.id),
+                        ('fulfillment_warehouse_id', '=', wh_id)
+                    ], limit=1)
+                    
                     base_name = wh.get("name") or "Warehouse"
+                    base_code =(wh.get("code") or wh.get("short_name") or "WH").lower()
+                    
+                    # уникальное имя
                     unique_name = base_name
                     suffix = 1
-                    while self.search_count([("name", "=", unique_name), ("id", "!=", warehouse.id if warehouse else 0)]):
+                    while self.search_count([
+                        ("name", "=", unique_name),
+                        ("company_id", "=", self.env.company.id),
+                        ("id", "!=", warehouse.id if warehouse else 0),
+                    ]):
                         unique_name = f"{base_name} ({suffix})"
                         suffix += 1
 
+                     
+                     
+                    unique_code = base_code
+                    suffix = 1
+                    while self.search_count([
+                        ("code", "=", unique_code),
+                        ("company_id", "=", self.env.company.id),
+                        ("id", "!=", warehouse.id if warehouse else 0),
+                    ]):
+                        unique_code = f"{base_code}_{suffix}"
+                        suffix += 1
+
+
                     vals = {
                         "name": unique_name,
-                        "code": code,
+                        "code": unique_code,
                         "fulfillment_warehouse_id": wh_id,
                         "active": True,
                     }
@@ -380,11 +394,12 @@ class FulfillmentWarehouses(models.Model):
             _logger.exception(f"[Logger][Exception]: [IMPORT][WAREHOUSES] Fatal error: {str(e)}")
             self.env.cr.rollback()
 
+
+
+
     # ---------------------------
     # HELPERS
     # ---------------------------
-
-
     @api.model
     def _get_or_create_warehouse_contact(self, parent_partner, warehouse_name):
         if not parent_partner or not parent_partner.exists():

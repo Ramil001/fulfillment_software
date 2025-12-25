@@ -1,4 +1,5 @@
 import logging
+from odoo.addons.fulfillment_software import const
 
 _logger = logging.getLogger(__name__)
 

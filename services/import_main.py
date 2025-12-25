@@ -8,3 +8,5 @@ _logger = logging.getLogger(__name__)
 class FulfillmentImport(models.Model):
    def main():
        return True
+   
+   
