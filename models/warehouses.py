@@ -195,10 +195,10 @@ class FulfillmentWarehouses(models.Model):
         _logger.info(f"[WAREHOUSE][WRITE][START] ids={self.ids}, vals={vals}, context={self.env.context}")
 
 
-            # Проверка владельца
+        # Check of editing rights
         for wh in self:
             if not self._is_warehouse_creator(wh.id):
-                raise UserError("Вы не являетесь владельцем этого склада и не можете его редактировать")
+                raise UserError("You are not the owner of this warehouse and cannot edit it.")
 
         if self.env.context.get('skip_api_sync'):
             _logger.info(f"[WAREHOUSE][WRITE][SKIP_API_SYNC] ids={self.ids}")
@@ -428,11 +428,7 @@ class FulfillmentWarehouses(models.Model):
         owner_fulfillment_id = getattr(warehouse.fulfillment_owner_id.sudo(), 'fulfillment_id', False)
         is_owner = owner_fulfillment_id == profile.fulfillment_profile_id
 
-        _logger.debug(
-            f"_is_warehouse_creator: warehouse={warehouse.id}, "
-            f"owner_fulfillment_id={owner_fulfillment_id}, "
-            f"profile_id={profile.fulfillment_profile_id}, result={is_owner}"
-        )
+        
         return is_owner
 
 
