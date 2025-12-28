@@ -9,5 +9,5 @@ class SendAction(models.AbstractModel):
     _name = "send.action"
     _description = "Send action to update"
 
-    def push_update(fulfillment_client):
+    def push_update(self, fulfillment_client):
         return True
