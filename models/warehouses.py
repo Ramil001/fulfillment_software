@@ -177,6 +177,12 @@ class FulfillmentWarehouses(models.Model):
                         _logger.exception("[WAREHOUSE][CREATE] Failed to update parent partner %s with warehouse id: %s", parent_partner.id if parent_partner else None, e)
 
                     _logger.info("✅ Warehouse %s created in API with id %s", warehouse.name, data.get('warehouse_id'))
+                    
+                    
+                    if client_fp and client_fp.fulfillment_id:
+                        self.env['send.action'].push_update(client_fp.fulfillment_id)
+                        _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {client_fp.fulfillment_id} ")
+                    
 
                 else:
                     _logger.warning("[WAREHOUSE][CREATE][API] unexpected response for %s: %s", warehouse.name, response)
@@ -272,6 +278,11 @@ class FulfillmentWarehouses(models.Model):
                     })
 
                     _logger.info(f"[Logger][Info]: Warehouse {record.name} updated in API (ID {data.get("warehouse_id")})")
+                    
+                    if partner.fulfillment_partner_id and partner.fulfillment_partner_id:
+                        self.env['send.action'].push_update(partner.fulfillment_partner_id)
+                        _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {partner.fulfillment_partner_id} ")
+
                 else:
                     _logger.warning(f"[Logger][Info]: [WAREHOUSE][WRITE][API] unexpected response: {response}")
 
