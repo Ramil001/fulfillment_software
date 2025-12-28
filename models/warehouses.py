@@ -344,6 +344,7 @@ class FulfillmentWarehouses(models.Model):
                         "active": True,
                     }
 
+
                     if warehouse:
                         _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] Updating existing %s", warehouse.id)
                         warehouse.with_context(skip_api_sync=True).write(vals)
