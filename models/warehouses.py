@@ -149,7 +149,11 @@ class FulfillmentWarehouses(models.Model):
                         _logger.warning("[WAREHOUSE][CREATE][API] owner_fulfillment_id == warehouse_customer_fulfillment_id for warehouse %s (api returned same id)", warehouse.name)
 
                     try:
-                        warehouse.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
+                        warehouse.with_context(
+                            skip_api_sync=True,
+                            skip_warehouse_contact=True,
+                            from_fulfillment_import=True
+                        ).write({
                             'fulfillment_owner_id': owner_fp.id if owner_fp else False,
                             'fulfillment_client_id': client_fp.id if client_fp else False,
                             'fulfillment_warehouse_id': data.get('warehouse_id'),
@@ -271,7 +275,10 @@ class FulfillmentWarehouses(models.Model):
                         _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and warehouse_customer_fulfillment_id for the warehouse.{record.name}")
 
 
-                    record.with_context(skip_import_warehouses=True).write({
+                    record.with_context(
+                        skip_import_warehouses=True,
+                        from_fulfillment_import=True
+                    ).write({
                         'fulfillment_owner_id': owner_partner.id if owner_partner else False,
                         'fulfillment_client_id': client_partner.id if client_partner else False,
                         'fulfillment_warehouse_id': data.get('warehouse_id'),
@@ -372,7 +379,11 @@ class FulfillmentWarehouses(models.Model):
                     child_contact, _ = warehouse._get_or_create_warehouse_contact(parent_partner, warehouse.name)
 
                     if child_contact:
-                        warehouse.with_context(skip_api_sync=True).write({"partner_id": child_contact.id})
+                        warehouse.with_context(
+                        skip_api_sync=True,
+                        from_fulfillment_import=True
+                    ).write({"partner_id": child_contact.id
+                    })
 
                     owner_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("fulfillment_id"))], limit=1)
                     client_fp = None
@@ -381,10 +392,14 @@ class FulfillmentWarehouses(models.Model):
                     else:
                         _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and warehouse_customer_fulfillment_id for the warehouse {wh.get('name')}")
 
-                    warehouse.with_context(skip_api_sync=True).write({
+                    warehouse.with_context(
+                        skip_api_sync=True,
+                        from_fulfillment_import=True
+                    ).write({
                         "fulfillment_owner_id": owner_fp.id if owner_fp else False,
                         "fulfillment_client_id": client_fp.id if client_fp else False,
                     })
+
 
                     if child_contact:
                         child_contact.with_context(skip_api_sync=True).write({
