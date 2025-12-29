@@ -26,7 +26,7 @@
                                 <field name="state_id"/>
                                 <field name="address"/>
                             </group>
-                                             <group>
+                            <group>
                                 <separator string="API integration" colspan="2"/>
                                 <field name="api_domain" />
                                 <field name="fulfillment_api_key" password="True"/>
@@ -43,6 +43,12 @@
                                 <field name="update_at" password="True"/>
                                 <field name="fulfillment_profile_id"></field>
                             </group>
+
+                            <group>
+                                <separator string="Data update settings"/>
+                                <field name="allow_auto_import"></field>
+                            </group>
+
                         </group>
  
                     </sheet>

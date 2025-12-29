@@ -30,6 +30,8 @@ class FulfillmentProfile(models.Model):
     )
     webhook_domain = fields.Char(string="Webhook domain", help="A webhook is the domain of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources.", default="example.com")
 
+    
+
     email = fields.Char(string="Email")
     fulfillment_api_key = fields.Char(
         string="X-Fulfillment-API-Key"
@@ -56,10 +58,21 @@ class FulfillmentProfile(models.Model):
         default='unavailable', string="Availiable webhook")
     
     
+    
     update_at = fields.Datetime(
         string="Last Updated",
         readonly=True
     )
+    
+    allow_auto_import = fields.Boolean(
+        string="Automatic Import",
+        help=(
+            "Allows external Odoo partner instances to automatically trigger "
+            "updates of records in this database without manual approval."
+        ),
+        default=False,
+    )
+
     
     
     
