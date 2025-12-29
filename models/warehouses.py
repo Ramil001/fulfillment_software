@@ -202,9 +202,10 @@ class FulfillmentWarehouses(models.Model):
 
 
         # Check of editing rights
-        for wh in self:
-            if not self._is_warehouse_creator(wh.id):
-                raise UserError("You are not the owner of this warehouse and cannot edit it.")
+        if not self.env.context.get("from_fulfillment_import"):
+            for wh in self:
+                if not self._is_warehouse_creator(wh.id):
+                    raise UserError("You are not the owner of this warehouse and cannot edit it.")
 
         if self.env.context.get('skip_api_sync'):
             _logger.info(f"[WAREHOUSE][WRITE][SKIP_API_SYNC] ids={self.ids}")
@@ -358,10 +359,14 @@ class FulfillmentWarehouses(models.Model):
 
                     if warehouse:
                         _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] Updating existing %s", warehouse.id)
-                        warehouse.with_context(skip_api_sync=True).write(vals)
+                        warehouse.with_context(
+                            skip_api_sync=True,
+                            from_fulfillment_import=True # Flag for import 
+                        ).write(vals)
+
                     else:
                         _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] Creating new warehouse")
-                        warehouse = self.with_context(skip_api_sync=True).create(vals)
+                        warehouse = self.with_context(skip_api_sync=True, from_fulfillment_import=True).create(vals)
 
                     parent_partner = fulfillment_partner.partner_id
                     child_contact, _ = warehouse._get_or_create_warehouse_contact(parent_partner, warehouse.name)
