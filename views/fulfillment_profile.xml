@@ -42,12 +42,10 @@
                                 <separator string="Connect with Fulfillment Software" colspan="2"/>
                                 <field name="update_at" password="True"/>
                                 <field name="fulfillment_profile_id"></field>
-                            </group>
-
-                            <group>
-                                <separator string="Data update settings"/>
                                 <field name="allow_auto_import"></field>
                             </group>
+
+                           
 
                         </group>
  
@@ -55,7 +53,6 @@
                 </form>
             </field>
         </record>
-<!-- TEST -->
 
     </data>
 </odoo>
