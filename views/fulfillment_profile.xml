@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
- 
-        <record id="view_fulfillment_profile_form" model="ir.ui.view">
+               <record id="view_fulfillment_profile_form" model="ir.ui.view">
             <field name="name">fulfillment.profile.form</field>
             <field name="model">fulfillment.profile</field>
             <field name="arch" type="xml">
@@ -10,7 +9,7 @@
                     <sheet>
                         <group col="2">
                             <group>
-                                <separator string="Contact info" colspan="2"/>
+                                <separator string="About your company" colspan="2"/>
                                 <field name="name"/>
                                 <field name="phone"/>
                                 <field name="email"/>
@@ -27,28 +26,36 @@
                                 <field name="address"/>
                             </group>
                             <group>
-                                <separator string="API integration" colspan="2"/>
-                                <field name="api_domain" />
-                                <field name="fulfillment_api_key" password="True"/>
+                                <separator string="API connection" colspan="2"/>
+                                <field name="api_domain" required="1"/>
+                                <field name="fulfillment_api_key" password="True" required="1"/>
                             </group>
-                            <group col="2">
-                                    <separator string="Webhook" colspan="2"/>
-                                    <field name="webhook_domain" placeholder="example.com"/>
-                                    
-                            </group>
-           
-                            
                             <group>
+                                <separator string="Webhook"/>
+                                <field name="webhook_domain" placeholder="example.com" required="1" />
+                                 <field name="is_available_webhook" widget="badge"
+                                    decoration-success="is_available_webhook == 'available'"
+                                    decoration-warning="is_available_webhook == 'unavailable'"
+                                 />
+                                 <button 
+                                    name="action_set_current_domain" 
+                                    type="object" 
+                                    string="Auto Setup Domain" 
+                                    class="btn-primary"
+                                />                        
+                               
+                            </group>
+                            <group >
                                 <separator string="Connect with Fulfillment Software" colspan="2"/>
                                 <field name="update_at" password="True"/>
                                 <field name="fulfillment_profile_id"></field>
-                                <field name="allow_auto_import"></field>
                             </group>
 
-                           
-
+                            <group col="2">
+                                <separator string="Import settings" />
+                                <field name="allow_auto_import"></field>
+                            </group>
                         </group>
- 
                     </sheet>
                 </form>
             </field>

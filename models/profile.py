@@ -12,7 +12,7 @@ class FulfillmentProfile(models.Model):
     _description = 'Fulfillment Profile'
     
 
-    address = fields.Char(string=_("Address"))
+    address = fields.Char(string="Address")
     capabilities_id = fields.Many2one(
         'fulfillment.profile.capabilities',
         string="Capabilities",
