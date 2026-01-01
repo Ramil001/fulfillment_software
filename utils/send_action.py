@@ -31,7 +31,7 @@ class SendAction(models.AbstractModel):
                 _("Webhook domain is not set for partner %s") % partner.name
             )
 
-        url = f"https://{partner.webhook_domain}/fulfillment/run_import_all"
+        url = f"https://{partner.webhook_domain}/fulfillment/import/all"
 
         headers = {}
         if partner.fulfillment_api_key:
