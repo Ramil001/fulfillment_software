@@ -17,3 +17,18 @@ class ImportFulfillmentController(http.Controller):
             json.dumps({"status": "ok"}),
             content_type="application/json",
         )
+
+
+    @http.route(
+        "/fulfillment/import/<string:resource>",
+        type="http",
+        auth="public",
+        methods=["POST"],   
+        csrf=False         
+        )
+    
+    def import_stock(self, resource):
+        return Response(
+            json.dumps({"status": "import stock", "resource": resource}),
+            content_type="application/json",
+        )

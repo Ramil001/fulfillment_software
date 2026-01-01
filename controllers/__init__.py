@@ -2,5 +2,5 @@
 
 from . import notifications
 from . import updates
-from . import run_import
+from . import import_launcher
 from . import webhooks

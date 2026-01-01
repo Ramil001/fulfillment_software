@@ -91,7 +91,7 @@ class FulfillmentProfile(models.Model):
                 except Exception:
                     pass
 
-            # ❗ Пишем БЕЗ повторного вызова write-логики
+            # Пишем БЕЗ повторного вызова write-логики
             super(FulfillmentProfile, record.with_context(skip_webhook_check=True)).write({
                 'is_available_webhook': status
             })
