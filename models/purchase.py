@@ -65,6 +65,7 @@ class FulfillmentPurchase(models.Model):
             # Payload
             payload = {
                 "name": vals.get('origin') or "Auto",
+                "warehouse_id": fulfillment_warehouse_id,
                 "products": products,
             }
 
