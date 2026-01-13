@@ -15,7 +15,7 @@ class FulfillmentWarehouses(models.Model):
     is_fulfillment = fields.Boolean(string="Fulfillment storage", compute="_compute_is_fulfillment", store=True)
     fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Creator fulfillment Id", readonly=True)
     fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Customer fulfillment Id", readonly=True)
-    fulfillment_warehouse_id = fields.Char(string="Fulfillment warehouse Id")
+    fulfillment_warehouse_id = fields.Char(string="Fulfillment warehouse Id", readonly=True)
     last_update = fields.Datetime(string='Last Update', readonly=True)
     
     
