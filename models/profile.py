@@ -172,12 +172,10 @@ class FulfillmentProfile(models.Model):
         records = super().create(vals_list)
         _logger.info("[PARTNERS][CREATE] Created partners: %s", records.ids)
 
-        # Если вызов уже помечен skip_auto_import — ничего не делаем.
         if self.env.context.get('skip_auto_import'):
             _logger.debug("[PARTNERS][CREATE] skip_auto_import in context — skipping auto import_all")
             return records
 
-        # Ищем активный профиль с API ключом
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile or not profile.fulfillment_api_key:
             _logger.warning("[PARTNERS][CREATE] No active fulfillment.profile with API key — skipping auto import_all")
@@ -189,7 +187,6 @@ class FulfillmentProfile(models.Model):
                 profile.id
             )
 
-            # вызываем метод модели partners с sudo()
             self.env['fulfillment.partners'].sudo().import_all(profile=profile.sudo())
 
             _logger.info("[PARTNERS][CREATE] auto import_all() finished")
@@ -228,9 +225,9 @@ class FulfillmentProfile(models.Model):
         return result
 
 
-    # --- Sync через API client ---
     def _sync_with_fulfillment_api(self):
         bus = self.env['bus.utils']
+
         for record in self:
             if not record.fulfillment_api_key:
                 bus.send_notification(
@@ -252,30 +249,45 @@ class FulfillmentProfile(models.Model):
 
             try:
                 if record.fulfillment_profile_id:
-                    # обновляем существующий профиль
-                    response = client.fulfillment.update(record.fulfillment_profile_id, payload)
-                    if response.get("status") == "success":
-                        _logger.info("Fulfillment %s обновлён через PATCH", record.fulfillment_profile_id)
+                    response = client.fulfillment.update(
+                        record.fulfillment_profile_id,
+                        payload
+                    )
+                    data = response.get("data")
+                    if data:
+                        _logger.info(
+                            "Fulfillment %s обновлён через PATCH",
+                            record.fulfillment_profile_id
+                        )
                     else:
                         _logger.warning("PATCH — неожиданный ответ: %s", response)
+
                 else:
-                    # создаём новый профиль
                     response = client.fulfillment.create(payload)
-                    if response.get("status") == "success" and "data" in response:
-                        data = response["data"]
+                    data = response.get("data")
+
+                    if data and data.get("id"):
                         record.write({
-                            "fulfillment_profile_id": data.get("fulfillment_id"),
+                            "fulfillment_profile_id": data["id"],
                             "name": data.get("name", record.name),
-                            "api_domain": data.get("api_domain", record.api_domain)
+                            "api_domain": data.get("api_domain", record.api_domain),
+                            "webhook_domain": data.get(
+                                "webhook_domain",
+                                record.webhook_domain
+                            ),
                         })
-                        _logger.info("Fulfillment создан через POST с ID %s", data.get("fulfillment_id"))
+                        _logger.info(
+                            "Fulfillment создан через POST с ID %s",
+                            data["id"]
+                        )
                     else:
                         _logger.warning("POST — неожиданный ответ: %s", response)
 
             except FulfillmentAPIError as e:
                 _logger.error("Ошибка API Fulfillment: %s", str(e))
-            except Exception as e:
-                _logger.error("Неожиданная ошибка при sync: %s", str(e))
+            except Exception:
+                _logger.exception("Неожиданная ошибка при sync")
+
 
     @api.model
     def get_my_profile_action(self):

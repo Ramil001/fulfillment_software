@@ -24,6 +24,7 @@ class FulfillmentLocations(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+       
         if self.env.context.get("skip_api_sync"):
             return super().create(vals_list)
 
@@ -40,9 +41,10 @@ class FulfillmentLocations(models.Model):
             warehouse = self.env['stock.warehouse'].search([
                 ('view_location_id', 'parent_of', rec.id)
             ], limit=1)
-
+            
             if not (warehouse and warehouse.fulfillment_warehouse_id):
                 continue
+
 
             try:
                 payload = {
@@ -52,11 +54,10 @@ class FulfillmentLocations(models.Model):
                 }
 
                 if rec.fulfillment_location_id:
-                    # ⚠️ PATCH вместо POST
                     api.update(rec.fulfillment_location_id, payload)
                     _logger.info("[FULFILLMENT] PATCH при create: %s (%s)", rec.name, rec.fulfillment_location_id)
                 else:
-                    # POST только если ID нет
+                   
                     response = api.create(payload)
                     data = response.get('data', {}) if response else {}
                     if data.get('location_id'):
@@ -90,6 +91,7 @@ class FulfillmentLocations(models.Model):
 
             if not (warehouse and warehouse.fulfillment_warehouse_id):
                 continue
+
 
             if not any(f in vals for f in ['name', 'complete_name', 'location_id']):
                 continue

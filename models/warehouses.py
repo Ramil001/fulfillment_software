@@ -138,55 +138,53 @@ class FulfillmentWarehouses(models.Model):
                     _logger.exception("❌ Unexpected error calling API for warehouse %s: %s", warehouse.name, e)
                     continue
 
-        
-                if response.get("status") == "success" and "data" in response:
-                    data = response["data"]
-                    owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
-                    client_fp = None
-                    if data.get('warehouse_customer_fulfillment_id') and data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
-                        client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
-                    else:
-                        _logger.warning("[WAREHOUSE][CREATE][API] owner_fulfillment_id == warehouse_customer_fulfillment_id for warehouse %s (api returned same id)", warehouse.name)
+                
+                data = response["data"]
+                owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
+                client_fp = None
+                if data.get('warehouse_customer_fulfillment_id') and data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
+                    client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+                else:
+                    _logger.warning("[WAREHOUSE][CREATE][API] owner_fulfillment_id == warehouse_customer_fulfillment_id for warehouse %s (api returned same id)", warehouse.name)
 
+                try:
+                    warehouse.with_context(
+                        skip_api_sync=True,
+                        skip_warehouse_contact=True,
+                        from_fulfillment_import=True
+                    ).write({
+                        'fulfillment_owner_id': owner_fp.id if owner_fp else False,
+                        'fulfillment_client_id': client_fp.id if client_fp else False,
+                        'fulfillment_warehouse_id': data.get('id'),
+                        'last_update': datetime.now(),
+                    })
+                except Exception as e:
+                    _logger.exception("[WAREHOUSE][CREATE] Failed to write API IDs to warehouse %s: %s", warehouse.id, e)
+
+                if child_contact:
                     try:
-                        warehouse.with_context(
-                            skip_api_sync=True,
-                            skip_warehouse_contact=True,
-                            from_fulfillment_import=True
-                        ).write({
-                            'fulfillment_owner_id': owner_fp.id if owner_fp else False,
-                            'fulfillment_client_id': client_fp.id if client_fp else False,
-                            'fulfillment_warehouse_id': data.get('warehouse_id'),
-                            'last_update': datetime.now(),
+                        child_contact.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
+                            'fulfillment_warehouse_id': data.get('id'),
+                            'linked_warehouse_id': warehouse.id,
                         })
+                        _logger.info("[WAREHOUSE][CREATE] Child contact %s updated with fulfillment_warehouse_id=%s", child_contact.id, data.get('id'))
                     except Exception as e:
-                        _logger.exception("[WAREHOUSE][CREATE] Failed to write API IDs to warehouse %s: %s", warehouse.id, e)
+                        _logger.exception("[WAREHOUSE][CREATE] Failed to update child contact %s with warehouse id: %s", child_contact.id if child_contact else None, e)
 
-                    if child_contact:
-                        try:
-                            child_contact.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
-                                'fulfillment_warehouse_id': data.get('warehouse_id'),
-                                'linked_warehouse_id': warehouse.id,
-                            })
-                            _logger.info("[WAREHOUSE][CREATE] Child contact %s updated with fulfillment_warehouse_id=%s", child_contact.id, data.get('warehouse_id'))
-                        except Exception as e:
-                            _logger.exception("[WAREHOUSE][CREATE] Failed to update child contact %s with warehouse id: %s", child_contact.id if child_contact else None, e)
+                try:
+                    if parent_partner:
+                        parent_partner.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
+                            'fulfillment_warehouse_id': data.get('id'),
+                        })
+                except Exception as e:
+                    _logger.exception("[WAREHOUSE][CREATE] Failed to update parent partner %s with warehouse id: %s", parent_partner.id if parent_partner else None, e)
 
-                    try:
-                        if parent_partner:
-                            parent_partner.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
-                                'fulfillment_warehouse_id': data.get('warehouse_id'),
-                            })
-                    except Exception as e:
-                        _logger.exception("[WAREHOUSE][CREATE] Failed to update parent partner %s with warehouse id: %s", parent_partner.id if parent_partner else None, e)
-
-                    _logger.info("✅ Warehouse %s created in API with id %s", warehouse.name, data.get('warehouse_id'))
-                    
-                    
-                    if client_fp and client_fp.fulfillment_id:
-                        self.env['send.action'].push_update(client_fp.fulfillment_id)
-                        _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {client_fp.fulfillment_id} ")
-                    
+                
+                
+                if client_fp and client_fp.fulfillment_id:
+                    self.env['send.action'].push_update(client_fp.fulfillment_id)
+                    _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {client_fp.fulfillment_id} ")
+                
 
                 else:
                     _logger.warning("[WAREHOUSE][CREATE][API] unexpected response for %s: %s", warehouse.name, response)
@@ -260,39 +258,35 @@ class FulfillmentWarehouses(models.Model):
                     payload=payload
                 )
 
-                if response.get("status") == "success" and "data" in response:
-                    data = response["data"]
+                data = response["data"]
 
-                    owner_partner = self.env['fulfillment.partners'].search(
-                        [('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1
+                owner_partner = self.env['fulfillment.partners'].search(
+                    [('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1
+                )
+                client_partner = None
+                if data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
+                    client_partner = self.env['fulfillment.partners'].search(
+                        [('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1
                     )
-                    client_partner = None
-                    if data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
-                        client_partner = self.env['fulfillment.partners'].search(
-                            [('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1
-                        )
-                    else:
-                        _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and warehouse_customer_fulfillment_id for the warehouse.{record.name}")
-
-
-                    record.with_context(
-                        skip_import_warehouses=True,
-                        from_fulfillment_import=True
-                    ).write({
-                        'fulfillment_owner_id': owner_partner.id if owner_partner else False,
-                        'fulfillment_client_id': client_partner.id if client_partner else False,
-                        'fulfillment_warehouse_id': data.get('warehouse_id'),
-                        'last_update': datetime.now(),
-                    })
-
-                    _logger.info(f"[Logger][Info]: Warehouse {record.name} updated in API (ID {data.get("warehouse_id")})")
-                    
-                    if partner.fulfillment_partner_id and partner.fulfillment_partner_id:
-                        self.env['send.action'].push_update(partner.fulfillment_partner_id)
-                        _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {partner.fulfillment_partner_id} ")
-
                 else:
-                    _logger.warning(f"[Logger][Info]: [WAREHOUSE][WRITE][API] unexpected response: {response}")
+                    _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and warehouse_customer_fulfillment_id for the warehouse.{record.name}")
+
+
+                record.with_context(
+                    skip_import_warehouses=True,
+                    from_fulfillment_import=True
+                ).write({
+                    'fulfillment_owner_id': owner_partner.id if owner_partner else False,
+                    'fulfillment_client_id': client_partner.id if client_partner else False,
+                    'fulfillment_warehouse_id': data.get('id'),
+                    'last_update': datetime.now(),
+                })
+
+                _logger.info(f"[Logger][Info]: Warehouse {record.name} updated in API (ID {data.get("warehouse_id")})")
+                
+                if partner.fulfillment_partner_id and partner.fulfillment_partner_id:
+                    self.env['send.action'].push_update(partner.fulfillment_partner_id)
+                    _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {partner.fulfillment_partner_id} ")
 
         except FulfillmentAPIError as e:
             _logger.error(f"[Logger][Error]: API error when updating the warehouse: {str(e)}")

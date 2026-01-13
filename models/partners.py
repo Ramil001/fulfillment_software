@@ -167,7 +167,7 @@ class FulfillmentPartners(models.Model):
             )
 
             for item in data:
-                fulfillment_id = item.get("fulfillment_id")
+                fulfillment_id = item.get("id")
                 if fulfillment_id:
                     page = 1
                     limit = 100
@@ -330,11 +330,11 @@ class FulfillmentPartners(models.Model):
             self.import_partners(item, profile)
 
     def import_partners(self, item, profile):
-        existing = self.search([('fulfillment_id', '=', item['fulfillment_id'])], limit=1)
+        existing = self.search([('fulfillment_id', '=', item['id'])], limit=1)
         created_at = self._normalize_datetime(item.get('created_at'))
         vals = {
             'name': item.get('name') or 'Without name',
-            'fulfillment_id': item.get('fulfillment_id'),
+            'fulfillment_id': item.get('id'),
             'api_domain': item.get('api_domain'),
             'webhook_domain': item.get('webhook_domain'),
             'created_at': created_at,
@@ -348,6 +348,7 @@ class FulfillmentPartners(models.Model):
             partner_record = self.create(vals)
 
         contact = self.import_contacts(partner_record)
+    
         return partner_record
 
     def _normalize_datetime(self, dt_str):
@@ -363,3 +364,4 @@ class FulfillmentPartners(models.Model):
     def _get_fulfillment_tag(self):
         tag = self.env['res.partner.category'].search([('name', '=', 'Fulfillment')], limit=1)
         return tag or self.env['res.partner.category'].create({'name': 'Fulfillment'})
+#
