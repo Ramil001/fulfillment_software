@@ -14,7 +14,7 @@ class FulfillmentWarehouses(models.Model):
 
     is_fulfillment = fields.Boolean(string="Fulfillment storage", compute="_compute_is_fulfillment", store=True)
     fulfillment_owner_id = fields.Many2one('fulfillment.partners', string="Creator fulfillment Id", readonly=True)
-    fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Customer fulfillment Id", readonly=True)
+    fulfillment_client_id = fields.Many2one('fulfillment.partners', string="Client fulfillment Id", readonly=True)
     fulfillment_warehouse_id = fields.Char(string="Fulfillment warehouse Id", readonly=True)
     last_update = fields.Datetime(string='Last Update', readonly=True)
     
@@ -120,7 +120,7 @@ class FulfillmentWarehouses(models.Model):
                     "code": warehouse.code,
                     "location": (warehouse.partner_id.city or "") if warehouse.partner_id else "",
                     "short_name": (warehouse.code or warehouse.name or "")[:50].upper(),  # короткое имя, безопасно усечь
-                    "warehouse_customer_fulfillment_id": customer_fulfillment_id,
+                    "fulfillment_client_id": customer_fulfillment_id,
                 }
 
                 _logger.info("[WAREHOUSE][CREATE][API] POST → fulfillment_id=%s payload=%s", owner_fulfillment_id, payload)
