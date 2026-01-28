@@ -83,36 +83,46 @@ class FulfillmentPurchase(models.Model):
     def write(self, vals):
         _logger.warning(f"[WRITE OVERRIDE]: {vals}")
 
-        picking_type_id = vals.get('picking_type_id')
-        
         res = super().write(vals)
-        
+
         for order in self:
-            pid = picking_type_id or order.picking_type_id.id
-            if not pid:
-                _logger.info(f"[WRITE] No picking_type_id for PO {order.id}")
+            picking_type = False
+
+            if 'picking_type_id' in vals and vals.get('picking_type_id'):
+                pid = vals.get('picking_type_id')
+                if isinstance(pid, list):
+                    pid = pid[0]
+                picking_type = self.env['stock.picking.type'].browse(pid)
+
+            elif order.warehouse_id and order.warehouse_id.in_type_id:
+                picking_type = order.warehouse_id.in_type_id
+
+            if not picking_type or not picking_type.exists():
+                _logger.info(f"[WRITE] PO {order.name}: No picking type resolved")
                 continue
 
-            picking_type = self.env['stock.picking.type'].browse(pid)
-            if picking_type.exists():
-                warehouse = picking_type.warehouse_id
-                if warehouse:
-                    _logger.info(f"[WRITE] PO {order.name}: Picking Type → {picking_type.display_name}, Warehouse → {warehouse.display_name}")
-                    _logger.info(f"[WRITE] Warehouse.is_fulfillment = {warehouse.is_fulfillment}")
-                else:
-                    _logger.warning(f"[WRITE] Picking Type {picking_type.display_name} has NO warehouse!")
-            else:
-                _logger.warning(f"[WRITE] Picking Type ID {pid} does NOT exist!")
+            warehouse = picking_type.warehouse_id
+            if not warehouse:
+                _logger.warning(f"[WRITE] Picking Type {picking_type.display_name} has NO warehouse")
+                continue
 
-            # Логируем продукты из order_line текущего заказа
-            line_info = []
-            for line in order.order_line:
-                if line.product_id:
-                    info = (line.product_id.id, line.product_id.display_name, line.product_qty)
-                    line_info.append(info)
-            _logger.info(f"[WRITE]: PO {order.name}: Products: {line_info} ")
+            _logger.info(
+                f"[WRITE] PO {order.name}: "
+                f"Picking Type → {picking_type.display_name}, "
+                f"Warehouse → {warehouse.display_name}, "
+                f"is_fulfillment={warehouse.is_fulfillment}"
+            )
+
+        
+            line_info = [
+                (line.product_id.id, line.product_id.display_name, line.product_qty)
+                for line in order.order_line
+                if line.product_id
+            ]
+            _logger.info(f"[WRITE] PO {order.name}: Products: {line_info}")
 
         return res
+
 
 
     @api.model
