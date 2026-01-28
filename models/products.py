@@ -77,19 +77,53 @@ class FulfillmentProducts(models.Model):
 
     def write(self, vals):
         res = super(FulfillmentProducts, self).write(vals)
-        bus = self.env['bus.utils']
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        api = FulfillmentAPIClient(profile) if profile else None
+
         for rec in self:
+            # --- Build payload for API ---
+            payload = {
+                "name": vals.get("name", rec.name),
+                "sku": vals.get("default_code", rec.default_code),
+                "barcode": vals.get("barcode", rec.barcode),
+                "img_url": rec.image_1920 and f"/web/image/product.template/{rec.id}/image_1920" or None,
+            }
+            payload = {k: v for k, v in payload.items() if v}
+
+            try:
+                if rec.fulfillment_product_id and api:
+                    # Update existing product
+                    response = api.product.update(rec.fulfillment_product_id, payload)
+                    _logger.info("[Fulfillment] Updated product %s on API (id=%s)", rec.name, rec.fulfillment_product_id)
+                elif api:
+                    # Create new product on Fulfillment
+                    response = api.product.create(payload)
+                    fulfillment_id = response.get("data", {}).get("id")
+                    if fulfillment_id:
+                        rec.fulfillment_product_id = fulfillment_id
+                        _logger.info("[Fulfillment] Created product %s on API (id=%s)", rec.name, fulfillment_id)
+                    else:
+                        _logger.error("[Fulfillment] No fulfillment_product_id in API response for %s: %s", rec.name, response)
+                else:
+                    _logger.warning("[Fulfillment] API client not available for product %s", rec.name)
+
+            except Exception as e:
+                _logger.exception("[Fulfillment] Failed to sync product %s: %s", rec.name, e)
+
+            # --- Bus / chatter notification ---
             message = f"Продукт обновлён: {rec.name} (ID {rec.id})"
             _logger.info(message)
-            bus.send_notification(
+            self.env['bus.utils'].send_notification(
                 title="Обновление продукта",
                 message=message,
                 level="info",
                 sticky=False
             )
             rec.message_post(body=message)
+
         return res
-    
+
     
     
     
