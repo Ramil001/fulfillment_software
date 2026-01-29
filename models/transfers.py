@@ -14,46 +14,60 @@ _logger = logging.getLogger(__name__)
 
 # ================== Strategy: Transfer Mappers ==================
 class BaseTransferMapper:
-    def build(self, picking, items, warehouse_out_id, warehouse_in_id):
+    def build(
+        self,
+        picking,
+        items,
+        from_warehouse_id,
+        to_warehouse_id,
+        fulfillment_out,
+        fulfillment_in,
+        contacts=None,
+    ):
         raise NotImplementedError
 
 
 class IncomingTransferMapper(BaseTransferMapper):
-    def build(self, picking, items, warehouse_out_id, warehouse_in_id):
+    def build(self, picking, items, from_wh, to_wh, f_out, f_in, contacts=None):
         return {
+            "transfer_type": "incoming",
+            "from_warehouse_id": from_wh,
+            "to_warehouse_id": to_wh,
+            "fulfillment_out": f_out,
+            "fulfillment_in": f_in,
             "reference": picking.name or picking.origin or "Odoo",
-            "partner": picking.partner_id.name if picking.partner_id else None,
-            "warehouse_out": warehouse_out_id,
-            "warehouse_in": warehouse_in_id,
-            "status": picking.state or "draft",
             "items": items,
-
+            "contacts": contacts or [],
         }
+
 
 
 class OutgoingTransferMapper(BaseTransferMapper):
-    def build(self, picking, items, warehouse_out_id, warehouse_in_id):
-        base_payload = {
+    def build(self, picking, items, from_wh, to_wh, f_out, f_in, contacts=None):
+        return {
+            "transfer_type": "outgoing",
+            "from_warehouse_id": from_wh,
+            "to_warehouse_id": to_wh,
+            "fulfillment_out": f_out,
+            "fulfillment_in": f_in,
             "reference": picking.name or picking.origin or "Odoo",
-            "partner": picking.partner_id.name if picking.partner_id else None,
-            "warehouse_out": warehouse_out_id,
-            "warehouse_in": warehouse_in_id,
-            "status": picking.state or "draft",
             "items": items,
+            "contacts": contacts or [],
         }
-        
-        _logger.info("[Fulfillment][Mapper] Built base payload for outgoing transfer")
-        return base_payload
+
 
 class InternalTransferMapper(BaseTransferMapper):
-    def build(self, picking, items, warehouse_out_id, warehouse_in_id):
+    def build(self, picking, items, from_wh, to_wh, f_out, f_in, contacts=None):
         return {
-            "reference": picking.name or picking.origin or "Odoo",
-            "warehouse_out": warehouse_out_id,
-            "warehouse_in": warehouse_in_id,
-            "status": picking.state or "draft",
+            "transfer_type": "internal",
+            "from_warehouse_id": from_wh,
+            "to_warehouse_id": to_wh,
+            "fulfillment_out": f_out,
+            "fulfillment_in": f_in,
+            "reference": picking.name or "Odoo",
             "items": items,
         }
+
 
 
 # ================== Adapter ==================
@@ -65,11 +79,30 @@ class PickingAdapter:
     }
 
     @classmethod
-    def to_api_payload(cls, picking, items, warehouse_out_id, warehouse_in_id):
+    def to_api_payload(
+        cls,
+        picking,
+        items,
+        from_wh,
+        to_wh,
+        fulfillment_out,
+        fulfillment_in,
+        contacts=None,
+    ):
         mapper = cls._strategies.get(picking.picking_type_code)
         if not mapper:
             raise ValueError(f"Unsupported picking type {picking.picking_type_code}")
-        return mapper.build(picking, items, warehouse_out_id, warehouse_in_id)
+
+        return mapper.build(
+            picking,
+            items,
+            from_wh,
+            to_wh,
+            fulfillment_out,
+            fulfillment_in,
+            contacts,
+        )
+
 
 
 # ================== Builder ==================
@@ -415,7 +448,7 @@ class FulfillmentTransfers(models.Model):
          - если всё это не даёт результата, возвращаем None
         """
         
-        _logger.error("🔥🔥🔥 PUSH CALLED FOR: %s", self.name)
+        _logger.error("PUSH CALLED FOR: %s", self.name)
 
         if not partner:
             return None
@@ -541,15 +574,29 @@ class FulfillmentTransfers(models.Model):
 
         else:
             _logger.warning("[Fulfillment] Unknown picking_type_code=%s for %s", self.picking_type_code, self.name)
+        
+        contacts = []
 
         # --- Build payload через адаптер ---
-        payload = PickingAdapter.to_api_payload(self, items, warehouse_out_id, warehouse_in_id)
+        payload = PickingAdapter.to_api_payload(
+            self,
+            items,
+            warehouse_out_id,
+            warehouse_in_id,
+            fulfillment_out,
+            fulfillment_in,
+            contacts,
+        )
 
-        # --- ВАЖНО: Добавляем контакты для outgoing трансферов ---
+
         if self.picking_type_code == 'outgoing' and self.partner_id:
             contact_id = getattr(self.partner_id, "fulfillment_contact_id", None)
             if contact_id:
-                payload["contacts"] = [{"contactId": str(contact_id), "role": "DELIVERY"}]
+                payload["contacts"] = [{
+                        "contact_id": str(contact_id),
+                        "role": "DELIVERY"
+                    }]
+
                 _logger.info("[Fulfillment] Added contact %s to payload for partner %s", contact_id, self.partner_id.name)
             else:
                 _logger.warning("[Fulfillment] No fulfillment_contact_id for partner %s", self.partner_id.name)
@@ -561,11 +608,7 @@ class FulfillmentTransfers(models.Model):
         else:
             response = client.transfer.update(self.fulfillment_transfer_id, payload)
 
-        # Добавляем fulfillment профили
-        if fulfillment_out:
-            payload['fulfillment_out'] = fulfillment_out
-        if fulfillment_in:
-            payload['fulfillment_in'] = fulfillment_in
+
 
         # Детальное логирование финального payload
         _logger.info("[Fulfillment][Final Payload for %s]", self.picking_type_code)
