@@ -142,10 +142,10 @@ class FulfillmentWarehouses(models.Model):
                 data = response["data"]
                 owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
                 client_fp = None
-                if data.get('warehouse_customer_fulfillment_id') and data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
-                    client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1)
+                if data.get('fulfillment_client_id') and data.get('fulfillment_client_id') != data.get('fulfillment_id'):
+                    client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_client_id'))], limit=1)
                 else:
-                    _logger.warning("[WAREHOUSE][CREATE][API] owner_fulfillment_id == warehouse_customer_fulfillment_id for warehouse %s (api returned same id)", warehouse.name)
+                    _logger.warning("[WAREHOUSE][CREATE][API] owner_fulfillment_id == fulfillment_client_id for warehouse %s (api returned same id)", warehouse.name)
 
                 try:
                     warehouse.with_context(
@@ -248,7 +248,7 @@ class FulfillmentWarehouses(models.Model):
                     "code": vals.get("code", record.code),
                     "location": vals.get("location", record.partner_id.city or ""),
                     "short_name": vals.get("short_name", record.code.upper() if record.code else record.name),
-                    "warehouse_customer_fulfillment_id": partner.fulfillment_partner_id,
+                    "fulfillment_client_id": partner.fulfillment_partner_id,
                 }
                 _logger.info(f"[WAREHOUSE][WRITE][API] PUT → warehouse_id={record.fulfillment_warehouse_id} payload={payload}")
 
@@ -264,12 +264,12 @@ class FulfillmentWarehouses(models.Model):
                     [('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1
                 )
                 client_partner = None
-                if data.get('warehouse_customer_fulfillment_id') != data.get('fulfillment_id'):
+                if data.get('fulfillment_client_id') != data.get('fulfillment_id'):
                     client_partner = self.env['fulfillment.partners'].search(
-                        [('fulfillment_id', '=', data.get('warehouse_customer_fulfillment_id'))], limit=1
+                        [('fulfillment_id', '=', data.get('fulfillment_client_id'))], limit=1
                     )
                 else:
-                    _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and warehouse_customer_fulfillment_id for the warehouse.{record.name}")
+                    _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and fulfillment_client_id for the warehouse.{record.name}")
 
 
                 record.with_context(
@@ -316,26 +316,26 @@ class FulfillmentWarehouses(models.Model):
             response = client.fulfillment.list_warehouses(fulfillment_partner.fulfillment_id)
             _logger.info("[Logger][Info]:[IMPORT][WAREHOUSES] API response: %s", response)
 
-            if response.get("status") != "success":
-                _logger.error("[Logger][Error]: [IMPORT][WAREHOUSES] API call failed: %s", response)
+
+            warehouses = response.get("data")
+            if not warehouses:
+                _logger.error("[IMPORT][WAREHOUSES] Empty or invalid API response: %s", response)
                 return
 
-            warehouses = response.get("data", [])
-            _logger.info("[Logger][Info]: [IMPORT][WAREHOUSES] Total received: %s", len(warehouses))
 
             # карта существующих складов
-            existing = self.search([("fulfillment_warehouse_id", "in", [w.get("warehouse_id") for w in warehouses])])
+            existing = self.search([("fulfillment_warehouse_id", "in", [w.get("id") for w in warehouses])])
             existing_map = {w.fulfillment_warehouse_id: w for w in existing}
 
             for wh in warehouses:
                 try:
-                    wh_id = wh.get("warehouse_id")
+                    wh_id = wh.get("id")
                     _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
 
                     warehouse = existing_map.get(wh_id)
 
                     # уникальный код
-                    code = wh.get("code") or wh.get("name") or "WH"
+                    code = wh.get("code") or wh.get("short_name") or wh.get("name") or "WH"
                     original_code = code
                     suffix = 1
                     while self.search_count([("code", "=", code), ("id", "!=", warehouse.id if warehouse else 0)]):
@@ -379,12 +379,20 @@ class FulfillmentWarehouses(models.Model):
                     ).write({"partner_id": child_contact.id
                     })
 
-                    owner_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("fulfillment_id"))], limit=1)
-                    client_fp = None
-                    if wh.get("warehouse_customer_fulfillment_id") != wh.get("fulfillment_id"):
-                        client_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("warehouse_customer_fulfillment_id"))], limit=1)
+                    owner_fp = self.env["fulfillment.partners"].search(
+                        [("fulfillment_id", "=", wh.get("fulfillment_id"))],
+                        limit=1
+                    )
+
+                    client_fp = self.env["fulfillment.partners"].search(
+                        [("fulfillment_id", "=", wh.get("fulfillment_client_id"))],
+                        limit=1
+                    ) if wh.get("fulfillment_client_id") else False
+
+                    if wh.get("fulfillment_client_id") != wh.get("fulfillment_id"):
+                        client_fp = self.env["fulfillment.partners"].search([("fulfillment_id", "=", wh.get("fulfillment_client_id"))], limit=1)
                     else:
-                        _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and warehouse_customer_fulfillment_id for the warehouse {wh.get('name')}")
+                        _logger.warning(f"[Logger][Warning]: The API returned identical fulfillment_id and fulfillment_client_id for the warehouse {wh.get('name')}")
 
                     warehouse.with_context(
                         skip_api_sync=True,
@@ -407,7 +415,11 @@ class FulfillmentWarehouses(models.Model):
                     _logger.exception(f"[Logger][Exception]: [IMPORT][WAREHOUSE] Error while processing {wh}: {str(e)}")
                     self.env.cr.rollback()
 
-            _logger.info(f"[Logger][Info]: [IMPORT][WAREHOUSES][DONE] Imported: {len(warehouse)}")
+            _logger.info(
+                "[IMPORT][WAREHOUSES][DONE] Imported: %s",
+                len(warehouses)
+            )
+
 
         except Exception as e:
             _logger.exception(f"[Logger][Exception]: [IMPORT][WAREHOUSES] Fatal error: {str(e)}")

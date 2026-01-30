@@ -250,8 +250,6 @@ class FulfillmentTransfers(models.Model):
         title = "Изменение партнёра"
 
         _logger.info("[STOCK.PICKING][ONCHANGE] partner_id → %s", self.partner_id.display_name)
-
-        # === Отправляем уведомление через bus ===
         payload = {
             "type": "fulfillment_notification",
             "payload": {
@@ -278,11 +276,8 @@ class FulfillmentTransfers(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         _logger.info("[Fulfillment][CREATE] Creating %d new stock.picking records", len(vals_list))
-
-        # создание записей
         records = super(FulfillmentTransfers, self).create(vals_list)
 
-        # проверка контекста — пропустить push
         if not self.env.context.get("skip_fulfillment_push"):
             for rec in records:
                 _logger.info("[Fulfillment][CREATE] Record created: %s (id=%s, name=%s, transfer_id=%s)",
