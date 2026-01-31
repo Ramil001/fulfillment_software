@@ -73,7 +73,7 @@ class PickingAdapter:
             raise ValueError(f"Unsupported picking type {picking.picking_type_code}")
         return mapper.build(picking, items, from_wh, to_wh, fulfillment_out, fulfillment_in, contacts)
 
-
+#
 # ================== Builder ==================
 class FulfillmentItemBuilder:
     def __init__(self, client):
