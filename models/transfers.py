@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 import json
 from odoo import models, api, fields, _
-from odoo.exceptions import UserError, ValidationError
 import logging
-from datetime import datetime
-from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
+from ..lib.api_client import FulfillmentAPIClient
 
 _logger = logging.getLogger(__name__)
 
@@ -206,12 +204,12 @@ class FulfillmentTransfers(models.Model):
 
         if not self.env.context.get("skip_fulfillment_push"):
             for rec in records:
-                f_id = rec.fulfillment_transfer_id
-                _logger.info("[Fulfillment] Processing %s (current f_id: '%s')", rec.name, f_id)
+                fulfillment_transfer_id = rec.fulfillment_transfer_id
+                _logger.info("[Fulfillment] Processing %s (current f_id: '%s')", rec.name, fulfillment_transfer_id)
 
                 # 2. ИЗМЕНЕННАЯ ЛОГИКА: 
                 # Если ID это "Empty" или False — это НОВАЯ запись. Пушим без поиска.
-                if not f_id or f_id == "Empty":
+                if not fulfillment_transfer_id or fulfillment_transfer_id == "Empty":
                     _logger.info("[Fulfillment] New record detected. Triggering API Push for %s", rec.name)
                     try:
                         rec._push_to_fulfillment_api()
@@ -221,7 +219,7 @@ class FulfillmentTransfers(models.Model):
                 # 3. Если ID — это реальный UUID, проверяем только на дубликаты среди ДРУГИХ записей
                 else:
                     existing = self.search([
-                        ("fulfillment_transfer_id", "=", f_id),
+                        ("fulfillment_transfer_id", "=", fulfillment_transfer_id),
                         ("id", "!=", rec.id)
                     ], limit=1)
                     
@@ -229,7 +227,7 @@ class FulfillmentTransfers(models.Model):
                         _logger.info("[Fulfillment] Unique UUID detected. Updating %s in API", rec.name)
                         rec._push_to_fulfillment_api()
                     else:
-                        _logger.warning("[Fulfillment] SKIP: UUID '%s' is already used by record %s", f_id, existing.id)
+                        _logger.warning("[Fulfillment] SKIP: UUID '%s' is already used by record %s", fulfillment_transfer_id, existing.id)
 
         return records
 
@@ -394,6 +392,7 @@ class FulfillmentTransfers(models.Model):
         warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in = self._resolve_warehouses_and_profiles(
             my_fulfillment_id
         )
+        
 
         payload = PickingAdapter.to_api_payload(
             self, items, warehouse_out_id, warehouse_in_id,
@@ -407,6 +406,9 @@ class FulfillmentTransfers(models.Model):
                 _logger.info("[Fulfillment] Added contact %s", contact_id)
         _logger.info("[Fulfillment][PAYLOAD] Full data sent to API: %s", json.dumps(payload, indent=2))
         self._sync_transfer(client, payload)
+
+
+
 
     def _resolve_warehouses_and_profiles(self, my_fulfillment_id):
         """Определяет склады и профили на основе типа трансфера"""
@@ -459,7 +461,12 @@ class FulfillmentTransfers(models.Model):
                     _logger.error("[Fulfillment] API returned empty data list: %s", response)
                     return
 
+                data_list = response.get('data')
+
+                if isinstance(data_list, dict):
+                    data_list = [data_list]
                 api_data = data_list[0]
+
                 remote_id = api_data.get("id")
                 owner_id = api_data.get("fulfillment_in")
 
