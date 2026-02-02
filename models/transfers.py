@@ -17,13 +17,13 @@ class BaseTransferMapper:
 
 
 class IncomingTransferMapper(BaseTransferMapper):
-    def build(self, picking, items, from_wh, to_wh, f_out, f_in, contacts=None):
+    def build(self, picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts=None):
         return {
             "transfer_type": "incoming",
-            "from_warehouse_id": from_wh,
-            "to_warehouse_id": to_wh,
-            "fulfillment_out": f_out,
-            "fulfillment_in": f_in,
+            "warehouse_out": warehouse_out,
+            "warehouse_in": warehouse_in,
+            "fulfillment_out": fulfillment_out,
+            "fulfillment_in": fulfillment_in,
             "reference": picking.name or picking.origin or "Odoo",
             "items": items,
             "contacts": contacts or [],
@@ -31,13 +31,13 @@ class IncomingTransferMapper(BaseTransferMapper):
 
 
 class OutgoingTransferMapper(BaseTransferMapper):
-    def build(self, picking, items, from_wh, to_wh, f_out, f_in, contacts=None):
+    def build(self, picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts=None):
         return {
             "transfer_type": "outgoing",
-            "from_warehouse_id": from_wh,
-            "to_warehouse_id": to_wh,
-            "fulfillment_out": f_out,
-            "fulfillment_in": f_in,
+            "warehouse_out": warehouse_out,
+            "warehouse_in": warehouse_in,
+            "fulfillment_out": fulfillment_out,
+            "fulfillment_in": fulfillment_in,
             "reference": picking.name or picking.origin or "Odoo",
             "items": items,
             "contacts": contacts or [],
@@ -45,14 +45,14 @@ class OutgoingTransferMapper(BaseTransferMapper):
 
 
 class InternalTransferMapper(BaseTransferMapper):
-    def build(self, picking, items, from_wh, to_wh, f_out, f_in, contacts=None):
+    def build(self, picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts=None):
         return {
             "transfer_type": "internal",
-            "from_warehouse_id": from_wh,
-            "to_warehouse_id": to_wh,
-            "fulfillment_out": f_out,
-            "fulfillment_in": f_in,
-            "reference": picking.name or "Odoo",
+            "warehouse_out": warehouse_out,
+            "warehouse_in": warehouse_in,
+            "fulfillment_out": fulfillment_out,
+            "fulfillment_in": fulfillment_in,
+            "reference": picking.name or "00000",
             "items": items,
         }
 
@@ -454,22 +454,20 @@ class FulfillmentTransfers(models.Model):
                 _logger.info("[Fulfillment][CREATE] Calling API for %s", self.name)
                 response = client.transfer.create(payload)
                 
-                # 1. Извлекаем список data из вашего JSON
-                data_list = response.get("data", [])
+                data_list = response.get("data")
                 if not data_list:
                     _logger.error("[Fulfillment] API returned empty data list: %s", response)
                     return
 
-                # 2. Берем первый объект из списка (как в вашем примере)
                 api_data = data_list[0]
-                remote_id = api_data.get("id") # Именно "id", а не "transfer_id"
+                remote_id = api_data.get("id")
                 owner_id = api_data.get("fulfillment_in")
 
                 if not remote_id:
                     _logger.error("[Fulfillment] Could not find 'id' in API response data")
                     return
 
-                # 3. Сохраняем полученные UUID в Odoo
+                
                 self.with_context(skip_fulfillment_push=True).write({
                     "fulfillment_transfer_id": remote_id,
                     "fulfillment_transfer_owner_id": owner_id,
@@ -543,7 +541,6 @@ class FulfillmentTransfers(models.Model):
         status = transfer.get("status")
         contacts = transfer.get("contacts") or []
 
-        # Поиск складов
         warehouse_in = self.env["stock.warehouse"].search(
             [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
         )
@@ -554,18 +551,14 @@ class FulfillmentTransfers(models.Model):
         location_id = warehouse_out.lot_stock_id.id if warehouse_out else False
         location_dest_id = warehouse_in.lot_stock_id.id if warehouse_in else False
 
-        # Обработка контактов
         partner_id = self._find_or_create_partner(contacts, wh_in_ext)
 
-        # Создание/обновление picking
         picking = self._create_or_update_picking(
             remote_id, transfer, location_id, location_dest_id, partner_id, warehouse_out, warehouse_in
         )
 
-        # Создание товарных позиций
         self._create_transfer_items(transfer, picking, location_id, location_dest_id)
 
-        # Применение статуса
         try:
             picking._apply_status(status)
             _logger.info("[Fulfillment] Status applied: %s -> %s", picking.name, status)
@@ -613,7 +606,6 @@ class FulfillmentTransfers(models.Model):
 
             partner_id = partner.id
 
-        # Fallback partner
         if not partner_id:
             partner_fallback = self.env["res.partner"].search(
                 [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
@@ -668,7 +660,6 @@ class FulfillmentTransfers(models.Model):
             product_data = item.get("product") or {}
             fulfillment_product_id = item.get("product_id") or product_data.get("product_id")
 
-            # Если нет данных о продукте, а ID есть — подтягиваем через API
             if fulfillment_product_id and not product_data:
                 fetched = self._fetch_product_from_api(fulfillment_product_id)
                 if fetched:
@@ -678,7 +669,6 @@ class FulfillmentTransfers(models.Model):
             sku = product_data.get("sku") or (f"F-{fulfillment_product_id}" if fulfillment_product_id else None)
             barcode = product_data.get("barcode")
 
-            # Поиск или создание продукта
             product_tmpl = self._find_or_create_product(
                 fulfillment_product_id, sku, prod_name, barcode
             )
