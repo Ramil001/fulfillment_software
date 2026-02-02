@@ -73,8 +73,6 @@ class PickingAdapter:
             raise ValueError(f"Unsupported picking type {picking.picking_type_code}")
         return mapper.build(picking, items, from_wh, to_wh, fulfillment_out, fulfillment_in, contacts)
 
-#
-# ================== Builder ==================
 class FulfillmentItemBuilder:
     def __init__(self, client):
         self.client = client
@@ -88,7 +86,6 @@ class FulfillmentItemBuilder:
                 continue
 
             items.append({
-                "name": move.product_id.name,
                 "product_id": fulfillment_id,
                 "quantity": float(move.product_uom_qty or 0.0),
                 "unit": move.product_uom.name if move.product_uom else 'Units',
@@ -105,8 +102,8 @@ class FulfillmentItemBuilder:
             }
             try:
                 resp = self.client.product.create(product_payload)
-                if resp and resp.get('status') == 'success':
-                    tmpl.product_variant_id.fulfillment_product_id = resp['data'].get('product_id')
+                if resp and resp.get("data", {}).get("id"):
+                    tmpl.product_variant_id.fulfillment_product_id = resp["data"].get("id")
                     _logger.info("[Fulfillment][Create] Remote product %s -> %s",
                                  tmpl.name, tmpl.fulfillment_product_id)
             except Exception as e:
@@ -144,6 +141,27 @@ class FulfillmentTransfers(models.Model):
         copy=False
     )
 
+
+
+    def _fetch_product_from_api(self, fulfillment_product_id):
+        """Загружает продукт из API по ID"""
+        if not fulfillment_product_id:
+            return None
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found for product fetch")
+            return None
+
+        client = FulfillmentAPIClient(profile)
+        try:
+            response = client.product.get(fulfillment_product_id)
+            return response.get("data")
+        except Exception as e:
+            _logger.error("[Fulfillment] Failed to fetch product %s: %s", fulfillment_product_id, e)
+            return None
+
+
     @api.onchange('partner_id')
     def _onchange_partner(self):
         """Срабатывает при изменении партнёра в stock.picking"""
@@ -176,20 +194,42 @@ class FulfillmentTransfers(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info("[Fulfillment][CREATE] Creating %d new stock.picking records", len(vals_list))
-        records = super(FulfillmentTransfers, self).create(vals_list)
+        _logger.info("[Fulfillment] START create with %s records.", len(vals_list))
+        
+        try:
+            # 1. Создаем записи в БД Odoo
+            records = super(FulfillmentTransfers, self).create(vals_list)
+            _logger.info("[Fulfillment] Records created: %s", records.ids)
+        except Exception as e:
+            _logger.error("[Fulfillment] CRASH during super().create: %s", str(e), exc_info=True)
+            raise
 
         if not self.env.context.get("skip_fulfillment_push"):
             for rec in records:
-                if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                    existing = self.search([
-                        ("fulfillment_transfer_id", "=", rec.fulfillment_transfer_id),
-                    ], limit=1)
+                f_id = rec.fulfillment_transfer_id
+                _logger.info("[Fulfillment] Processing %s (current f_id: '%s')", rec.name, f_id)
 
-
-                    if not existing:
-                        _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
+                # 2. ИЗМЕНЕННАЯ ЛОГИКА: 
+                # Если ID это "Empty" или False — это НОВАЯ запись. Пушим без поиска.
+                if not f_id or f_id == "Empty":
+                    _logger.info("[Fulfillment] New record detected. Triggering API Push for %s", rec.name)
+                    try:
                         rec._push_to_fulfillment_api()
+                    except Exception as e:
+                        _logger.error("[Fulfillment] Error during push for %s: %s", rec.name, str(e), exc_info=True)
+                
+                # 3. Если ID — это реальный UUID, проверяем только на дубликаты среди ДРУГИХ записей
+                else:
+                    existing = self.search([
+                        ("fulfillment_transfer_id", "=", f_id),
+                        ("id", "!=", rec.id)
+                    ], limit=1)
+                    
+                    if not existing:
+                        _logger.info("[Fulfillment] Unique UUID detected. Updating %s in API", rec.name)
+                        rec._push_to_fulfillment_api()
+                    else:
+                        _logger.warning("[Fulfillment] SKIP: UUID '%s' is already used by record %s", f_id, existing.id)
 
         return records
 
@@ -360,13 +400,12 @@ class FulfillmentTransfers(models.Model):
             fulfillment_out, fulfillment_in, []
         )
 
-        # Добавление контактов для outgoing
         if self.picking_type_code == 'outgoing' and self.partner_id:
             contact_id = getattr(self.partner_id, "fulfillment_contact_id", None)
             if contact_id:
                 payload["contacts"] = [{"contact_id": str(contact_id), "role": "DELIVERY"}]
                 _logger.info("[Fulfillment] Added contact %s", contact_id)
-
+        _logger.info("[Fulfillment][PAYLOAD] Full data sent to API: %s", json.dumps(payload, indent=2))
         self._sync_transfer(client, payload)
 
     def _resolve_warehouses_and_profiles(self, my_fulfillment_id):
@@ -410,31 +449,42 @@ class FulfillmentTransfers(models.Model):
         return warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in
 
     def _sync_transfer(self, client, payload):
-        """Синхронизация трансфера с API (создание/обновление)"""
         try:
             if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
-                _logger.info("[Fulfillment][CREATE] Creating transfer in API")
+                _logger.info("[Fulfillment][CREATE] Calling API for %s", self.name)
                 response = client.transfer.create(payload)
-
-                if not response or not response.get("transfer_id"):
-                    _logger.error("[Fulfillment][CREATE] Invalid API response: %s", response)
+                
+                # 1. Извлекаем список data из вашего JSON
+                data_list = response.get("data", [])
+                if not data_list:
+                    _logger.error("[Fulfillment] API returned empty data list: %s", response)
                     return
 
+                # 2. Берем первый объект из списка (как в вашем примере)
+                api_data = data_list[0]
+                remote_id = api_data.get("id") # Именно "id", а не "transfer_id"
+                owner_id = api_data.get("fulfillment_in")
+
+                if not remote_id:
+                    _logger.error("[Fulfillment] Could not find 'id' in API response data")
+                    return
+
+                # 3. Сохраняем полученные UUID в Odoo
                 self.with_context(skip_fulfillment_push=True).write({
-                    "fulfillment_transfer_id": response.get("transfer_id"),
-                    "fulfillment_transfer_owner_id": response.get("fulfillment_in"),
+                    "fulfillment_transfer_id": remote_id,
+                    "fulfillment_transfer_owner_id": owner_id,
                 })
-                _logger.info("[Fulfillment][CREATE] Transfer created: %s", response.get("transfer_id"))
+                _logger.info("[Fulfillment] Success! Linked %s to API ID: %s", self.name, remote_id)
+
             else:
-                _logger.info("[Fulfillment][UPDATE] Updating transfer %s", self.fulfillment_transfer_id)
+                _logger.info("[Fulfillment][UPDATE] Updating existing transfer %s", self.fulfillment_transfer_id)
                 client.transfer.update(self.fulfillment_transfer_id, payload)
 
         except Exception as e:
-            _logger.error("[Fulfillment][ERROR] Failed to sync transfer %s: %s", self.name, e, exc_info=True)
+            _logger.error("[Fulfillment][ERROR] Sync failed for %s: %s", self.name, str(e), exc_info=True)
 
     @property
     def fulfillment_api(self):
-        """Получение API клиента"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.warning("[Fulfillment] Profile not found")
@@ -613,14 +663,19 @@ class FulfillmentTransfers(models.Model):
             return
 
         Move = self.env["stock.move"]
-        ProductTmpl = self.env["product.template"]
 
         for item in items:
             product_data = item.get("product") or {}
             fulfillment_product_id = item.get("product_id") or product_data.get("product_id")
 
+            # Если нет данных о продукте, а ID есть — подтягиваем через API
+            if fulfillment_product_id and not product_data:
+                fetched = self._fetch_product_from_api(fulfillment_product_id)
+                if fetched:
+                    product_data = fetched
+
             prod_name = product_data.get("name") or "Unnamed Product"
-            sku = product_data.get("sku") or f"F-{fulfillment_product_id}"
+            sku = product_data.get("sku") or (f"F-{fulfillment_product_id}" if fulfillment_product_id else None)
             barcode = product_data.get("barcode")
 
             # Поиск или создание продукта
@@ -649,6 +704,7 @@ class FulfillmentTransfers(models.Model):
                 existing_move.write(move_vals)
             else:
                 Move.create(move_vals)
+
 
     def _find_or_create_product(self, fulfillment_product_id, sku, prod_name, barcode):
         """Поиск или создание продукта"""
