@@ -150,8 +150,6 @@ class FulfillmentTransfers(models.Model):
         if not self.partner_id:
             return
 
-        self.name = f"{self.partner_id.name}"
-        _logger.info("[STOCK.PICKING][ONCHANGE] partner_id → %s", self.partner_id.display_name)
 
         message = f"В документе {self.name or '(новый документ)'} изменён партнёр на {self.partner_id.display_name}."
         payload = {
@@ -185,9 +183,9 @@ class FulfillmentTransfers(models.Model):
             for rec in records:
                 if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
                     existing = self.search([
-                        ("name", "=", rec.name),
-                        ("fulfillment_transfer_id", "!=", "Empty")
+                        ("fulfillment_transfer_id", "=", rec.fulfillment_transfer_id),
                     ], limit=1)
+
 
                     if not existing:
                         _logger.info("[Fulfillment][CREATE] Pushing %s to Fulfillment API...", rec.name)
@@ -463,19 +461,29 @@ class FulfillmentTransfers(models.Model):
             _logger.error("[Fulfillment] Error fetching transfers: %s", e)
             return False
 
-        if not response or response.get("status") != "success":
-            _logger.warning("[Fulfillment] Invalid response: %s", response)
+        data = response.get("data")
+        if not isinstance(data, list):
+            _logger.warning("[Fulfillment] Invalid response format: %s", response)
             return False
+
+
 
         transfers = response.get("data", [])
         for transfer in transfers:
-            self._import_transfer(transfer)
+            try:
+                self._import_transfer(transfer)
+            except Exception as e:
+                _logger.error(
+                    "[Fulfillment][IMPORT] Failed transfer %s: %s",
+                    transfer.get("id"), e, exc_info=True
+                )
+                self.env.cr.rollback()
 
         return True
 
     def _import_transfer(self, transfer):
         """Импорт одного transfer в Odoo"""
-        remote_id = str(transfer.get("transfer_id"))
+        remote_id = str(transfer.get("id"))
         if not remote_id:
             _logger.warning("[Fulfillment] Transfer without ID skipped")
             return False
@@ -567,7 +575,10 @@ class FulfillmentTransfers(models.Model):
     def _create_or_update_picking(self, remote_id, transfer, location_id, 
                                   location_dest_id, partner_id, warehouse_out, warehouse_in):
         """Создание или обновление picking"""
-        picking = self.search([("fulfillment_transfer_id", "=", remote_id)], limit=1)
+        picking = self.search([
+            ("fulfillment_transfer_id", "=", remote_id),
+            ("company_id", "=", self.env.company.id),
+        ], limit=1)
         picking_type_id = self._map_type(transfer)
         picking_type = self.env["stock.picking.type"].browse(picking_type_id)
         type_code = picking_type.code if picking_type else "unknown"
@@ -578,7 +589,6 @@ class FulfillmentTransfers(models.Model):
         name = f"[F] {wh_code}/{type_short}/{hash_part}"
 
         vals = {
-            "name": name,
             "fulfillment_transfer_id": remote_id,
             "picking_type_id": picking_type_id,
             "partner_id": partner_id,
@@ -590,7 +600,8 @@ class FulfillmentTransfers(models.Model):
             picking.write(vals)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
         else:
-            picking = self.create(vals)
+            vals["name"] = name
+            picking = self.with_context(skip_fulfillment_push=True).create(vals)
             _logger.info("[Fulfillment] Created picking %s", picking.name)
 
         return picking
@@ -706,7 +717,8 @@ class FulfillmentTransfers(models.Model):
 
     def _map_type(self, transfer, current_picking=None):
         """Маппинг типа трансфера на тип операции в Odoo"""
-        tr_type = transfer.get("transfer_type")
+        tr_type = transfer.get("transfer_type") or transfer.get("type")
+
         type_map = {
             "incoming": "incoming",
             "outgoing": "outgoing",
