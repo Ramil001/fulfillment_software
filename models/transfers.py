@@ -66,12 +66,12 @@ class PickingAdapter:
     }
 
     @classmethod
-    def to_api_payload(cls, picking, items, from_wh, to_wh, 
+    def to_api_payload(cls, picking, items, warehouse_out, warehouse_in, 
                        fulfillment_out, fulfillment_in, contacts=None):
         mapper = cls._strategies.get(picking.picking_type_code)
         if not mapper:
             raise ValueError(f"Unsupported picking type {picking.picking_type_code}")
-        return mapper.build(picking, items, from_wh, to_wh, fulfillment_out, fulfillment_in, contacts)
+        return mapper.build(picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts)
 
 class FulfillmentItemBuilder:
     def __init__(self, client):
