@@ -10,74 +10,65 @@ class FulfillmentPurchase(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        fulfillmentApiClient = FulfillmentAPIClient(profile)
-        
-        for vals in vals_list:
-            _logger.info(f"[PURCHASE CREATE]: {vals}")
+        orders = super().create(vals_list)
 
-            # Получаем склад через picking_type
-            picking_type_id = vals.get('picking_type_id')
-            warehouse_id = None
-            fulfillment_warehouse_id = None
-            
-            if picking_type_id:
-                if isinstance(picking_type_id, list):
-                    picking_type_id = picking_type_id[0]
-                picking_type = self.env['stock.picking.type'].browse(picking_type_id)
-                fulfillment_warehouse_id = picking_type.warehouse_id.fulfillment_warehouse_id
-                if picking_type.exists() and picking_type.warehouse_id:
-                    warehouse = picking_type.warehouse_id
-                    warehouse_id = warehouse.id
-                    _logger.info(f"[CREATE] Picking Type: {picking_type.display_name} → Warehouse: {warehouse.display_name}")
-                    _logger.info(f"[CREATE] Warehouse.is_fulfillment = {warehouse.is_fulfillment}")
-            
-            if not warehouse_id:
-                _logger.warning("[CREATE] Не удалось определить warehouse_id, пропускаем отправку в API")
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            return orders
+
+        client = FulfillmentAPIClient(profile)
+
+        for order in orders:
+            picking_type = order.picking_type_id
+            warehouse = picking_type.warehouse_id if picking_type else False
+
+            if not warehouse or not warehouse.is_fulfillment:
                 continue
 
-            # Подготовка списка продуктов
+            fulfillment_warehouse_id = warehouse.fulfillment_warehouse_id
+            if not fulfillment_warehouse_id:
+                continue
+
             products = []
-            for line in vals.get('order_line', []):
-                if isinstance(line, (list, tuple)) and len(line) == 3 and line[0] == 0:
-                    line_vals = line[2]
-                    product_id = line_vals.get('product_id')
-                    product_name = line_vals.get('name')
-                    quantity = line_vals.get('product_qty')
-                    price = line_vals.get('price_unit')
+            for line in order.order_line:
+                product = line.product_id
+                if not product or not product.fulfillment_product_id:
+                    continue
 
-                    # product_id может быть [id, "name"]
-                    if isinstance(product_id, (list, tuple)):
-                        product_id = product_id[0]
-                    
-                    products.append({
-                        "product_id": product_id,
-                        "name": product_name,
-                        "quantity": quantity,
-                        "price": price,
-                        "warehouse_id": picking_type.warehouse_id.fulfillment_warehouse_id,  # <-- ключевой момент
-                    })
+                if line.product_qty <= 0:
+                    continue
 
-            # Логируем продукты
-            product_names = [p['name'] for p in products]
-            _logger.info(f"[CREATE] Products: {product_names}")
+                products.append({
+                    "product_id": product.fulfillment_product_id,
+                    "quantity": int(line.product_qty),
+                })
 
-            # Payload
+            if not products:
+                continue
+
             payload = {
-                "name": vals.get('origin') or "Auto",
+                "name": order.origin or order.name,
                 "warehouse_id": fulfillment_warehouse_id,
                 "products": products,
             }
 
-            # Вызов API
             try:
-                fulfillmentApiClient.purchase.create(payload, fulfillment_warehouse_id)
-                _logger.info(f"[CREATE] Payload sent to fulfillment API with warehouse_id={warehouse_id}")
+                response = client.purchase.create(payload)
+                data = response.get("data")
+
+                if isinstance(data, list) and data:
+                    order.fulfillment_purchase_id = data[0].get("id")
+
+                _logger.info(
+                    f"[FULFILLMENT] Purchase created for PO {order.name} → {order.fulfillment_purchase_id}"
+                )
+
             except Exception as e:
-                _logger.error(f"[CREATE] API Call FAILED: {e}")
+                _logger.error(
+                    f"[FULFILLMENT] Failed to create purchase for PO {order.name}: {e}"
+                )
 
-        return super().create(vals_list)
-
+        return orders
 
 
     def write(self, vals):
