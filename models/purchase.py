@@ -7,7 +7,7 @@ _logger = logging.getLogger(__name__)
 class FulfillmentPurchase(models.Model):
     _inherit = 'purchase.order'
     fulfillment_purchase_id = fields.Char(string="Fulfillment purchase_id", readonly=True)
-
+#
     @api.model_create_multi
     def create(self, vals_list):
         orders = super().create(vals_list)
