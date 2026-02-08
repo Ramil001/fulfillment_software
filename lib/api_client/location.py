@@ -30,6 +30,6 @@ class LocationAPI:
         Args:
             location_id (_type_): _description_
         """
-        url = f"https://{self.client.api_domain}/api/v1/locatons/{location_id}/products"
+        url = f"https://{self.client.api_domain}/api/v1/locations/{location_id}/products"
         response =self.client._request("GET", url)
         return response
