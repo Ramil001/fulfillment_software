@@ -110,11 +110,13 @@ class FulfillmentLocations(models.Model):
                 else:
                     response = api.create(payload)
                     data = response.get('data', {}) if response else {}
-                    if data.get('location_id'):
+                    if data.get('id'):
                         rec.with_context(skip_api_sync=True).write({
-                            'fulfillment_location_id': data['location_id']
+                            'fulfillment_location_id': data['id']
                         })
-                        _logger.info("[FULFILLMENT] POST+link: %s → %s", rec.name, rec.fulfillment_location_id)
+                        _logger.info("[FULFILLMENT] Создана внешняя локация: %s → %s",
+                                    rec.name, rec.fulfillment_location_id)
+
             except FulfillmentAPIError as e:
                 _logger.error("[FULFILLMENT] Ошибка write-sync: %s", str(e))
 
