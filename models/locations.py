@@ -6,7 +6,6 @@ from datetime import datetime
 
 _logger = logging.getLogger(__name__)
 
-
 class FulfillmentLocations(models.Model):
     _inherit = 'stock.location'
 
@@ -21,14 +20,13 @@ class FulfillmentLocations(models.Model):
     # =============================
     # CREATE
     # =============================
-
     @api.model_create_multi
     def create(self, vals_list):
-       
-        if self.env.context.get("skip_api_sync"):
-            return super().create(vals_list)
-
         records = super().create(vals_list)
+
+        if self.env.context.get('skip_api_sync'):
+            return records
+
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.warning("[FULFILLMENT] Профиль не найден — создание без синхронизации.")
@@ -38,46 +36,67 @@ class FulfillmentLocations(models.Model):
         api = client.location
 
         for rec in records:
+            # Определяем склад для локации
             warehouse = self.env['stock.warehouse'].search([
-                ('view_location_id', 'parent_of', rec.id)
+                ('view_location_id', '=', rec.id)
             ], limit=1)
-            
-            if not (warehouse and warehouse.fulfillment_warehouse_id):
-                continue
 
+            # Если это корневая локация склада
+            if warehouse and warehouse.fulfillment_warehouse_id:
+                try:
+                    payload = {
+                        "warehouse_id": warehouse.fulfillment_warehouse_id,
+                        "name": rec.name,
+                        "address": rec.complete_name or rec.name,
+                    }
 
-            try:
-                payload = {
-                    "warehouse_id": warehouse.fulfillment_warehouse_id,
-                    "name": rec.name,
-                    "address": rec.complete_name or rec.name,
-                }
-
-                if rec.fulfillment_location_id:
-                    api.update(rec.fulfillment_location_id, payload)
-                    _logger.info("[FULFILLMENT] PATCH при create: %s (%s)", rec.name, rec.fulfillment_location_id)
-                else:
-                   
                     response = api.create(payload)
                     data = response.get('data', {}) if response else {}
                     if data.get('id'):
                         rec.with_context(skip_api_sync=True).write({
                             'fulfillment_location_id': data['id']
                         })
-                        _logger.info("[FULFILLMENT] Создана внешняя локация: %s → %s",
+                        _logger.info("[FULFILLMENT] Создана внешняя корневая локация: %s → %s",
                                     rec.name, rec.fulfillment_location_id)
+                except FulfillmentAPIError as e:
+                    _logger.error("[FULFILLMENT] Ошибка создания корневой локации: %s (%s)", rec.name, str(e))
 
-            except FulfillmentAPIError as e:
-                _logger.error("[FULFILLMENT] Ошибка создания локации: %s (%s)", rec.name, str(e))
+            # Синхронизируем дочерние локации
+            child_locations = self.env['stock.location'].search([
+                ('id', 'child_of', rec.id),
+                ('id', '!=', rec.id)
+            ])
+            for child in child_locations:
+                if child.fulfillment_location_id:
+                    continue
+                try:
+                    payload = {
+                        "warehouse_id": warehouse.fulfillment_warehouse_id,
+                        "name": child.name,
+                        "address": child.complete_name or child.name,
+                    }
+                    response = api.create(payload)
+                    data = response.get('data', {}) if response else {}
+                    if data.get('id'):
+                        child.with_context(skip_api_sync=True).write({
+                            'fulfillment_location_id': data['id']
+                        })
+                        _logger.info("[FULFILLMENT] Создана внешняя дочерняя локация: %s → %s",
+                                    child.name, child.fulfillment_location_id)
+                except FulfillmentAPIError as e:
+                    _logger.error("[FULFILLMENT] Ошибка создания дочерней локации: %s (%s)", child.name, str(e))
 
         return records
 
-
+    # =============================
+    # WRITE (обновление)
+    # =============================
     def write(self, vals):
-        if self.env.context.get("skip_api_sync"):
-            return super().write(vals)
-
         res = super().write(vals)
+
+        if self.env.context.get('skip_api_sync'):
+            return res
+
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             return res
@@ -93,8 +112,8 @@ class FulfillmentLocations(models.Model):
             if not (warehouse and warehouse.fulfillment_warehouse_id):
                 continue
 
-
-            if not any(f in vals for f in ['name', 'complete_name', 'location_id']):
+            # Синхронизируем только если обновляются релевантные поля
+            if not any(f in vals for f in ['name', 'complete_name']):
                 continue
 
             payload = {
@@ -114,16 +133,11 @@ class FulfillmentLocations(models.Model):
                         rec.with_context(skip_api_sync=True).write({
                             'fulfillment_location_id': data['id']
                         })
-                        _logger.info("[FULFILLMENT] Создана внешняя локация: %s → %s",
-                                    rec.name, rec.fulfillment_location_id)
-
+                        _logger.info("[FULFILLMENT] POST+link: %s → %s", rec.name, rec.fulfillment_location_id)
             except FulfillmentAPIError as e:
                 _logger.error("[FULFILLMENT] Ошибка write-sync: %s", str(e))
 
         return res
-
-
-
 
     # =============================
     # UNLINK (удаление)

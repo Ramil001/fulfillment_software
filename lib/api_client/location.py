@@ -9,11 +9,10 @@ class LocationAPI:
         self.client = client
 
     def create(self, payload: dict):
-        """Создать новую локацию"""
         url = f"https://{self.client.api_domain}/api/v1/locations"
         _logger.debug(f"POST {url} payload={payload}")
         response = self.client._request("POST", url, payload)
-        _logger.debug(f"Response: {response}")
+        _logger.debug(f"[Location][Create] Response: {response}")
         return response
 
     def update(self, location_id, payload: dict):
