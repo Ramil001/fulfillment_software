@@ -195,7 +195,6 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[Fulfillment] START create with %s records.", len(vals_list))
         
         try:
-            # 1. Создаем записи в БД Odoo
             records = super(FulfillmentTransfers, self).create(vals_list)
             _logger.info("[Fulfillment] Records created: %s", records.ids)
         except Exception as e:

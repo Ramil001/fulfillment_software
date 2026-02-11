@@ -12,6 +12,63 @@ class FulfillmentPurchase(models.Model):
     def create(self, vals_list):
         return super().create(vals_list)
 
+
+    def button_confirm(self):
+        res = super().button_confirm()
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            return res
+
+        client = FulfillmentAPIClient(profile)
+
+        for order in self:
+            if order.fulfillment_purchase_id:
+                continue
+
+            warehouse = order.picking_type_id.warehouse_id
+            if not warehouse.is_fulfillment or not warehouse.fulfillment_warehouse_id:
+                continue
+
+            products = []
+            for line in order.order_line:
+                product = line.product_id
+                if not product.fulfillment_product_id:
+                    continue
+                if line.product_qty <= 0:
+                    continue
+
+                products.append({
+                    "product_id": product.fulfillment_product_id,
+                    "quantity": int(line.product_qty),
+                })
+
+            if not products:
+                continue
+
+            payload = {
+                "name": order.origin or order.name,
+                "warehouse_id": warehouse.fulfillment_warehouse_id,
+                "products": products,
+            }
+
+            try:
+                response = client.purchase.create(payload)
+                data = response.get("data", [])
+
+                if data and isinstance(data, list):
+                    fulfillment_id = data[0].get("id")
+                    if fulfillment_id:
+                        order.fulfillment_purchase_id = fulfillment_id
+
+            except Exception:
+                _logger.exception(
+                    f"[FULFILLMENT] Failed to create purchase for {order.name}"
+                )
+
+        return res
+
+
     def write(self, vals):
         res = super().write(vals)
 
