@@ -39,7 +39,6 @@ class FulfillmentPurchase(models.Model):
         client = FulfillmentAPIClient(profile)
 
         for order in self:
-            # --- Отправка purchase (уже есть) ---
             if order.fulfillment_purchase_id:
                 continue
 
@@ -75,10 +74,8 @@ class FulfillmentPurchase(models.Model):
                     _logger.info(f"[FULFILLMENT] Purchase created: {order.name} → {fulfillment_id}")
             except Exception:
                 _logger.exception(f"[FULFILLMENT] Failed to create purchase for {order.name}")
-                continue  # если purchase не создан, не пытаемся отправлять picking
+                continue
 
-            # --- Отправка связанного picking (ДОБАВЛЕНО) ---
-            # Ищем входящие операции по этому заказу, которые ещё не отправлены
             pickings = order.picking_ids.filtered(
                 lambda p: p.picking_type_code == 'incoming' 
                         and (not p.fulfillment_transfer_id or p.fulfillment_transfer_id == 'Empty')
@@ -96,10 +93,6 @@ class FulfillmentPurchase(models.Model):
 
     @api.model
     def import_purchase(self, purchase_ids=None):
-        """
-        Send existing purchase orders to Fulfillment API.
-        If purchase_ids is None, sends all draft orders.
-        """
         _logger.info(f"[import_purchase]")
         domain = [('state', '=', 'draft')]
         if purchase_ids:

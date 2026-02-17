@@ -6,7 +6,6 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 
 _logger = logging.getLogger(__name__)
 
-# Нужно добавить статусы и блокировку
 
 class FulfillmentOrder(models.Model):
     _inherit = 'sale.order'
@@ -46,13 +45,12 @@ class FulfillmentOrder(models.Model):
 
             for partner, lines in grouped_lines.items():
 
-                # === Создать товары в Fulfillment API, если их нет ===
                 for line in lines:
                     product = line.product_id
                     tmpl = product.product_tmpl_id
 
                     if tmpl.fulfillment_product_id:
-                        continue  # уже создан
+                        continue  
 
                     product_payload = {
                         "name": tmpl.name,
@@ -91,7 +89,6 @@ class FulfillmentOrder(models.Model):
                             tmpl.name, e
                         )
 
-                # === Продолжение твоей логики ===
                 warehouse = lines[0].fulfillment_item_warehouse
                 if not warehouse:
                     _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет склада для {partner.name} — пропуск.")
@@ -104,7 +101,7 @@ class FulfillmentOrder(models.Model):
                     )
                     continue
 
-                # --- Создаём Picking в Odoo ---
+             
                 picking_vals = {
                     'partner_id': order.partner_id.id,
                     'origin': order.name,
@@ -206,7 +203,6 @@ class FulfillmentOrder(models.Model):
     
     @api.model_create_multi
     def create(self, vals_list):
-        """Создание заказа и синхронизация с Fulfillment API"""
         _logger.info(f"[DEBUG][ORDER][CREATE]: {vals_list}")
 
         records = super(FulfillmentOrder, self).create(vals_list)
@@ -222,7 +218,6 @@ class FulfillmentOrder(models.Model):
             try:
                 partner = order.partner_id
 
-                # === 1. Создание контакта в Fulfillment API ===
                 if not partner.fulfillment_contact_id:
                     contact_payload = {
                         "type": "CUSTOMER",
@@ -244,7 +239,6 @@ class FulfillmentOrder(models.Model):
                         contact_resp = client.contact.create(contact_payload)
                         _logger.info(f"[FULFILLMENT][CONTACT][CREATE] Response: {contact_resp}")
 
-                        # API sometimes returns a list, sometimes an object
                         if isinstance(contact_resp, list) and contact_resp:
                             contact_id = contact_resp[0].get("id")
                         else:
@@ -265,7 +259,6 @@ class FulfillmentOrder(models.Model):
                     except Exception as e:
                         _logger.exception(f"[FULFILLMENT][CONTACT][UNEXPECTED]: {e}")
 
-                # === 2. Формируем payload заказа ===
                 payload = {
                     "external_order_id": order.name,
                     "notes": order.note or "",
@@ -305,7 +298,6 @@ class FulfillmentOrder(models.Model):
                 }
 
 
-                # === 3. Отправляем заказ ===
                 _logger.info(f"[FULFILLMENT][SYNC] Payload для API: {payload}")
                 response = client.order.create(payload)
                 _logger.info(f"[FULFILLMENT][SYNC] Ответ API: {response}")
@@ -379,7 +371,6 @@ class SaleOrderLine(models.Model):
                 
     @api.model_create_multi
     def create(self, vals_list):
-        """Перед созданием — проверяем корректность fulfillment_item_manager"""
         for vals in vals_list:
             if vals.get("fulfillment_item_manager"):
                 partner_exists = self.env['fulfillment.partners'].browse(
