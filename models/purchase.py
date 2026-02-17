@@ -11,11 +11,13 @@ class FulfillmentPurchase(models.Model):
     @api.model_create_multi
     
     def create(self, vals_list):
+        _logger.info(f"[create]")
         _logger.warning(f"[Fulfillment][Purchase][Order]: [self]: {self} | [vals_list]: {vals_list}")
         return super().create(vals_list)
 
 
     def write(self, vals):
+        _logger.info(f"[write]")
         res = super().write(vals)
 
         for rec in self:
@@ -37,7 +39,7 @@ class FulfillmentPurchase(models.Model):
         client = FulfillmentAPIClient(profile)
 
         for order in self:
-
+            # --- Отправка purchase (уже есть) ---
             if order.fulfillment_purchase_id:
                 continue
 
@@ -67,21 +69,27 @@ class FulfillmentPurchase(models.Model):
             try:
                 response = client.purchase.create(payload)
                 data = response.get("data", {})
-
                 fulfillment_id = data.get("purchase_id")
                 if fulfillment_id:
-                    order.write({
-                        "fulfillment_purchase_id": fulfillment_id
-                    })
-
-                    _logger.info(
-                        f"[FULFILLMENT] Purchase created: {order.name} → {fulfillment_id}"
-                    )
-
+                    order.write({"fulfillment_purchase_id": fulfillment_id})
+                    _logger.info(f"[FULFILLMENT] Purchase created: {order.name} → {fulfillment_id}")
             except Exception:
-                _logger.exception(
-                    f"[FULFILLMENT] Failed to create purchase for {order.name}"
-                )
+                _logger.exception(f"[FULFILLMENT] Failed to create purchase for {order.name}")
+                continue  # если purchase не создан, не пытаемся отправлять picking
+
+            # --- Отправка связанного picking (ДОБАВЛЕНО) ---
+            # Ищем входящие операции по этому заказу, которые ещё не отправлены
+            pickings = order.picking_ids.filtered(
+                lambda p: p.picking_type_code == 'incoming' 
+                        and (not p.fulfillment_transfer_id or p.fulfillment_transfer_id == 'Empty')
+            )
+            for picking in pickings:
+                if picking.move_ids:
+                    picking._push_to_fulfillment_api()
+                else:
+                    _logger.warning(
+                        f"[FULFILLMENT] Picking {picking.name} has no moves yet, skipping API push"
+                    )
 
         return res
 
@@ -92,6 +100,7 @@ class FulfillmentPurchase(models.Model):
         Send existing purchase orders to Fulfillment API.
         If purchase_ids is None, sends all draft orders.
         """
+        _logger.info(f"[import_purchase]")
         domain = [('state', '=', 'draft')]
         if purchase_ids:
             domain += [('id', 'in', purchase_ids)]
