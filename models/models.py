@@ -32,16 +32,19 @@ class FulfillmentDashboard(models.Model):
 
     @api.depends('subscription_ids')
     def _compute_subscription_count(self):
+        _logger.info(f"[_compute_subscription_count]")
         for record in self:
             record.subscription_count = len(record.subscription_ids)
 
     @api.depends()
     def _compute_warehouse_ids(self):
+        _logger.info(f"[_compute_warehouse_ids]")
         warehouses = self.env['stock.warehouse'].search([])
         for record in self:
             record.warehouse_ids = warehouses
 
     def action_create_subscription(self):
+        _logger.info(f"[action_create_subscription]")
         self.ensure_one()
         return {
             'type': 'ir.actions.act_window',
@@ -53,6 +56,7 @@ class FulfillmentDashboard(models.Model):
         }
 
     def action_open_subscriptions(self):
+        _logger.info(f"[action_open_subscriptions]")
         self.ensure_one()
         return {
             'type': 'ir.actions.act_window',
@@ -65,6 +69,7 @@ class FulfillmentDashboard(models.Model):
 
     @api.model_create_multi
     def create(self, vals):
+        _logger.info(f"[create]")
         dashboard = super().create(vals)
 
         profile = self.env['fulfillment.profile'].search([], limit=1)

@@ -10,7 +10,7 @@ class FulfillmentContactSync(models.Model):
 
     @api.model
     def import_contacts(self):
-        """Импорт контактов из Fulfillment API в res.partner"""
+        _logger.info(f"[import_contacts]")
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.warning("[FULFILLMENT][IMPORT] Профиль интеграции не найден")
@@ -41,7 +41,6 @@ class FulfillmentContactSync(models.Model):
             is_company = c.get('isCompany', False)
             company_name = c.get('companyName', False)
 
-            # Ищем существующего партнёра по Fulfillment Contact ID
             partner = self.env['res.partner'].search([('fulfillment_contact_id', '=', external_id)], limit=1)
             if partner:
                 partner.write({

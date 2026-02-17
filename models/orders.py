@@ -19,8 +19,8 @@ class FulfillmentOrder(models.Model):
 
 
     def action_confirm(self):
+        _logger.info(f"[action_confirm]")
         res = super().action_confirm()
-
         StockPicking = self.env['stock.picking']
         StockMove = self.env['stock.move']
 
@@ -199,11 +199,13 @@ class FulfillmentOrder(models.Model):
 
 
     def action_unlock(self):
+        _logger.info(f"[action_unlock]")
         raise UserError("Разблокировка заказа запрещена.")
     
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info(f"[DEBUG][ORDER][CREATE]: {vals_list}")
+        _logger.info(f"[create]")
+       
 
         records = super(FulfillmentOrder, self).create(vals_list)
 
@@ -343,7 +345,7 @@ class SaleOrderLine(models.Model):
 
     @api.onchange('fulfillment_item_manager')
     def _onchange_fulfillment_item_manager(self):
-        """Автоматически выбирает склад fulfillment_item_warehouse при смене партнёра"""
+        _logger.info(f"[_onchange_fulfillment_item_manager]")
         for line in self:
             if not line.fulfillment_item_manager:
                 line.fulfillment_item_warehouse = False
@@ -371,6 +373,7 @@ class SaleOrderLine(models.Model):
                 
     @api.model_create_multi
     def create(self, vals_list):
+        _logger.info(f"[create]")
         for vals in vals_list:
             if vals.get("fulfillment_item_manager"):
                 partner_exists = self.env['fulfillment.partners'].browse(
@@ -384,7 +387,7 @@ class SaleOrderLine(models.Model):
         return super().create(vals_list)
 
     def write(self, vals):
-        """Перед обновлением — проверяем корректность fulfillment_item_manager"""
+        _logger.info(f"[write]")
         if vals.get("fulfillment_item_manager"):
             partner_exists = self.env['fulfillment.partners'].browse(
                 vals["fulfillment_item_manager"]
@@ -398,7 +401,8 @@ class SaleOrderLine(models.Model):
 
     @api.model
     def _auto_init(self):
-        """Исправление битых связей при установке/обновлении модуля"""
+        _logger.info(f"[_auto_init]")
+        
         res = super()._auto_init()
 
         query = """

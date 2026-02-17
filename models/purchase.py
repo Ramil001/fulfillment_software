@@ -28,8 +28,8 @@ class FulfillmentPurchase(models.Model):
         return res
 
 
-
     def button_confirm(self):
+        _logger.info(f"[button_confirm]")
         res = super().button_confirm()
 
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -140,7 +140,6 @@ class FulfillmentPurchase(models.Model):
                 "products": products,
             }
 
-            # Send to Fulfillment API
             try:
                 fulfillmentApiClient.purchase.create(payload, fulfillment_warehouse_id)
                 _logger.info(f"[IMPORT PURCHASE] PO {order.name} sent to Fulfillment API (warehouse_id={warehouse.id})")

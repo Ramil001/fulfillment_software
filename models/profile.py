@@ -3,7 +3,7 @@ import requests
 from datetime import datetime
 import logging
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
-
+from urllib.parse import urlparse
 _logger = logging.getLogger(__name__)
 
 
@@ -77,6 +77,8 @@ class FulfillmentProfile(models.Model):
     
     
     def _check_availiable_webhook(self):
+        _logger.info(f"[_check_availiable_webhook]")
+        
         for record in self:
             status = 'unavailable'
 
@@ -99,37 +101,31 @@ class FulfillmentProfile(models.Model):
     
     
     def action_set_current_domain(self):
-        """Установить текущий домен в поле webhook_domain"""
+        _logger.info(f"[action_set_current_domain]")
         for record in self:
-            # Пробуем получить домен из текущего запроса
             domain = self._get_domain_from_request()
             
             if domain and domain not in ['localhost', '127.0.0.1']:
                 record.webhook_domain = domain
                 return
             
-            # Если не получилось из request, пробуем из параметров
             domain = self._get_domain_from_config()
             if domain:
                 record.webhook_domain = domain
     
     def _get_domain_from_request(self):
-        """Получить домен из текущего HTTP запроса"""
+        _logger.info(f"[_get_domain_from_request]")
         try:
             from odoo.http import request
             if request and hasattr(request, 'httprequest'):
-                # Получаем хост из заголовков
                 host = request.httprequest.host
                 
-                # Проверяем заголовки, которые могут содержать реальный домен
                 forwarded_host = request.httprequest.headers.get('X-Forwarded-Host')
                 if forwarded_host:
                     host = forwarded_host
                 
-                # Убираем порт если есть
                 domain = host.split(':')[0]
                 
-                # Проверяем что это не localhost
                 if domain and domain not in ['localhost', '127.0.0.1']:
                     return domain
         except (RuntimeError, AttributeError):
@@ -137,18 +133,15 @@ class FulfillmentProfile(models.Model):
         return False
     
     def _get_domain_from_config(self):
-        """Получить домен из конфигурации"""
+        _logger.info(f"[_get_domain_from_request]")
         config_param = self.env['ir.config_parameter'].sudo()
         
-        # Пробуем разные параметры
         web_base_url = config_param.get_param('web.base.url', '')
         
         if web_base_url:
             parsed = urlparse(web_base_url)
             if parsed.hostname and parsed.hostname not in ['localhost', '127.0.0.1']:
                 return parsed.hostname
-        
-        # Пробуем другие возможные параметры
         for param_name in ['web.base.url.freeze', 'web.base.url.mycompany', 'website.domain']:
             url = config_param.get_param(param_name, '')
             if url:
@@ -160,6 +153,7 @@ class FulfillmentProfile(models.Model):
         
         
     def action_fill_webhook_domain(self):
+        _logger.info(f"[action_fill_webhook_domain]")
         base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
         for rec in self:
             rec.webhook_domain = base_url
@@ -168,9 +162,8 @@ class FulfillmentProfile(models.Model):
             
     @api.model_create_multi
     def create(self, vals_list):
-        # Создаём записи как обычно
+        _logger.info(f"[create]")
         records = super().create(vals_list)
-        _logger.info("[PARTNERS][CREATE] Created partners: %s", records.ids)
 
         if self.env.context.get('skip_auto_import'):
             _logger.debug("[PARTNERS][CREATE] skip_auto_import in context — skipping auto import_all")
@@ -200,9 +193,10 @@ class FulfillmentProfile(models.Model):
 
 
     def write(self, vals):
+        _logger.info(f"[write]")
+        
         vals['update_at'] = datetime.now()
 
-        # запоминаем старое значение
         had_key_before = bool(self.fulfillment_api_key)
         new_key = vals.get("fulfillment_api_key")
 
@@ -226,6 +220,7 @@ class FulfillmentProfile(models.Model):
 
 
     def _sync_with_fulfillment_api(self):
+        _logger.info(f"[_sync_with_fulfillment_api]")
         bus = self.env['bus.utils']
 
         for record in self:
@@ -291,6 +286,7 @@ class FulfillmentProfile(models.Model):
 
     @api.model
     def get_my_profile_action(self):
+        _logger.info(f"[get_my_profile_action]")
         profile = self.search([], limit=1)
         if not profile:
             profile = self.create({'name': 'My new fulfillment company'})
@@ -307,6 +303,7 @@ class FulfillmentProfile(models.Model):
 
     @staticmethod
     def normalize_datetime_str(dt_str):
+        _logger.info(f"[normalize_datetime_str]")
         if not dt_str:
             return False
         try:

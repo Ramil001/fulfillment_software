@@ -73,12 +73,13 @@ class FulfillmentPartners(models.Model):
 
 
     def action_fill_webhook_domain(self):
-            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
-            for rec in self:
-                rec.webhook_domain = base_url
+        _logger.info(f"[action_fill_webhook_domain]")
+        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+        for rec in self:
+            rec.webhook_domain = base_url
                 
     def _notify_bus(self, title, message, level="info", sticky=False):
-        """Упрощённый вызов уведомлений через bus.utils"""
+        _logger.info(f"[_notify_bus]")
         try:
             bus = self.env['bus.utils']
             bus.send_notification(
@@ -92,18 +93,21 @@ class FulfillmentPartners(models.Model):
 
     # ---------- Действия ----------
     def action_follow(self):
+        _logger.info(f"[action_follow]")
         self.write({'status': 'follow'})
 
     def action_unfollow(self):
+        _logger.info(f"[action_unfollow]")
         self.write({'status': 'unfollow'})
 
     def _valid_field_parameter(self, field, name):
+        _logger.info(f"[_valid_field_parameter]")
         return name == 'password' or super()._valid_field_parameter(field, name)
 
     # ---------- Основная синхронизация ----------
     @api.model
     def import_all(self, profile=None):
-        """Полный импорт партнёров и связанных данных"""
+        _logger.info(f"[import_all]")
         bus = self.env['bus.utils']
         try:
             bus.send_notification(
@@ -242,7 +246,7 @@ class FulfillmentPartners(models.Model):
             return False
         
     def _activate_stock_settings(self):
-        _logger.info("⚙ Enabling Storage Locations via Settings Wizard...")
+        _logger.info(f"[_activate_stock_settings]")
         try:
             Settings = self.env['res.config.settings'].sudo()
             
@@ -264,9 +268,8 @@ class FulfillmentPartners(models.Model):
             return False
         
     def button_run_import_all(self):
-        """Кнопка запуска полной синхронизации"""
+        _logger.info(f"[button_run_import_all]")
         
-        # Активируем настройки склада перед синхронизацией
         self._activate_stock_settings()
         
         profile = self._get_active_profile()
@@ -283,7 +286,8 @@ class FulfillmentPartners(models.Model):
         }
     # ---------- Контакты ----------
     def import_contacts(self, partner_record):
-        """Создаём или обновляем контакт res.partner"""
+        _logger.info(f"[import_contacts]")
+        
         tag = self._get_fulfillment_tag()
         self._notify_bus("Import", f"Import contacts for {partner_record.name}", "info")
 
@@ -309,12 +313,14 @@ class FulfillmentPartners(models.Model):
 
     # ---------- Служебные ----------
     def _get_active_profile(self):
+        _logger.info(f"[_get_active_profile]")
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile or not profile.fulfillment_api_key:
             raise UserError("You need to set the API key in the Fulfillment settings.")
         return profile
 
     def _fetch_api_data(self, profile):
+        _logger.info(f"[_fetch_api_data]")
         try:
             client = FulfillmentAPIClient(profile)
             data = client.fulfillment.list().get("data", [])
@@ -326,10 +332,12 @@ class FulfillmentPartners(models.Model):
             raise UserError(f"API request failed: {str(e)}")
 
     def _process_api_data(self, data, profile):
+        _logger.info(f"[_process_api_data]")
         for item in data:
             self.import_partners(item, profile)
 
     def import_partners(self, item, profile):
+        _logger.info(f"[import_partners]")
         existing = self.search([('fulfillment_id', '=', item['id'])], limit=1)
         created_at = self._normalize_datetime(item.get('created_at'))
         vals = {
@@ -352,6 +360,7 @@ class FulfillmentPartners(models.Model):
         return partner_record
 
     def _normalize_datetime(self, dt_str):
+        _logger.info(f"[_normalize_datetime]")
         if not dt_str:
             return False
         for fmt in ('%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ'):
@@ -362,6 +371,7 @@ class FulfillmentPartners(models.Model):
         return False
 
     def _get_fulfillment_tag(self):
+        _logger.info(f"[_get_fulfillment_tag]")
         tag = self.env['res.partner.category'].search([('name', '=', 'Fulfillment')], limit=1)
         return tag or self.env['res.partner.category'].create({'name': 'Fulfillment'})
 #

@@ -22,25 +22,20 @@ class FulfillmentWarehouses(models.Model):
     # ===== Onchange handler ===== 
     @api.onchange('partner_id')
     def _onchange_partner(self):
-        """Triggers when changing partners in stock.warehouse"""
+        _logger.info(f"[_onchange_partner]")
         if not self.partner_id:
             return
 
         partner = self.partner_id
         warehouse_name = partner.name or "(new partner)"  # по умолчанию
 
-        # Проверяем, связан ли партнёр с Fulfillment
         if self.env['fulfillment.utils'].is_partner_fulfillment(partner.id):
             
-            # Берём имя профиля Fulfillment как владельца
             fulfillment_name = self.env['fulfillment.utils'].get_fulfillment_profile_name()
 
-            # Клиент — это выбранный партнёр
             client_name = partner.name
-            # Формируем имя склада
             warehouse_name = f"{client_name} ⮕ {fulfillment_name}"
 
-            # Отправляем уведомление
             title = "Fulfillment Warehouse"
             message = f"This partner ({partner.display_name}) is managed via Fulfillment."
             try:
@@ -54,22 +49,17 @@ class FulfillmentWarehouses(models.Model):
             except Exception as e:
                 _logger.exception(f"[BUS][ERROR] Error sending notification: {e}")
 
-        # Для обычного партнёра — остаётся просто имя
         self.name = warehouse_name
 
         
     
     
-    # ---------------------------
-    # CREATE
-    # ---------------------------
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info("[WAREHOUSE][CREATE][START] batch size=%s", len(vals_list))
-
+        _logger.info(f"[create]")
+        
         created_warehouses = super().create(vals_list)
-        _logger.info("[WAREHOUSE][CREATE] Created %s warehouses locally", len(created_warehouses))
-
+        
         profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
         if not profile or not profile.fulfillment_api_key:
             _logger.warning("[WAREHOUSE][CREATE] No active fulfillment.profile with API key found — skipping API sync for created warehouses")
@@ -132,10 +122,10 @@ class FulfillmentWarehouses(models.Model):
                         payload=payload
                     )
                 except FulfillmentAPIError as e:
-                    _logger.error("❌ Fulfillment API error on create for warehouse %s: %s", warehouse.name, e)
+                    _logger.error("Fulfillment API error on create for warehouse %s: %s", warehouse.name, e)
                     continue
                 except Exception as e:
-                    _logger.exception("❌ Unexpected error calling API for warehouse %s: %s", warehouse.name, e)
+                    _logger.exception("Unexpected error calling API for warehouse %s: %s", warehouse.name, e)
                     continue
 
                 
@@ -195,15 +185,9 @@ class FulfillmentWarehouses(models.Model):
         _logger.info("[WAREHOUSE][CREATE][DONE] processed %s warehouses", len(created_warehouses))
         return created_warehouses
 
-
-    # ---------------------------
-    # WRITE
-    # ---------------------------
     def write(self, vals):
-        _logger.info(f"[WAREHOUSE][WRITE][START] ids={self.ids}, vals={vals}, context={self.env.context}")
+        _logger.info(f"[write]")
 
-
-        # Check of editing rights
         if not self.env.context.get("from_fulfillment_import"):
             for wh in self:
                 if not self._is_warehouse_creator(wh.id):
@@ -299,14 +283,9 @@ class FulfillmentWarehouses(models.Model):
 
 
   
-    # ---------------------------
-    # IMPORT
-    # ---------------------------
     @api.model
     def import_warehouses(self, fulfillment_partner):
-       
-        _logger.info(f"[Logger][Info]: [IMPORT][WAREHOUSES][START] for partner {fulfillment_partner.name} ({fulfillment_partner.fulfillment_id})")
-
+        _logger.info(f"[import_warehouses]")
         try:
             profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
             if not profile or not profile.fulfillment_api_key:
@@ -323,7 +302,6 @@ class FulfillmentWarehouses(models.Model):
                 return
 
 
-            # карта существующих складов
             existing = self.search([("fulfillment_warehouse_id", "in", [w.get("id") for w in warehouses])])
             existing_map = {w.fulfillment_warehouse_id: w for w in existing}
 
@@ -334,7 +312,6 @@ class FulfillmentWarehouses(models.Model):
 
                     warehouse = existing_map.get(wh_id)
 
-                    # уникальный код
                     code = wh.get("code") or wh.get("short_name") or wh.get("name") or "WH"
                     original_code = code
                     suffix = 1
@@ -342,7 +319,6 @@ class FulfillmentWarehouses(models.Model):
                         code = f"{original_code}_{suffix}"
                         suffix += 1
 
-                    # уникальное имя
                     base_name = wh.get("name") or "Warehouse"
                     unique_name = base_name
                     suffix = 1
@@ -425,44 +401,21 @@ class FulfillmentWarehouses(models.Model):
             _logger.exception(f"[Logger][Exception]: [IMPORT][WAREHOUSES] Fatal error: {str(e)}")
             self.env.cr.rollback()
 
-    # ---------------------------
-    # HELPERS
-    # ---------------------------
     def _is_warehouse_creator(self, warehouse_id):
-        """Check if the current user is the owner of the warehouse.
-
-        Rules:
-            1. If warehouse.fulfillment_owner_id is empty → user is owner.
-            2. Otherwise, compare warehouse.fulfillment_owner_id.fulfillment_id
-            with the current active profile's fulfillment_profile_id.
-            3. If current profile.fulfillment_profile_id is empty → user is owner.
-
-        Args:
-            warehouse_id (int): ID of the warehouse.
-
-        Returns:
-            bool: True if user is owner, False otherwise.
-
-        Raises:
-            UserError: If warehouse not found.
-        """
+        _logger.info(f"[_is_warehouse_creator]")
         warehouse = self.browse(warehouse_id)
         if not warehouse.exists():
             raise UserError("Warehouse not found")
 
-        # No owner → user is owner
         if not warehouse.fulfillment_owner_id:
             _logger.debug(f"_is_warehouse_creator: warehouse {warehouse.id} has no owner → True")
             return True
 
-        # Get current active fulfillment profile
         profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
-        # If profile or profile.fulfillment_profile_id is empty → user is owner
         if not profile or not profile.fulfillment_profile_id:
             _logger.debug(f"_is_warehouse_creator: current profile missing → True")
             return True
 
-        # Compare warehouse owner with current profile
         owner_fulfillment_id = getattr(warehouse.fulfillment_owner_id.sudo(), 'fulfillment_id', False)
         is_owner = owner_fulfillment_id == profile.fulfillment_profile_id
 
@@ -518,6 +471,7 @@ class FulfillmentWarehouses(models.Model):
 
     @api.depends("partner_id", "partner_id.parent_id", "partner_id.category_id")
     def _compute_is_fulfillment(self):
+        _logger.info(f"[_compute_is_fulfillment]")
         for warehouse in self:
             try:
                 partner = warehouse.partner_id
@@ -527,14 +481,11 @@ class FulfillmentWarehouses(models.Model):
                     warehouse.is_fulfillment = False
                     continue
 
-                # Берём родителя, если он есть
                 parent = partner.parent_id or partner
 
-                # Проверяем, связан ли партнёр с fulfillment-складом
                 if getattr(parent, "fulfillment_contact_warehouse_id", False):
                     is_fulfillment = True
 
-                # Проверяем категории, если они есть
                 elif getattr(parent, "category_id", False):
                     if any(c.name == "Fulfillment" for c in parent.category_id):
                         is_fulfillment = True
@@ -542,7 +493,6 @@ class FulfillmentWarehouses(models.Model):
                 warehouse.is_fulfillment = is_fulfillment
 
             except Exception as e:
-                # Безопасный fallback, чтобы транзакция не падала
                 warehouse.is_fulfillment = False
                 _logger.error(
                     "[Fulfillment] Ошибка при вычислении is_fulfillment для склада '%s': %s",

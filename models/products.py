@@ -32,6 +32,8 @@ class FulfillmentProducts(models.Model):
     
     @api.model_create_multi
     def create(self, vals_list):
+        _logger.info(f"[create]")
+        
         records = super().create(vals_list)
 
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -76,6 +78,8 @@ class FulfillmentProducts(models.Model):
 
 
     def write(self, vals):
+        _logger.info(f"[write]")
+        
         res = super(FulfillmentProducts, self).write(vals)
 
         profile = self.env['fulfillment.profile'].search([], limit=1)
@@ -111,7 +115,7 @@ class FulfillmentProducts(models.Model):
             except Exception as e:
                 _logger.exception("[Fulfillment] Failed to sync product %s: %s", rec.name, e)
 
-            # --- Bus / chatter notification ---
+            
             message = f"Продукт обновлён: {rec.name} (ID {rec.id})"
             _logger.info(message)
             self.env['bus.utils'].send_notification(
@@ -123,7 +127,3 @@ class FulfillmentProducts(models.Model):
             rec.message_post(body=message)
 
         return res
-
-    
-    
-    

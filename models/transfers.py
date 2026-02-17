@@ -93,7 +93,6 @@ class FulfillmentItemBuilder:
         return items
 
     def _ensure_remote_product(self, tmpl):
-        """Создаём продукт в API, если его ещё нет"""
         _logger.info("[_ensure_remote_product]")
         if not getattr(tmpl, "fulfillment_product_id", None):
             product_payload = {
@@ -212,8 +211,7 @@ class FulfillmentTransfers(models.Model):
                 fulfillment_transfer_id = rec.fulfillment_transfer_id
                 _logger.info("[Fulfillment] Processing %s (current f_id: '%s')", rec.name, fulfillment_transfer_id)
 
-                # 2. ИЗМЕНЕННАЯ ЛОГИКА: 
-                # Если ID это "Empty" или False — это НОВАЯ запись. Пушим без поиска.
+                
                 if not fulfillment_transfer_id or fulfillment_transfer_id == "Empty":
                     _logger.info("[Fulfillment] New record detected. Triggering API Push for %s", rec.name)
                     try:
@@ -221,7 +219,7 @@ class FulfillmentTransfers(models.Model):
                     except Exception as e:
                         _logger.error("[Fulfillment] Error during push for %s: %s", rec.name, str(e), exc_info=True)
                 
-                # 3. Если ID — это реальный UUID, проверяем только на дубликаты среди ДРУГИХ записей
+            
                 else:
                     existing = self.search([
                         ("fulfillment_transfer_id", "=", fulfillment_transfer_id),
@@ -341,7 +339,7 @@ class FulfillmentTransfers(models.Model):
         if not partner:
             return None
 
-        # 1) Через linked_warehouse
+       
         try:
             linked_wh = getattr(partner, "linked_warehouse_id", None)
             if linked_wh:
@@ -351,7 +349,7 @@ class FulfillmentTransfers(models.Model):
         except Exception as e:
             _logger.debug("[Fulfillment] linked_warehouse check failed: %s", e)
 
-        # 2) Через fulfillment.partners
+        
         try:
             fp = self.env['fulfillment.partners'].search([('partner_id', '=', partner.id)], limit=1)
             if fp and getattr(fp, "profile_id", None):
@@ -359,7 +357,7 @@ class FulfillmentTransfers(models.Model):
         except Exception as e:
             _logger.debug("[Fulfillment] fulfillment.partners check failed: %s", e)
 
-        # 3) Через fulfillment_contact_warehouse_id
+        
         try:
             contact_wh_ext = getattr(partner, "fulfillment_contact_warehouse_id", None)
             if contact_wh_ext:
@@ -597,7 +595,6 @@ class FulfillmentTransfers(models.Model):
         return picking
 
     def _find_or_create_partner(self, contacts, wh_in_ext):
-        """Поиск или создание партнера из контактов"""
         _logger.info("[_find_or_create_partner]")
         partner_id = False
         contact_data = next(
@@ -729,14 +726,10 @@ class FulfillmentTransfers(models.Model):
 
 
     def _find_or_create_product(self, fulfillment_product_id, sku, prod_name, barcode):
-        """Поиск или создание продукта"""
-        
         _logger.info("[_find_or_create_product]")
-        
-        
         ProductTmpl = self.env["product.template"]
-
         product_tmpl = False
+        
         if fulfillment_product_id:
             product_tmpl = ProductTmpl.search(
                 [("fulfillment_product_id", "=", fulfillment_product_id)], limit=1
@@ -770,10 +763,7 @@ class FulfillmentTransfers(models.Model):
         return product_tmpl
 
     def _apply_status(self, target_status):
-        """Применение статуса к picking с учетом последовательности переходов"""
-        
         _logger.info("[_apply_status]")
-        
         
         self.ensure_one()
         state = self.state
@@ -789,7 +779,6 @@ class FulfillmentTransfers(models.Model):
         if current_i >= target_i:
             return
 
-        # Переходы
         if current_i < sequence.index("confirmed") and target_i >= sequence.index("confirmed"):
             self.action_confirm()
             state = self.state
@@ -802,7 +791,6 @@ class FulfillmentTransfers(models.Model):
             self.button_validate()
 
     def _map_type(self, transfer, current_picking=None):
-        """Маппинг типа трансфера на тип операции в Odoo"""
         _logger.info("[_map_type]")
         
         tr_type = transfer.get("transfer_type") or transfer.get("type")

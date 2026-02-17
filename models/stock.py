@@ -19,6 +19,7 @@ class StockQuant(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        _logger.info(f"[create]")
         quants = super().create(vals_list)
         for vals, quant in zip(vals_list, quants):
             quant._log_fulfillment_event(is_create=True)
@@ -26,7 +27,7 @@ class StockQuant(models.Model):
 
 
     def _update_available_quantity(self, product, location, quantity=None, **kwargs):
-        """Переопределяем системное обновление остатков."""
+        _logger.info(f"[_update_available_quantity]")
         result = super()._update_available_quantity(product, location, quantity=quantity, **kwargs)
 
         quant = self.env['stock.quant'].search([
@@ -56,12 +57,9 @@ class StockQuant(models.Model):
 
 
     def import_stock(self, filters=None):
-        """Импорт остатков из Fulfillment API и обновление stock.quant в Odoo."""
-
-        _logger.info("[FULFILLMENT][IMPORT] Запуск импорта остатков (filters=%s)", filters)
+        _logger.info(f"[import_stock]")
 
         try:
-            # 1️⃣ Получаем профиль и инициализируем клиента
             profile = self.env['fulfillment.profile'].search([], limit=1)
             if not profile:
                 _logger.error("[FULFILLMENT][IMPORT] Не найден профиль fulfillment.profile")
@@ -69,7 +67,6 @@ class StockQuant(models.Model):
 
             client = FulfillmentAPIClient(profile)
 
-            # 2️⃣ Формируем payload для API
             payload = {
                 "filters": filters or {},
                 "group_by": ["warehouse_id", "product_id", "location_id"],
@@ -78,7 +75,6 @@ class StockQuant(models.Model):
 
             _logger.info("[FULFILLMENT][IMPORT] Payload → %s", payload)
 
-            # 3️⃣ Запрос к API
             response = client.stock.get(payload)
             _logger.info("[FULFILLMENT][IMPORT] Response → %s", response)
 
@@ -91,7 +87,6 @@ class StockQuant(models.Model):
             
             self._sync_fulfillment_locations(data_list)
 
-            # 4️⃣ Обработка записей
             for item in data_list:
                 product_ext_id = item.get("product_id")
                 warehouse_ext_id = item.get("warehouse_id")
@@ -99,7 +94,6 @@ class StockQuant(models.Model):
                 qty = float(item.get("_sum", {}).get("quantity", 0.0))
                 available = float(item.get("_sum", {}).get("available", 0.0))
 
-                # 5️⃣ Поиск соответствующих записей в Odoo
                 product = self.env['product.product'].search([
                     ('fulfillment_product_id', '=', product_ext_id)
                 ], limit=1)
@@ -117,13 +111,11 @@ class StockQuant(models.Model):
                     )
                     continue
 
-                # 6️⃣ Ищем существующий квант
                 quant = self.search([
                     ('product_id', '=', product.id),
                     ('location_id', '=', location.id)
                 ], limit=1)
 
-                # 7️⃣ Обновление или создание кванта
                 if quant:
                     quant.write({
                         'quantity': qty,
@@ -139,7 +131,7 @@ class StockQuant(models.Model):
                         'location_id': location.id,
                         'quantity': qty,
                         'reserved_quantity': qty - available if qty > available else 0.0,
-                        'fulfillment_stock_id': None,  # при импорте не создаём ID
+                        'fulfillment_stock_id': None, 
                     })
                     _logger.info(
                         "[FULFILLMENT][IMPORT] Создан новый квант: %s (%s) qty=%.2f",
@@ -157,7 +149,8 @@ class StockQuant(models.Model):
 
 
     def _sync_fulfillment_locations(self, data_list):
-        """Создаём или связываем склады и локации по внешним ID"""
+        _logger.info(f"[_sync_fulfillment_locations]")
+        
         for item in data_list:
             warehouse_ext_id = item.get("warehouse_id")
             warehouse_name = item.get("warehouse_name") or "Без имени"
@@ -192,7 +185,8 @@ class StockQuant(models.Model):
         
 
     def _sync_fulfillment_stock_update(self):
-        """Обновление стока в Fulfillment API"""
+        _logger.info(f"[_sync_fulfillment_stock_update]")
+        
         self.ensure_one()
 
         if not self.fulfillment_stock_id:
@@ -208,7 +202,6 @@ class StockQuant(models.Model):
                 "reserved": float(self.reserved_quantity or 0.0),
             }
 
-            # Если количество и резерв равны нулю — вместо обновления делаем удаление
             if payload["quantity"] == 0 and payload["reserved"] == 0:
                 _logger.info(
                     "[FULFILLMENT][STOCK UPDATE] Кол-во = 0 → выполняем DELETE для %s",
@@ -232,7 +225,7 @@ class StockQuant(models.Model):
 
 
     def _sync_fulfillment_stock_delete(self):
-        """Удаление стока в Fulfillment API"""
+        _logger.info(f"[_sync_fulfillment_stock_delete]")
         self.ensure_one()
 
         if not self.fulfillment_stock_id:
@@ -262,7 +255,7 @@ class StockQuant(models.Model):
 
 
     def unlink(self):
-        """Удаление стока из внешнего Fulfillment API при удалении в Odoo"""
+        _logger.info(f"[unlink]")
         for quant in self:
             try:
                 if quant.fulfillment_stock_id:
@@ -275,6 +268,7 @@ class StockQuant(models.Model):
 
 
     def _log_fulfillment_event(self, is_create=False):
+        _logger.info(f"[_log_fulfillment_event]")
         self.ensure_one()
         if self.fulfillment_stock_id:
             return
@@ -291,18 +285,10 @@ class StockQuant(models.Model):
 
         if warehouse and warehouse.fulfillment_warehouse_id:
             action = "Создан" if is_create else "Обновлён"
-            _logger.info(
-                "[FULFILLMENT] %s квант без ID: product=%s, qty=%.2f, location=%s, warehouse=%s (%s)",
-                action,
-                self.product_id.display_name,
-                self.quantity,
-                location.complete_name,
-                warehouse.name,
-                warehouse.fulfillment_warehouse_id,
-            )
+            
 
     def _sync_fulfillment_stock_create(self, input_quantity=None, input_reserved=None):
-        """Отправка созданного кванта во внешний Fulfillment API."""
+        _logger.info(f"[_sync_fulfillment_stock_create]")
         self.ensure_one()
 
         if self.fulfillment_stock_id:
@@ -335,14 +321,12 @@ class StockQuant(models.Model):
 
             _logger.info("[FULFILLMENT][STOCK CREATE] Payload → %s", payload)
 
-            # Вызываем create через клиент (а не напрямую StockAPI)
             response = client.stock.create(payload)
             _logger.info("[FULFILLMENT][STOCK CREATE] Response → %s", response)
 
             if response and response.get("status") == "success":
                 data = response.get("data", {})
 
-                # Исправлено: теперь берём stock_id, а не числовой id
                 self.fulfillment_stock_id = data.get("stock_id")
 
                 _logger.info(

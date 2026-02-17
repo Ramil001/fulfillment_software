@@ -22,6 +22,7 @@ class FulfillmentLocations(models.Model):
     # =============================
     @api.model_create_multi
     def create(self, vals_list):
+        _logger.info(f"[create]")
         records = super().create(vals_list)
 
         if self.env.context.get('skip_api_sync'):
@@ -92,6 +93,8 @@ class FulfillmentLocations(models.Model):
     # WRITE (обновление)
     # =============================
     def write(self, vals):
+        _logger.info(f"[write]")
+        
         res = super().write(vals)
 
         if self.env.context.get('skip_api_sync'):
@@ -143,6 +146,7 @@ class FulfillmentLocations(models.Model):
     # UNLINK (удаление)
     # =============================
     def unlink(self):
+        _logger.info(f"[unlink]")
         for rec in self:
             _logger.warning(
                 "[FULFILLMENT] Удалена локация: name=%s, id=%s, fulfillment_location_id=%s",

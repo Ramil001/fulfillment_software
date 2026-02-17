@@ -2,6 +2,7 @@
 from odoo.http import request
 
 def get_default_domain_host(env):
+    _logger.info(f"get_default_domain_host")
     """
     Возвращает домен текущей базы из параметров Odoo или из request.
     """
