@@ -66,6 +66,7 @@ class PickingAdapter:
     @classmethod
     def to_api_payload(cls, picking, items, warehouse_out, warehouse_in, 
                        fulfillment_out, fulfillment_in, contacts=None):
+        _logger.info("[to_api_payload]")
         mapper = cls._strategies.get(picking.picking_type_code)
         if not mapper:
             raise ValueError(f"Unsupported picking type {picking.picking_type_code}")
@@ -76,6 +77,7 @@ class FulfillmentItemBuilder:
         self.client = client
 
     def build_items(self, moves):
+        _logger.info("[build_items]")
         items = []
         for move in moves:
             product_tmpl = move.product_id.product_tmpl_id
@@ -92,6 +94,7 @@ class FulfillmentItemBuilder:
 
     def _ensure_remote_product(self, tmpl):
         """Создаём продукт в API, если его ещё нет"""
+        _logger.info("[_ensure_remote_product]")
         if not getattr(tmpl, "fulfillment_product_id", None):
             product_payload = {
                 "name": tmpl.name,
@@ -143,6 +146,7 @@ class FulfillmentTransfers(models.Model):
 
     def _fetch_product_from_api(self, fulfillment_product_id):
         """Загружает продукт из API по ID"""
+        _logger.info("[_fetch_product_from_api]")
         if not fulfillment_product_id:
             return None
 
@@ -162,6 +166,7 @@ class FulfillmentTransfers(models.Model):
 
     @api.onchange('partner_id')
     def _onchange_partner(self):
+        _logger.info("[_onchange_partner]")
         """Срабатывает при изменении партнёра в stock.picking"""
         if not self.partner_id:
             return
@@ -192,8 +197,9 @@ class FulfillmentTransfers(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info("[Fulfillment] START create with %s records.", len(vals_list))
-        
+        _logger.info("[create]")
+        _logger.info(f"[Fulfillment][Transfer][Create]: [self]: {self} | [vals_list]: {vals_list}")
+
         try:
             records = super(FulfillmentTransfers, self).create(vals_list)
             _logger.info("[Fulfillment] Records created: %s", records.ids)
@@ -232,6 +238,7 @@ class FulfillmentTransfers(models.Model):
 
     def _log_state_transition(self, rec, old_state, new_state, source):
         """Логирование изменения статуса"""
+        _logger.info("[_log_state_transition]")
         if old_state == new_state:
             return
 
@@ -247,6 +254,7 @@ class FulfillmentTransfers(models.Model):
         rec._push_status_update(new_state)
 
     def write(self, vals):
+        _logger.info("[write]")
         if self.env.context.get("skip_fulfillment_push"):
             return super().write(vals)
         
@@ -268,6 +276,7 @@ class FulfillmentTransfers(models.Model):
         return res
 
     def action_confirm(self):
+        _logger.info("[action_confirm]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_confirm()
         for rec in self:
@@ -275,6 +284,7 @@ class FulfillmentTransfers(models.Model):
         return res
 
     def action_assign(self):
+        _logger.info("[action_assign]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_assign()
         for rec in self:
@@ -282,6 +292,7 @@ class FulfillmentTransfers(models.Model):
         return res
 
     def button_validate(self):
+        _logger.info("[button_validate]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).button_validate()
         for rec in self:
@@ -289,6 +300,7 @@ class FulfillmentTransfers(models.Model):
         return res
 
     def action_done(self):
+        _logger.info("[action_done]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_done()
         for rec in self:
@@ -296,6 +308,7 @@ class FulfillmentTransfers(models.Model):
         return res
 
     def action_cancel(self):
+        _logger.info("[action_cancel]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_cancel()
         for rec in self:
@@ -304,6 +317,7 @@ class FulfillmentTransfers(models.Model):
 
     def _push_status_update(self, new_state):
         """Отправка обновления статуса в API"""
+        _logger.info("[_push_status_update]")
         if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
             _logger.warning("Skip status push – no transfer_id yet")
             return
@@ -323,6 +337,7 @@ class FulfillmentTransfers(models.Model):
 
     def _get_partner_fulfillment_profile_id(self, partner):
         """Возвращает fulfillment_profile_id партнёра"""
+        _logger.info("[_get_partner_fulfillment_profile_id]")
         if not partner:
             return None
 
@@ -362,6 +377,9 @@ class FulfillmentTransfers(models.Model):
 
     def _push_to_fulfillment_api(self):
         """Отправка трансфера в Fulfillment API"""
+        
+        _logger.info("[_push_to_fulfillment_api]")
+        
         self.ensure_one()
         _logger.info(
             "[Fulfillment][PUSH] Called for picking: %s (id=%s, transfer_id=%s, type=%s)",
@@ -411,6 +429,7 @@ class FulfillmentTransfers(models.Model):
 
     def _resolve_warehouses_and_profiles(self, my_fulfillment_id):
         """Определяет склады и профили на основе типа трансфера"""
+        _logger.info("[_resolve_warehouses_and_profiles]")
         warehouse_out_id = None
         warehouse_in_id = None
         fulfillment_out = None
@@ -450,6 +469,7 @@ class FulfillmentTransfers(models.Model):
         return warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in
 
     def _sync_transfer(self, client, payload):
+        _logger.info("[_sync_transfer]")
         try:
             if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
                 _logger.info("[Fulfillment][CREATE] Calling API for %s", self.name)
@@ -489,6 +509,7 @@ class FulfillmentTransfers(models.Model):
 
     @property
     def fulfillment_api(self):
+        _logger.info("[fulfillment_api]")
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.warning("[Fulfillment] Profile not found")
@@ -497,6 +518,7 @@ class FulfillmentTransfers(models.Model):
 
     @api.model
     def import_transfers(self, fulfillment_id=None, page=1, limit=50):
+        _logger.info("[import_transfers]")
         """Загружает трансферы из Fulfillment API"""
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
@@ -536,6 +558,7 @@ class FulfillmentTransfers(models.Model):
         return True
 
     def _import_transfer(self, transfer):
+        _logger.info("[_import_transfer]")
         """Импорт одного transfer в Odoo"""
         remote_id = str(transfer.get("id"))
         if not remote_id:
@@ -575,6 +598,7 @@ class FulfillmentTransfers(models.Model):
 
     def _find_or_create_partner(self, contacts, wh_in_ext):
         """Поиск или создание партнера из контактов"""
+        _logger.info("[_find_or_create_partner]")
         partner_id = False
         contact_data = next(
             (c for c in contacts if c.get("role") == "CUSTOMER"),
@@ -623,6 +647,7 @@ class FulfillmentTransfers(models.Model):
     def _create_or_update_picking(self, remote_id, transfer, location_id, 
                                   location_dest_id, partner_id, warehouse_out, warehouse_in):
         """Создание или обновление picking"""
+        _logger.info("[_create_or_update_picking]")
         picking = self.search([
             ("fulfillment_transfer_id", "=", remote_id),
             ("company_id", "=", self.env.company.id),
@@ -656,6 +681,7 @@ class FulfillmentTransfers(models.Model):
 
     def _create_transfer_items(self, transfer, picking, location_id, location_dest_id):
         """Создание товарных позиций из трансфера"""
+        _logger.info("[_create_transfer_items]")
         items = transfer.get("items", [])
         if not items:
             return
@@ -704,6 +730,10 @@ class FulfillmentTransfers(models.Model):
 
     def _find_or_create_product(self, fulfillment_product_id, sku, prod_name, barcode):
         """Поиск или создание продукта"""
+        
+        _logger.info("[_find_or_create_product]")
+        
+        
         ProductTmpl = self.env["product.template"]
 
         product_tmpl = False
@@ -741,6 +771,10 @@ class FulfillmentTransfers(models.Model):
 
     def _apply_status(self, target_status):
         """Применение статуса к picking с учетом последовательности переходов"""
+        
+        _logger.info("[_apply_status]")
+        
+        
         self.ensure_one()
         state = self.state
 
@@ -769,6 +803,8 @@ class FulfillmentTransfers(models.Model):
 
     def _map_type(self, transfer, current_picking=None):
         """Маппинг типа трансфера на тип операции в Odoo"""
+        _logger.info("[_map_type]")
+        
         tr_type = transfer.get("transfer_type") or transfer.get("type")
 
         type_map = {

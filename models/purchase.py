@@ -11,77 +11,17 @@ class FulfillmentPurchase(models.Model):
     @api.model_create_multi
     
     def create(self, vals_list):
+        _logger.warning(f"[Fulfillment][Purchase][Order]: [self]: {self} | [vals_list]: {vals_list}")
         return super().create(vals_list)
 
 
     def write(self, vals):
         res = super().write(vals)
 
-        if self.env.context.get("skip_api_sync"):
-            return res
-
-        # интересует ТОЛЬКО переход в purchase
-        if vals.get("state") != "purchase":
-            return res
-
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            return res
-
-        client = FulfillmentAPIClient(profile)
-
-        for order in self:
-            if order.fulfillment_purchase_id:
-                continue
-
-            picking_type = order.picking_type_id
-            if not picking_type or not picking_type.warehouse_id:
-                continue
-
-            warehouse = picking_type.warehouse_id
-            if not warehouse.is_fulfillment or not warehouse.fulfillment_warehouse_id:
-                continue
-
-            products = []
-            for line in order.order_line:
-                product = line.product_id
-                if not product or not product.fulfillment_product_id:
-                    continue
-                if line.product_qty <= 0:
-                    continue
-
-                products.append({
-                    "product_id": product.fulfillment_product_id,
-                    "quantity": int(line.product_qty),
-                })
-
-            if not products:
-                _logger.warning(f"[FULFILLMENT] PO {order.name}: no valid products")
-                continue
-
-            payload = {
-                "name": order.origin or order.name,
-                "warehouse_id": warehouse.fulfillment_warehouse_id,
-                "products": products,
-            }
-
-            try:
-                response = client.purchase.create(payload)
-                data = response.get("data") if response else {}
-
-                if isinstance(data, dict) and data.get("id"):
-                    order.with_context(skip_api_sync=True).write({
-                        "fulfillment_purchase_id": data["id"]
-                    })
-
-                    _logger.info(
-                        f"[FULFILLMENT] Purchase created: {order.name} → {data['id']}"
-                    )
-
-            except Exception as e:
-                _logger.exception(
-                    f"[FULFILLMENT] Failed to create purchase for {order.name}"
-                )
+        for rec in self:
+            if rec.fulfillment_purchase_id:
+                if any(field in vals for field in ['partner_id', 'date_planned']):
+                    rec._update_fulfillment_purchase()
 
         return res
 
