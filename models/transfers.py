@@ -516,15 +516,13 @@ class FulfillmentTransfers(models.Model):
 
     @api.model
     def import_transfers(self, fulfillment_id=None, page=1, limit=50):
-        _logger.info("[import_transfers]")
         """Загружает трансферы из Fulfillment API"""
+        _logger.info("[import_transfers]")
         profile = self.env['fulfillment.profile'].search([], limit=1)
         if not profile:
             _logger.warning("[Fulfillment] Profile not found")
             return False
-
         client = FulfillmentAPIClient(profile)
-
         try:
             response = client.transfer.list(
                 fulfillment_id=fulfillment_id,
@@ -534,14 +532,10 @@ class FulfillmentTransfers(models.Model):
         except Exception as e:
             _logger.error("[Fulfillment] Error fetching transfers: %s", e)
             return False
-
         data = response.get("data")
         if not isinstance(data, list):
             _logger.warning("[Fulfillment] Invalid response format: %s", response)
             return False
-
-
-
         transfers = response.get("data", [])
         for transfer in transfers:
             try:
@@ -552,46 +546,37 @@ class FulfillmentTransfers(models.Model):
                     transfer.get("id"), e, exc_info=True
                 )
                 self.env.cr.rollback()
-
         return True
 
+    # Импорт одного трансфера 
     def _import_transfer(self, transfer):
         _logger.info("[_import_transfer]")
-        """Импорт одного transfer в Odoo"""
         remote_id = str(transfer.get("id"))
         if not remote_id:
             _logger.warning("[Fulfillment] Transfer without ID skipped")
             return False
-
         wh_in_ext = transfer.get("warehouse_in")
         wh_out_ext = transfer.get("warehouse_out")
         status = transfer.get("status")
         contacts = transfer.get("contacts") or []
-
         warehouse_in = self.env["stock.warehouse"].search(
             [("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1
         )
         warehouse_out = self.env["stock.warehouse"].search(
             [("fulfillment_warehouse_id", "=", wh_out_ext)], limit=1
         )
-
         location_id = warehouse_out.lot_stock_id.id if warehouse_out else False
         location_dest_id = warehouse_in.lot_stock_id.id if warehouse_in else False
-
         partner_id = self._find_or_create_partner(contacts, wh_in_ext)
-
         picking = self._create_or_update_picking(
             remote_id, transfer, location_id, location_dest_id, partner_id, warehouse_out, warehouse_in
         )
-
         self._create_transfer_items(transfer, picking, location_id, location_dest_id)
-
         try:
             picking._apply_status(status)
             _logger.info("[Fulfillment] Status applied: %s -> %s", picking.name, status)
         except Exception as e:
             _logger.warning("[Fulfillment] Error applying status %s: %s", status, e)
-
         return picking
 
     def _find_or_create_partner(self, contacts, wh_in_ext):
