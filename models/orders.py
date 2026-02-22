@@ -12,6 +12,17 @@ class FulfillmentOrder(models.Model):
         copy=False,
         index=True,
     )
+    
+    fulfillment_mode = fields.Selection([
+        ('local', 'Local'),
+        ('delegate', 'Delegate Full Order'),
+        ('multi_ship', 'Multi Warehouse Shipping'),
+        ('transfer_ship', 'Transfer Then Ship'),
+    ], default='local')
+
+    fulfillment_partner_id = fields.Many2one('res.partner')
+    fulfillment_warehouse_id = fields.Many2one('stock.warehouse')
+    
     def action_confirm(self):
         _logger.info(f"[action_confirm]")
         res = super().action_confirm()
