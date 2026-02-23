@@ -19,7 +19,15 @@
     <field name="model">sale.order</field>
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
-
+    <!-- Добавил поле выбора типа обработки заказа -->
+  <xpath expr="//div[@class='oe_title']" position="before">
+    <div class="mb-1">
+        <label class="fw-bold d-block">Order Processing Type</label>
+        <div class="mt-1">
+            <field name="processing_mode" widget="selection"/>
+        </div>
+    </div>
+</xpath>
       <!-- Добавляем новую вкладку внутрь notebook -->
       <xpath expr="//notebook" position="inside">
         <page string="Fulfillment">

@@ -6,6 +6,7 @@ from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 _logger = logging.getLogger(__name__)
 class FulfillmentOrder(models.Model):
     _inherit = 'sale.order'
+    
     fulfillment_order_id = fields.Char(
         string="Fulfillment Order ID",
         readonly=True,
@@ -13,15 +14,16 @@ class FulfillmentOrder(models.Model):
         index=True,
     )
     
-    fulfillment_mode = fields.Selection([
-        ('local', 'Local'),
-        ('delegate', 'Delegate Full Order'),
-        ('multi_ship', 'Multi Warehouse Shipping'),
-        ('transfer_ship', 'Transfer Then Ship'),
-    ], default='local')
+    processing_mode = fields.Selection([
+        ('local', 'Local Only (No Other Warehouses Used)'),
+        ('delegate', 'Fulfillment Center Handles Entire Order'),
+        ('multi_ship', 'Multiple Warehouses Ship Directly to Customer'),
+        ('transfer_ship', 'Collect to Local Warehouse, Then Single Shipment'),
+    ], default='local', required=True)
 
     fulfillment_partner_id = fields.Many2one('res.partner')
     fulfillment_warehouse_id = fields.Many2one('stock.warehouse')
+    fulfillment_split = fields.Boolean()
     
     def action_confirm(self):
         _logger.info(f"[action_confirm]")
