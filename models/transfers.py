@@ -679,8 +679,8 @@ class FulfillmentTransfers(models.Model):
                 if fetched:
                     product_data = fetched
 
-            prod_name = product_data.get("name") or "Unnamed Product"
-            sku = product_data.get("sku") or (f"F-{fulfillment_product_id}" if fulfillment_product_id else None)
+            prod_name = product_data.get("name") or "Name not found"
+            sku = product_data.get("sku")
             barcode = product_data.get("barcode")
 
             product_tmpl = self._find_or_create_product(
