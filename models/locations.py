@@ -16,6 +16,57 @@ class FulfillmentLocations(models.Model):
         readonly=True,
     )
     
+    
+    from odoo import models
+
+class StockLocation(models.Model):
+    _inherit = "stock.location"
+
+   
+
+    def name_get(self):
+        result = super().name_get()
+        new_result = []
+
+        for rec_id, name in result:
+            rec = self.browse(rec_id)
+
+            if rec.usage == 'internal':
+                name = "🟢 " + name
+            elif rec.usage == 'fulfillment':
+                name = "🔵 " + name
+            elif rec.usage == 'supplier':
+                name = "🟠 " + name
+
+            new_result.append((rec_id, name))
+
+        return new_result
+
+    @api.model
+    def name_search(self, name='', args=None, operator='ilike', limit=100):
+        result = super().name_search(
+            name=name,
+            args=args,
+            operator=operator,
+            limit=limit,
+        )
+
+        new_result = []
+        for rec_id, display_name in result:
+            rec = self.browse(rec_id)
+
+            if rec.usage == 'internal':
+                display_name = "🟢 " + display_name
+            elif rec.usage == 'customer':
+                display_name = "🔵 " + display_name
+            elif rec.usage == 'supplier':
+                display_name = "🟠 " + display_name
+
+            new_result.append((rec_id, display_name))
+
+        return new_result
+    
+    
     # =============================
     # CREATE
     # =============================

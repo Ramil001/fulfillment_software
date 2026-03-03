@@ -14,12 +14,16 @@ class FulfillmentOrder(models.Model):
         index=True,
     )
     
-    processing_mode = fields.Selection([
-        ('local', 'Local Only (No Other Warehouses Used)'),
-        ('delegate', 'Fulfillment Center Handles Entire Order'),
-        ('multi_ship', 'Multiple Warehouses Ship Directly to Customer'),
-        ('transfer_ship', 'Collect to Local Warehouse, Then Single Shipment'),
-    ], default='local', required=True)
+    is_resupply_required = fields.Boolean(
+        string="Single Source?", 
+        help="Check to collect all products at one warehouse before shipping."
+    )
+
+    ship_zone_id = fields.Many2one(
+        'stock.warehouse', 
+        string="Ship-from Hub",
+        help="The warehouse where all goods will be gathered."
+    )
 
     fulfillment_partner_id = fields.Many2one('res.partner')
     fulfillment_warehouse_id = fields.Many2one('stock.warehouse')
@@ -286,7 +290,7 @@ class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
     fulfillment_item_manager = fields.Many2one(
         'fulfillment.partners',
-        string='Fulfillment Delivery',
+        string='Warehouses',
         help='Кто отправляет этот товар',
     )
     fulfillment_line_id = fields.Char(
@@ -296,9 +300,8 @@ class SaleOrderLine(models.Model):
     )
     fulfillment_item_warehouse = fields.Many2one(
         'stock.warehouse',
-        string='Warehouse Fulfillment',
+        string='Location',
         help='Склад, принадлежащий выбранному Fulfillment-партнёру',
-        domain="[('fulfillment_owner_id', '=', fulfillment_item_manager)]",
     )
 
     @api.onchange('fulfillment_item_manager')

@@ -19,16 +19,20 @@
     <field name="model">sale.order</field>
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
-      <!-- Добавил поле выбора типа обработки заказа -->
-      <xpath expr="//div[@class='oe_title']" position="before">
-          <div class="mb-1">
-              <label class="o_form_label fw-bold d-block" for="processing_mode">Fulfillment Sourcing Mode</label>
-              <field name="processing_mode" widget="selection"/>
-          </div>
-      </xpath>
+      <xpath expr="//field[@name='partner_id']" position="before">
+            <label for="is_resupply_required" string="Consolidate Order?"/>
+            <div class="o_row">
+                <field name="is_resupply_required"/>
+                <field name="ship_zone_id" 
+                      placeholder="Select Target Warehouse" 
+                      invisible="not is_resupply_required" 
+                      required="is_resupply_required"
+                      class="oe_inline"/>
+            </div>
+        </xpath>
         <!-- Добавляем новую вкладку внутрь notebook -->
       <xpath expr="//notebook" position="inside">
-        <page string="Fulfillment" invisible="processing_mode == 'local'">
+        <page string="Fulfillment">
           <group>
             <field name="fulfillment_order_id"/>
           </group>
