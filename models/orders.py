@@ -295,24 +295,23 @@ class SaleOrderLine(models.Model):
         help='Availiable warehouse with stock'
     )
 
-    @api.onchange('product_id')
-    def _onchange_product_id_set_warehouse_domain(self):
-     
-        if not self.product_id:
-            return {'domain': {'preferred_warehouse_id': []}}
+    @api.depends('product_id')
+    def _compute_warehouse_filter_ids(self):
+        for line in self:
+            if not line.product_id:
+                line.warehouse_filter_ids = [(5, 0, 0)]
+                continue
 
-        quants = self.env['stock.quant'].search([
-            ('product_id', '=', self.product_id.id),
-            ('quantity', '>', 0),
-            ('location_id.usage', '=', 'internal')
-        ])
-
-        available_warehouse_ids = quants.mapped('location_id.warehouse_id').ids
-        return {
-            'domain': {
-                'preferred_warehouse_id': [('id', 'in', available_warehouse_ids)]
-            }
-        }
+            # Ищем остатки On Hand > 0
+            quants = self.env['stock.quant'].search([
+                ('product_id', '=', line.product_id.id),
+                ('quantity', '>', 0),
+                ('location_id.usage', '=', 'internal')
+            ])
+            
+            # Находим склады через локации
+            warehouses = quants.mapped('location_id.warehouse_id')
+            line.warehouse_filter_ids = warehouses
         
     fulfillment_item_manager = fields.Many2one(
         'fulfillment.partners',
