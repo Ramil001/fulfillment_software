@@ -9,7 +9,8 @@
             <field name="preferred_warehouse_id" 
                    string="Source Stock"
                    optional="show"
-                   options="{'no_create': True, 'no_open': True}"/>
+                   options="{'no_create': True, 'no_open': True}"
+                   domain="[('id', 'in', warehouse_filter_ids)]"/>
         </xpath>
     </field>
   </record>
@@ -19,13 +20,13 @@
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
       <xpath expr="//field[@name='partner_id']" position="before">
-        <label for="is_resupply_required" string="Consolidate Order?"/>
+        <label for="is_consolidate_source" string="Consolidate Order?"/>
         <div class="o_row">
-          <field name="is_resupply_required"/>
-          <field name="ship_zone_id" 
+          <field name="is_consolidate_source"/>
+          <field name="consolidation_warehouse_id" 
                       placeholder="Select Target Warehouse" 
-                      invisible="not is_resupply_required" 
-                      required="is_resupply_required"
+                      invisible="not is_consolidate_source" 
+                      required="is_consolidate_source"
                       class="oe_inline"/>
         </div>
       </xpath>

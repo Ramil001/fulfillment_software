@@ -14,12 +14,12 @@ class FulfillmentOrder(models.Model):
         index=True,
     )
     
-    is_resupply_required = fields.Boolean(
+    is_consolidate_source = fields.Boolean(
         string="Single Source?", 
         help="Check to collect all products at one warehouse before shipping."
     )
 
-    ship_zone_id = fields.Many2one(
+    consolidation_warehouse_id = fields.Many2one(
         'stock.warehouse', 
         string="Ship-from Hub",
         help="The warehouse where all goods will be gathered."
@@ -30,22 +30,39 @@ class FulfillmentOrder(models.Model):
     fulfillment_split = fields.Boolean()
     
     def action_confirm(self):
-        _logger.info(f"[action_confirm]")
+        _logger.info(f"[action_confirm] Start")
+        
         res = super().action_confirm()
+        
         StockPicking = self.env['stock.picking']
         StockMove = self.env['stock.move']
+        
         profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            _logger.warning("[FULFILLMENT] Профиль интеграции не найден, пропускаем синхронизацию.")
-            return res
-        client = FulfillmentAPIClient(profile)
+        client = FulfillmentAPIClient(profile) if profile else None
+
         for order in self:
+            
+            if order.is_consolidate_source and order.consolidation_warehouse_id:
+                _logger.info(f"[CONSOLIDATION] Start for {order.name}")
+                
+                auto_pickings = order.picking_ids.filtered(
+                    lambda p: p.state not in ('done', 'cancel')
+                )
+                auto_pickings.action_cancel()
+                auto_pickings.unlink()
+
+                order._create_consolidated_flow()
+                continue 
+
+            if not profile:
+                _logger.warning("[FULFILLMENT] Профиль не найден, пропускаем внешнюю синхронизацию.")
+                continue
+                
             grouped_lines = {}
             for line in order.order_line:
                 partner = line.fulfillment_item_manager
-                if not partner:
-                    continue
-                grouped_lines.setdefault(partner, []).append(line)
+                if partner:
+                    grouped_lines.setdefault(partner, []).append(line)
             if not grouped_lines:
                 _logger.info(f"[FULFILLMENT][ORDER {order.name}] Нет Fulfillment-партнёров — пропуск.")
                 continue
@@ -284,6 +301,69 @@ class FulfillmentOrder(models.Model):
                 _logger.exception(f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке заказа {order.name}: {e}")
         return records
 
+    def _create_consolidated_flow(self):
+        self.ensure_one()
+        StockPicking = self.env['stock.picking']
+        
+        # 1. Создаем ГЛАВНУЮ отгрузку (Из Хаба к Клиенту)
+        out_picking_type = self.consolidation_warehouse_id.out_type_id
+        customer_picking = StockPicking.create({
+            'partner_id': self.partner_shipping_id.id,
+            'picking_type_id': out_picking_type.id,
+            'location_id': out_picking_type.default_location_src_id.id,
+            'location_dest_id': self.partner_id.property_stock_customer.id,
+            'origin': self.name,
+            'sale_id': self.id,
+        })
+
+        # 2. Группируем строки по складам, чтобы не плодить лишние трансферы
+        lines_by_warehouse = {}
+        for line in self.order_line:
+            wh = line.preferred_warehouse_id # Склад из строки
+            if wh:
+                lines_by_warehouse.setdefault(wh, []).append(line)
+
+        # 3. Создаем ВНУТРЕННИЕ перемещения (Склады строк -> Хаб)
+        for warehouse, lines in lines_by_warehouse.items():
+            # Если склад строки совпадает с хабом — перемещение не нужно, 
+            # просто добавляем товар в финальную отгрузку
+            if warehouse == self.consolidation_warehouse_id:
+                self._create_moves_for_picking(customer_picking, lines)
+                continue
+
+            # Создаем внутренний трансфер
+            internal_type = warehouse.int_type_id
+            internal_picking = StockPicking.create({
+                'partner_id': self.company_id.partner_id.id,
+                'picking_type_id': internal_type.id,
+                'location_id': warehouse.lot_stock_id.id,
+                'location_dest_id': self.consolidation_warehouse_id.lot_stock_id.id,
+                'origin': f"Consolidation: {self.name}",
+                'sale_id': self.id,
+            })
+            
+            self._create_moves_for_picking(internal_picking, lines)
+            self._create_moves_for_picking(customer_picking, lines) # Добавляем в план отгрузки хаба
+
+            internal_picking.action_confirm()
+            internal_picking.action_assign()
+
+        customer_picking.action_confirm()
+        customer_picking.action_assign()
+
+    def _create_moves_for_picking(self, picking, lines):
+        """Вспомогательный метод для создания Stock Move"""
+        for line in lines:
+            self.env['stock.move'].create({
+                'name': line.name,
+                'product_id': line.product_id.id,
+                'product_uom_qty': line.product_uom_qty,
+                'product_uom': line.product_uom.id,
+                'picking_id': picking.id,
+                'location_id': picking.location_id.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'sale_line_id': line.id,
+            })
             
 
 class SaleOrderLine(models.Model):
@@ -295,24 +375,33 @@ class SaleOrderLine(models.Model):
         help='Availiable warehouse with stock'
     )
 
+    warehouse_filter_ids = fields.Many2many(
+        'stock.warehouse',
+        compute='_compute_warehouse_filter_ids',
+        store=False
+    )
+
     @api.depends('product_id')
     def _compute_warehouse_filter_ids(self):
         for line in self:
             if not line.product_id:
-                line.warehouse_filter_ids = [(5, 0, 0)]
+                line.warehouse_filter_ids = False
                 continue
 
-            # Ищем остатки On Hand > 0
-            quants = self.env['stock.quant'].search([
-                ('product_id', '=', line.product_id.id),
-                ('quantity', '>', 0),
-                ('location_id.usage', '=', 'internal')
-            ])
+            warehouses = self.env['stock.warehouse'].search([])
+
+            available_warehouses = warehouses.filtered(
+                lambda w: self.env['stock.quant'].search_count([
+                    ('product_id', '=', line.product_id.id),
+                    ('location_id', 'child_of', w.lot_stock_id.id),
+                    ('quantity', '>', 0)
+                ]) > 0
+            )
+
+            line.warehouse_filter_ids = available_warehouses
             
-            # Находим склады через локации
-            warehouses = quants.mapped('location_id.warehouse_id')
-            line.warehouse_filter_ids = warehouses
-        
+            
+            
     fulfillment_item_manager = fields.Many2one(
         'fulfillment.partners',
         string='Warehouses',
@@ -328,6 +417,9 @@ class SaleOrderLine(models.Model):
         string='Location',
         help='Склад, принадлежащий выбранному Fulfillment-партнёру',
     )
+
+
+
 
     @api.onchange('fulfillment_item_manager')
     def _onchange_fulfillment_item_manager(self):
