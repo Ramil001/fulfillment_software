@@ -9,10 +9,8 @@ _logger = logging.getLogger(__name__)
 
 # ================== Strategy: Transfer Mappers ==================
 class BaseTransferMapper:
-    def build(self, picking, items, from_warehouse_id, to_warehouse_id, 
-              fulfillment_out, fulfillment_in, contacts=None):
+    def build(self, picking, items, from_warehouse_id, to_warehouse_id, fulfillment_out, fulfillment_in, contacts=None):
         raise NotImplementedError
-
 
 class IncomingTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts=None):
@@ -27,7 +25,6 @@ class IncomingTransferMapper(BaseTransferMapper):
             "contacts": contacts or [],
         }
 
-
 class OutgoingTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts=None):
         return {
@@ -41,7 +38,6 @@ class OutgoingTransferMapper(BaseTransferMapper):
             "contacts": contacts or [],
         }
 
-
 class InternalTransferMapper(BaseTransferMapper):
     def build(self, picking, items, warehouse_out, warehouse_in, fulfillment_out, fulfillment_in, contacts=None):
         return {
@@ -53,7 +49,6 @@ class InternalTransferMapper(BaseTransferMapper):
             "reference": picking.name or "00000",
             "items": items,
         }
-
 
 # ================== Adapter ==================
 class PickingAdapter:
@@ -109,7 +104,6 @@ class FulfillmentItemBuilder:
             except Exception as e:
                 _logger.error("[Fulfillment][Create] Exception creating product %s: %s", tmpl.name, e)
         return tmpl.fulfillment_product_id
-
 
 class FulfillmentTransfers(models.Model):
     _inherit = 'stock.picking'

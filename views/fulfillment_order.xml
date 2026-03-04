@@ -1,36 +1,35 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
-
-<record id="sale_order_line_form_inherit_fulfillment_partner" model="ir.ui.view">
+  <record id="sale_order_line_form_inherit_fulfillment_partner" model="ir.ui.view">
     <field name="name">sale.order.line.form.inherit.fulfillment.partner</field>
-    <field name="model">sale.order</field> 
+    <field name="model">sale.order</field>
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
-       <xpath expr="//field[@name='order_line']/list//field[@name='route_id']" position="after">
-           <field name="fulfillment_item_manager"/>
-           <field name="fulfillment_item_warehouse"/>
-       </xpath>
-
+      <xpath expr="//field[@name='order_line']/list//field[@name='product_uom_qty']" position="before">
+            <field name="preferred_warehouse_id" 
+                   string="Source Stock"
+                   optional="show"
+                   options="{'no_create': True, 'no_open': True}"/>
+        </xpath>
     </field>
-</record>
-
-<record id="sale_order_form_fulfillment" model="ir.ui.view">
- <field name="name">sale.order.form.inherit.fulfillment.tab</field>
+  </record>
+  <record id="sale_order_form_fulfillment" model="ir.ui.view">
+    <field name="name">sale.order.form.inherit.fulfillment.tab</field>
     <field name="model">sale.order</field>
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
       <xpath expr="//field[@name='partner_id']" position="before">
-            <label for="is_resupply_required" string="Consolidate Order?"/>
-            <div class="o_row">
-                <field name="is_resupply_required"/>
-                <field name="ship_zone_id" 
+        <label for="is_resupply_required" string="Consolidate Order?"/>
+        <div class="o_row">
+          <field name="is_resupply_required"/>
+          <field name="ship_zone_id" 
                       placeholder="Select Target Warehouse" 
                       invisible="not is_resupply_required" 
                       required="is_resupply_required"
                       class="oe_inline"/>
-            </div>
-        </xpath>
-        <!-- Добавляем новую вкладку внутрь notebook -->
+        </div>
+      </xpath>
+      <!-- Добавляем новую вкладку внутрь notebook -->
       <xpath expr="//notebook" position="inside">
         <page string="Fulfillment">
           <group>
@@ -38,8 +37,6 @@
           </group>
         </page>
       </xpath>
-
     </field>
-</record>
-
+  </record>
 </odoo>

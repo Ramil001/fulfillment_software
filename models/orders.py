@@ -288,6 +288,32 @@ class FulfillmentOrder(models.Model):
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
+    
+    preferred_warehouse_id = fields.Many2one(
+        'stock.warehouse',
+        string='Availiable Warehouse',
+        help='Availiable warehouse with stock'
+    )
+
+    @api.onchange('product_id')
+    def _onchange_product_id_set_warehouse_domain(self):
+     
+        if not self.product_id:
+            return {'domain': {'preferred_warehouse_id': []}}
+
+        quants = self.env['stock.quant'].search([
+            ('product_id', '=', self.product_id.id),
+            ('quantity', '>', 0),
+            ('location_id.usage', '=', 'internal')
+        ])
+
+        available_warehouse_ids = quants.mapped('location_id.warehouse_id').ids
+        return {
+            'domain': {
+                'preferred_warehouse_id': [('id', 'in', available_warehouse_ids)]
+            }
+        }
+        
     fulfillment_item_manager = fields.Many2one(
         'fulfillment.partners',
         string='Warehouses',
