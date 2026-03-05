@@ -27,7 +27,6 @@ class FulfillmentOrder(models.Model):
 
     fulfillment_partner_id = fields.Many2one('res.partner')
     fulfillment_warehouse_id = fields.Many2one('stock.warehouse')
-    fulfillment_split = fields.Boolean()
     
     def action_confirm(self):
         _logger.info(f"[action_confirm] Start")
@@ -168,7 +167,7 @@ class FulfillmentOrder(models.Model):
                         "reference": picking.name,
                         "transfer_type": "outgoing",
                         "fulfillment_out":  warehouse.fulfillment_owner_id,
-                        "warehouse_out": (warehouse.fulfillment_warehouse_id or "None"),
+                        "warehouse_out": warehouse.fulfillment_warehouse_id,
                         "status": "confirmed",
                         "items": move_items,
                     }
@@ -305,7 +304,6 @@ class FulfillmentOrder(models.Model):
         self.ensure_one()
         StockPicking = self.env['stock.picking']
         
-        # 1. Создаем ГЛАВНУЮ отгрузку (Из Хаба к Клиенту)
         out_picking_type = self.consolidation_warehouse_id.out_type_id
         customer_picking = StockPicking.create({
             'partner_id': self.partner_shipping_id.id,
@@ -316,22 +314,17 @@ class FulfillmentOrder(models.Model):
             'sale_id': self.id,
         })
 
-        # 2. Группируем строки по складам, чтобы не плодить лишние трансферы
         lines_by_warehouse = {}
         for line in self.order_line:
             wh = line.preferred_warehouse_id # Склад из строки
             if wh:
                 lines_by_warehouse.setdefault(wh, []).append(line)
 
-        # 3. Создаем ВНУТРЕННИЕ перемещения (Склады строк -> Хаб)
         for warehouse, lines in lines_by_warehouse.items():
-            # Если склад строки совпадает с хабом — перемещение не нужно, 
-            # просто добавляем товар в финальную отгрузку
             if warehouse == self.consolidation_warehouse_id:
                 self._create_moves_for_picking(customer_picking, lines)
                 continue
 
-            # Создаем внутренний трансфер
             internal_type = warehouse.int_type_id
             internal_picking = StockPicking.create({
                 'partner_id': self.company_id.partner_id.id,
@@ -343,7 +336,7 @@ class FulfillmentOrder(models.Model):
             })
             
             self._create_moves_for_picking(internal_picking, lines)
-            self._create_moves_for_picking(customer_picking, lines) # Добавляем в план отгрузки хаба
+            self._create_moves_for_picking(customer_picking, lines)
 
             internal_picking.action_confirm()
             internal_picking.action_assign()
