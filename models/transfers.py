@@ -136,6 +136,21 @@ class FulfillmentTransfers(models.Model):
     )
 
 
+            
+    def action_assign(self):
+        res = super().action_assign()
+
+        for picking in self:
+            if (
+                picking.move_ids
+                and picking.state in ("confirmed", "assigned")
+                and not picking.fulfillment_transfer_id
+            ):
+                picking._push_to_fulfillment_api()
+
+        return res
+
+
 
     def _fetch_product_from_api(self, fulfillment_product_id):
         """Загружает продукт из API по ID"""
@@ -190,7 +205,7 @@ class FulfillmentTransfers(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info("[create]")
+        _logger.info(f"[create] vals_list")
         _logger.info(f"[Fulfillment][Transfer][Create]: [self]: {self} | [vals_list]: {vals_list}")
 
         try:
@@ -199,6 +214,7 @@ class FulfillmentTransfers(models.Model):
         except Exception as e:
             _logger.error("[Fulfillment] CRASH during super().create: %s", str(e), exc_info=True)
             raise
+        _logger.info(f"SKIP FULFILLMENT PUSH | {self.env.context.get('skip_fulfillment_push')}")
 
         if not self.env.context.get("skip_fulfillment_push"):
             for rec in records:
@@ -299,7 +315,7 @@ class FulfillmentTransfers(models.Model):
             self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_done")
         return res
 
-    def action_cancel(self):
+def action_cancel(self):
         _logger.info("[action_cancel]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_cancel()

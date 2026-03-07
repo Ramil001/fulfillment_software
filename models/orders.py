@@ -123,7 +123,7 @@ class FulfillmentOrder(models.Model):
                     'location_id': picking_type.default_location_src_id.id,
                     'location_dest_id': order.partner_id.property_stock_customer.id,
                     'fulfillment_partner_id': partner.id,
-                    'fulfillment_warehouse_id': warehouse.id,
+                    'fulfillment_warehouse_id': warehouse.fulfillment_warehouse_id,
                     'sale_id': order.id,
                 }
                 picking = StockPicking.create(picking_vals)
@@ -166,7 +166,7 @@ class FulfillmentOrder(models.Model):
                     payload = {
                         "reference": picking.name,
                         "transfer_type": "outgoing",
-                        "fulfillment_out":  warehouse.fulfillment_owner_id,
+                        "fulfillment_out": warehouse.fulfillment_owner_id.fulfillment_id,
                         "warehouse_out": warehouse.fulfillment_warehouse_id,
                         "status": "confirmed",
                         "items": move_items,
@@ -176,10 +176,8 @@ class FulfillmentOrder(models.Model):
                             "contact_id": receiver_id,
                             "role": "CUSTOMER"
                         }]
-                    response = client.transfer.create(payload)
-                    transfer_id = response.get("data", {}).get("id")
-                    if transfer_id:
-                        picking.write({'fulfillment_transfer_id': transfer_id})
+                    picking.action_confirm()
+                    picking.action_assign()
                         _logger.info(
                             f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API."
                         )
@@ -343,6 +341,7 @@ class FulfillmentOrder(models.Model):
 
         customer_picking.action_confirm()
         customer_picking.action_assign()
+        
 
     def _create_moves_for_picking(self, picking, lines):
         """Вспомогательный метод для создания Stock Move"""
