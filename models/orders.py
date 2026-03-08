@@ -127,6 +127,20 @@ class FulfillmentOrder(models.Model):
                     'sale_id': order.id,
                 }
                 picking = StockPicking.create(picking_vals)
+                _logger.info(f"Создан picking {picking.name}")
+
+                for line in lines:
+                    self.env['stock.move'].create({
+                        'picking_id': picking.id,
+                        'name': line.name,
+                        'product_id': line.product_id.id,
+                        'product_uom_qty': line.product_uom_qty,
+                        'product_uom': line.product_uom.id,
+                        'location_id': picking.location_id.id,
+                        'location_dest_id': picking.location_dest_id.id,
+                        'sale_line_id': line.id,
+                    })
+                picking._push_to_fulfillment_api()
                 _logger.info(
                     f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}"
                 )
@@ -176,11 +190,7 @@ class FulfillmentOrder(models.Model):
                             "contact_id": receiver_id,
                             "role": "CUSTOMER"
                         }]
-                    picking.action_confirm()
-                    picking.action_assign()
-                        _logger.info(
-                            f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API."
-                        )
+                       
                     else:
                         _logger.warning(
                             f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}"
