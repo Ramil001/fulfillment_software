@@ -27,6 +27,7 @@ class FulfillmentOrder(models.Model):
 
     fulfillment_partner_id = fields.Many2one('res.partner')
     fulfillment_warehouse_id = fields.Many2one('stock.warehouse')
+    fulfillment_split = fields.Boolean()
     
     def action_confirm(self):
         _logger.info(f"[action_confirm] Start")
@@ -123,24 +124,10 @@ class FulfillmentOrder(models.Model):
                     'location_id': picking_type.default_location_src_id.id,
                     'location_dest_id': order.partner_id.property_stock_customer.id,
                     'fulfillment_partner_id': partner.id,
-                    'fulfillment_warehouse_id': warehouse.fulfillment_warehouse_id,
+                    'fulfillment_warehouse_id': warehouse.id,
                     'sale_id': order.id,
                 }
                 picking = StockPicking.create(picking_vals)
-                _logger.info(f"Создан picking {picking.name}")
-
-                for line in lines:
-                    self.env['stock.move'].create({
-                        'picking_id': picking.id,
-                        'name': line.name,
-                        'product_id': line.product_id.id,
-                        'product_uom_qty': line.product_uom_qty,
-                        'product_uom': line.product_uom.id,
-                        'location_id': picking.location_id.id,
-                        'location_dest_id': picking.location_dest_id.id,
-                        'sale_line_id': line.id,
-                    })
-                picking._push_to_fulfillment_api()
                 _logger.info(
                     f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}"
                 )
@@ -180,8 +167,8 @@ class FulfillmentOrder(models.Model):
                     payload = {
                         "reference": picking.name,
                         "transfer_type": "outgoing",
-                        "fulfillment_out": warehouse.fulfillment_owner_id.fulfillment_id,
-                        "warehouse_out": warehouse.fulfillment_warehouse_id,
+                        "fulfillment_out":  warehouse.fulfillment_owner_id,
+                        "warehouse_out": (warehouse.fulfillment_warehouse_id or "None"),
                         "status": "confirmed",
                         "items": move_items,
                     }
@@ -190,7 +177,13 @@ class FulfillmentOrder(models.Model):
                             "contact_id": receiver_id,
                             "role": "CUSTOMER"
                         }]
-                       
+                    response = client.transfer.create(payload)
+                    transfer_id = response.get("data", {}).get("id")
+                    if transfer_id:
+                        picking.write({'fulfillment_transfer_id': transfer_id})
+                        _logger.info(
+                            f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API."
+                        )
                     else:
                         _logger.warning(
                             f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}"
@@ -203,7 +196,74 @@ class FulfillmentOrder(models.Model):
                     _logger.exception(
                         f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}"
                     )
-            self.action_lock()
+        order_ids = self.ids
+
+        def after_commit():
+            try:
+                env = api.Environment(self.env.cr, self.env.uid, self.env.context)
+
+                orders = env['sale.order'].browse(order_ids)
+
+                profile = env['fulfillment.profile'].search([], limit=1)
+                client = FulfillmentAPIClient(profile) if profile else None
+
+                if not client:
+                    _logger.warning("[FULFILLMENT] Profile not found in postcommit.")
+                    return
+
+                for order in orders:
+                    pickings = order.picking_ids.filtered(
+                        lambda p: not p.fulfillment_transfer_id and p.state not in ('cancel')
+                    )
+
+                    for picking in pickings:
+                        move_items = []
+
+                        for move in picking.move_ids:
+                            move_items.append({
+                                "product_id": (
+                                    move.product_id.fulfillment_product_id
+                                    or move.product_id.default_code
+                                    or str(move.product_id.id)
+                                ),
+                                "quantity": int(move.product_uom_qty),
+                                "unit": move.product_uom.name or "Units",
+                            })
+
+                        payload = {
+                            "reference": picking.name,
+                            "transfer_type": "outgoing",
+                            "warehouse_out": picking.fulfillment_warehouse_id.fulfillment_warehouse_id,
+                            "status": "confirmed",
+                            "items": move_items,
+                        }
+
+                        try:
+                            response = client.transfer.create(payload)
+
+                            transfer_id = response.get("data", {}).get("id")
+
+                            if transfer_id:
+                                picking.write({
+                                    "fulfillment_transfer_id": transfer_id
+                                })
+
+                                _logger.info(
+                                    "[FULFILLMENT][POSTCOMMIT] Transfer created %s for %s",
+                                    transfer_id,
+                                    picking.name
+                                )
+
+                        except Exception:
+                            _logger.exception(
+                                "[FULFILLMENT][POSTCOMMIT] Failed sending picking %s",
+                                picking.name
+                            )
+
+            except Exception:
+                _logger.exception("[FULFILLMENT][POSTCOMMIT] Unexpected error")
+
+        self.env.cr.postcommit.add(after_commit)
         return res
 
 
@@ -351,7 +411,6 @@ class FulfillmentOrder(models.Model):
 
         customer_picking.action_confirm()
         customer_picking.action_assign()
-        
 
     def _create_moves_for_picking(self, picking, lines):
         """Вспомогательный метод для создания Stock Move"""

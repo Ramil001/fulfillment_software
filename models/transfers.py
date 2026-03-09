@@ -190,7 +190,7 @@ class FulfillmentTransfers(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info(f"[create] vals_list")
+        _logger.info("[create]")
         _logger.info(f"[Fulfillment][Transfer][Create]: [self]: {self} | [vals_list]: {vals_list}")
 
         try:
@@ -246,28 +246,36 @@ class FulfillmentTransfers(models.Model):
         rec._push_status_update(new_state)
 
     def write(self, vals):
-        _logger.info("[write]")
-        _logger.info(f"[write][self]: {self} [vals]: {vals}")
-        if self.env.context.get("skip_fulfillment_push"):
-            return super().write(vals)
-        
-        old_states = {rec.id: rec.state for rec in self}
-        res = super(FulfillmentTransfers, self).write(vals)
+        res = super().write(vals)
 
-        for rec in self:
-            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "write")
+        if "state" in vals:
+            pickings = self.filtered(
+                lambda p: p.state == "waiting"
+                and not p.fulfillment_transfer_id
+            )
 
-            trigger_fields = {'move_ids', 'state', 'partner_id', 'location_id', 'location_dest_id'}
-            has_contact = rec.partner_id and getattr(rec.partner_id, "fulfillment_contact_id", False)
+            if pickings:
+                picking_ids = pickings.ids
 
-            if rec.picking_type_code == 'outgoing' and has_contact:
-                if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
-                    rec._push_to_fulfillment_api()
-                elif trigger_fields.intersection(vals.keys()):
-                    rec._push_to_fulfillment_api()
+                def after_commit():
+                    env = api.Environment(self.env.cr, self.env.uid, self.env.context)
+                    records = env["stock.picking"].browse(picking_ids)
+
+                    for picking in records:
+                        try:
+                            picking._push_to_fulfillment_api()
+                        except Exception:
+                            _logger.exception(
+                                "[Fulfillment] Postcommit sync failed for %s",
+                                picking.name
+                            )
+
+                self.env.cr.postcommit.add(after_commit)
 
         return res
-
+    
+    
+    
     def action_confirm(self):
         _logger.info("[action_confirm]")
         old_states = {rec.id: rec.state for rec in self}
