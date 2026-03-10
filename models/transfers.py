@@ -274,12 +274,24 @@ class FulfillmentTransfers(models.Model):
                 self.env.cr.postcommit.add(after_commit)
 
         return res
+
+
+
     def action_confirm(self):
         _logger.info("[action_confirm]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_confirm()
+        
         for rec in self:
             self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_confirm")
+            
+            if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
+                _logger.info("[Fulfillment] Triggering API Push for %s during action_confirm", rec.name)
+                try:
+                    rec._push_to_fulfillment_api()
+                except Exception as e:
+                    _logger.error("[Fulfillment] Push failed during confirm: %s", str(e))
+                    
         return res
 
     def action_assign(self):
