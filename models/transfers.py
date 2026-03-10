@@ -246,12 +246,13 @@ class FulfillmentTransfers(models.Model):
         rec._push_status_update(new_state)
 
     def write(self, vals):
+        _logger.info(f"[write]: {vals}")
         res = super().write(vals)
 
         if "state" in vals:
             pickings = self.filtered(
-                lambda p: p.state == "waiting"
-                and not p.fulfillment_transfer_id
+                lambda p: p.state in ("waiting", "assigned")
+                and (not p.fulfillment_transfer_id or p.fulfillment_transfer_id == "Empty")
             )
 
             if pickings:
@@ -273,9 +274,6 @@ class FulfillmentTransfers(models.Model):
                 self.env.cr.postcommit.add(after_commit)
 
         return res
-    
-    
-    
     def action_confirm(self):
         _logger.info("[action_confirm]")
         old_states = {rec.id: rec.state for rec in self}
