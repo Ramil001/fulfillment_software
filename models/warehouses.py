@@ -27,7 +27,7 @@ class FulfillmentWarehouses(models.Model):
             return
 
         partner = self.partner_id
-        warehouse_name = partner.name or "(new partner)"  # по умолчанию
+        warehouse_name = partner.name or "(new partner)"
 
         if self.env['fulfillment.utils'].is_partner_fulfillment(partner.id):
             

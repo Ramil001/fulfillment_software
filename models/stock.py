@@ -339,3 +339,67 @@ class StockQuant(models.Model):
         except Exception as e:
             _logger.exception("[FULFILLMENT] Ошибка при синхронизации стока: %s", e)
 
+
+
+
+
+
+class StockWarehouse(models.Model):
+    _inherit = "stock.warehouse"
+
+    def name_get(self):
+        result = super().name_get()
+        new_result = []
+
+        product_id = self.env.context.get('product_id')
+        product = None
+
+        if product_id:
+            product = self.env['product.product'].browse(product_id)
+
+        for rec_id, name in result:
+            rec = self.browse(rec_id)
+
+            if product:
+                qty = product.with_context(
+                    location=rec.lot_stock_id.id
+                ).qty_available
+
+                name = f"{name} ({qty})"
+
+            new_result.append((rec_id, name))
+
+        return new_result
+
+
+    @api.model
+    def name_search(self, name='', args=None, operator='ilike', limit=100):
+
+        result = super().name_search(
+            name=name,
+            args=args,
+            operator=operator,
+            limit=limit,
+        )
+
+        new_result = []
+
+        product_id = self.env.context.get('product_id')
+        product = None
+
+        if product_id:
+            product = self.env['product.product'].browse(product_id)
+
+        for rec_id, display_name in result:
+            rec = self.browse(rec_id)
+
+            if product:
+                qty = product.with_context(
+                    location=rec.lot_stock_id.id
+                ).qty_available
+
+                display_name = f"{display_name} ({qty})"
+
+            new_result.append((rec_id, display_name))
+
+        return new_result

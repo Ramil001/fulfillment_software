@@ -4,6 +4,11 @@ import logging
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 
 _logger = logging.getLogger(__name__)
+
+
+
+
+
 class FulfillmentOrder(models.Model):
     _inherit = 'sale.order'
     
@@ -441,6 +446,24 @@ class SaleOrderLine(models.Model):
         compute='_compute_warehouse_filter_ids',
         store=False
     )
+    
+    
+    warehouse_display = fields.Char(
+        string='Source Stock',
+        compute='_compute_warehouse_display',
+        store=False
+    )
+
+    def _compute_warehouse_display(self):
+        for line in self:
+            if line.preferred_warehouse_id and line.product_id:
+                qty = line.product_id.with_context(
+                    location=line.preferred_warehouse_id.lot_stock_id.id
+                ).qty_available
+                line.warehouse_display = f"{line.preferred_warehouse_id.name} ({qty:.0f})"
+            else:
+                line.warehouse_display = line.preferred_warehouse_id.name or ''
+
 
     @api.depends('product_id')
     def _compute_warehouse_filter_ids(self):

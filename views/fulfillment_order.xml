@@ -6,11 +6,12 @@
     <field name="inherit_id" ref="sale.view_order_form"/>
     <field name="arch" type="xml">
       <xpath expr="//field[@name='order_line']/list//field[@name='product_uom_qty']" position="before">
-            <field name="preferred_warehouse_id" 
-                   string="Source Stock"
-                   optional="show"
-                   options="{'no_create': True, 'no_open': True}"
-                   domain="[('id', 'in', warehouse_filter_ids)]"/>
+            <field name="preferred_warehouse_id"
+              string="Source Stock"
+              optional="show"
+              options="{'no_create': True, 'no_open': True}"
+              domain="[('id', 'in', warehouse_filter_ids)]"
+              context="{'product_id': product_id}"/>
         </xpath>
     </field>
   </record>
