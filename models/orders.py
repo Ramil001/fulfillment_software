@@ -37,46 +37,60 @@ class FulfillmentOrder(models.Model):
     def action_confirm(self):
         _logger.info(f"[action_confirm] Start")
         
-        res = super().action_confirm()
-        
-        StockPicking = self.env['stock.picking']
-        StockMove = self.env['stock.move']
+        # Вызываем super с блокировкой автопуша в fulfillment API
+        res = super(FulfillmentOrder, self.with_context(
+            skip_fulfillment_push=True
+        )).action_confirm()
         
         profile = self.env['fulfillment.profile'].search([], limit=1)
         client = FulfillmentAPIClient(profile) if profile else None
 
         for order in self:
-            
+
+            # --- КОНСОЛИДАЦИЯ ---
             if order.is_consolidate_source and order.consolidation_warehouse_id:
                 _logger.info(f"[CONSOLIDATION] Start for {order.name}")
-                
                 auto_pickings = order.picking_ids.filtered(
                     lambda p: p.state not in ('done', 'cancel')
                 )
                 auto_pickings.action_cancel()
                 auto_pickings.unlink()
-
                 order._create_consolidated_flow()
-                continue 
+                continue
 
             if not profile:
                 _logger.warning("[FULFILLMENT] Профиль не найден, пропускаем внешнюю синхронизацию.")
                 continue
-                
+
+            # --- Группируем строки по складу ---
             grouped_lines = {}
             for line in order.order_line:
-                partner = line.fulfillment_item_manager
-                if partner:
-                    grouped_lines.setdefault(partner, []).append(line)
+                warehouse = line.preferred_warehouse_id
+                if warehouse:
+                    grouped_lines.setdefault(warehouse, []).append(line)
+
             if not grouped_lines:
-                _logger.info(f"[FULFILLMENT][ORDER {order.name}] Нет Fulfillment-партнёров — пропуск.")
+                _logger.info(f"[FULFILLMENT][ORDER {order.name}] Нет доступных складов — пропуск.")
                 continue
-            for partner, lines in grouped_lines.items():
+
+            # --- Удаляем стандартные pickings созданные Odoo ---
+            std_pickings = order.picking_ids.filtered(
+                lambda p: p.state not in ('done', 'cancel')
+                and (not p.fulfillment_transfer_id or p.fulfillment_transfer_id == 'Empty')
+            )
+            if std_pickings:
+                _logger.info(
+                    f"[FULFILLMENT][ORDER {order.name}] Удаляем стандартные pickings: {std_pickings.mapped('name')}"
+                )
+                std_pickings.action_cancel()
+                std_pickings.unlink()
+
+            # --- Создаём продукты если нужно ---
+            for warehouse, lines in grouped_lines.items():
                 for line in lines:
-                    product = line.product_id
-                    tmpl = product.product_tmpl_id
+                    tmpl = line.product_id.product_tmpl_id
                     if tmpl.fulfillment_product_id:
-                        continue  
+                        continue
                     product_payload = {
                         "name": tmpl.name,
                         "sku": tmpl.default_code or f"SKU-{tmpl.id}",
@@ -84,62 +98,38 @@ class FulfillmentOrder(models.Model):
                     }
                     try:
                         resp = client.product.create(product_payload)
-                        _logger.info("[Fulfillment][SaleOrder][Product][Create] %s -> %s", tmpl.name, resp)
-
-                        if resp and resp.get("status") == "success":
-                            new_id = resp["data"].get("product_id")
-
-                            if new_id:
-                                tmpl.product_variant_id.fulfillment_product_id = new_id
-                                _logger.info(
-                                    "[Fulfillment][SaleOrder] Saved product_id %s for %s",
-                                    new_id, tmpl.name
-                                )
-                            else:
-                                _logger.warning(
-                                    "[Fulfillment][SaleOrder] No product_id in API response for %s",
-                                    tmpl.name
-                                )
-
+                        if resp and resp.get("data", {}).get("id"):
+                            tmpl.product_variant_id.fulfillment_product_id = resp["data"]["id"]
+                            _logger.info("[Fulfillment][Product][Create] %s -> %s", tmpl.name, resp["data"]["id"])
                     except FulfillmentAPIError as e:
-                        _logger.error(
-                            "[Fulfillment][SaleOrder][Product][API Error] %s: %s",
-                            tmpl.name, e
-                        )
-
+                        _logger.error("[Fulfillment][Product][API Error] %s: %s", tmpl.name, e)
                     except Exception as e:
-                        _logger.exception(
-                            "[Fulfillment][SaleOrder][Product][Unexpected] %s: %s",
-                            tmpl.name, e
-                        )
-                warehouse = lines[0].fulfillment_item_warehouse
-                if not warehouse:
-                    _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет склада для {partner.name} — пропуск.")
-                    continue
+                        _logger.exception("[Fulfillment][Product][Unexpected] %s: %s", tmpl.name, e)
+
+            # --- Создаём кастомные pickings и трансферы ---
+            for warehouse, lines in grouped_lines.items():
                 picking_type = warehouse.out_type_id
                 if not picking_type:
-                    _logger.warning(
-                        f"[FULFILLMENT][ORDER {order.name}] Нет picking_type для склада {warehouse.name}."
-                    )
+                    _logger.warning(f"[FULFILLMENT][ORDER {order.name}] Нет picking_type для склада {warehouse.name}.")
                     continue
-                picking_vals = {
+
+                # Создаём picking с блокировкой автопуша
+                picking = self.env['stock.picking'].with_context(
+                    skip_fulfillment_push=True
+                ).create({
                     'partner_id': order.partner_id.id,
                     'origin': order.name,
                     'picking_type_id': picking_type.id,
                     'location_id': picking_type.default_location_src_id.id,
                     'location_dest_id': order.partner_id.property_stock_customer.id,
-                    'fulfillment_partner_id': partner.id,
-                    'fulfillment_warehouse_id': warehouse.id,
                     'sale_id': order.id,
-                }
-                picking = StockPicking.create(picking_vals)
-                _logger.info(
-                    f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для {partner.name}"
-                )
+                })
+                _logger.info(f"[FULFILLMENT][ORDER {order.name}] Создан picking {picking.name} для склада {warehouse.name}")
+
+                # --- Создаём moves и собираем items для API ---
                 move_items = []
                 for line in lines:
-
-                    StockMove.create({
+                    self.env['stock.move'].create({
                         'picking_id': picking.id,
                         'name': line.name,
                         'product_id': line.product_id.id,
@@ -158,119 +148,49 @@ class FulfillmentOrder(models.Model):
                         "quantity": int(line.product_uom_qty),
                         "unit": line.product_uom.name or "Units",
                     })
-                # --- Создаём трансфер через Fulfillment API ---
-                try:
-                    receiver_id = order.partner_shipping_id.fulfillment_contact_id
-                    fulfillment_partner = warehouse.fulfillment_owner_id
 
-                    if not fulfillment_partner or not fulfillment_partner.fulfillment_id:
+                # --- Отправляем трансфер в API ---
+                try:
+                    fulfillment_owner_out = warehouse.fulfillment_owner_id
+                    if not fulfillment_owner_out or not fulfillment_owner_out.fulfillment_id:
                         _logger.warning(
-                            f"[FULFILLMENT] У склада {warehouse.name} нет связанного fulfillment_id"
+                            f"[FULFILLMENT] Warehouse {warehouse.name} не имеет fulfillment_owner_id, пропуск трансфера"
                         )
                         continue
 
                     payload = {
                         "reference": picking.name,
                         "transfer_type": "outgoing",
-                        "fulfillment_out":  warehouse.fulfillment_owner_id,
-                        "warehouse_out": (warehouse.fulfillment_warehouse_id or "None"),
-                        "status": "confirmed",
+                        "warehouse_out": warehouse.fulfillment_warehouse_id or None,
+                        "warehouse_in": None,
+                        "fulfillment_out": fulfillment_owner_out.fulfillment_id,
+                        "fulfillment_in": None,
                         "items": move_items,
                     }
+
+                    receiver_id = order.partner_shipping_id.fulfillment_contact_id
                     if receiver_id:
-                        payload["contacts"] = [{
-                            "contact_id": receiver_id,
-                            "role": "CUSTOMER"
-                        }]
+                        payload["contacts"] = [{"contact_id": receiver_id, "role": "DELIVERY"}]
+
+                    _logger.info(f"[FULFILLMENT][PAYLOAD] {payload}")
+
                     response = client.transfer.create(payload)
                     transfer_id = response.get("data", {}).get("id")
+
                     if transfer_id:
-                        picking.write({'fulfillment_transfer_id': transfer_id})
-                        _logger.info(
-                            f"[FULFILLMENT][SYNC] Трансфер {transfer_id} успешно создан в API."
-                        )
+                        picking.with_context(skip_fulfillment_push=True).write({
+                            'fulfillment_transfer_id': transfer_id
+                        })
+                        _logger.info(f"[FULFILLMENT][SYNC] Transfer {transfer_id} создан для {picking.name}")
                     else:
-                        _logger.warning(
-                            f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}"
-                        )
+                        _logger.warning(f"[FULFILLMENT][SYNC] API не вернул transfer_id для {picking.name}")
+
                 except FulfillmentAPIError as e:
-                    _logger.error(
-                        f"[FULFILLMENT][ERROR] Ошибка API при создании трансфера {picking.name}: {e}"
-                    )
+                    _logger.error(f"[FULFILLMENT][ERROR] {picking.name}: {e}")
                 except Exception as e:
-                    _logger.exception(
-                        f"[FULFILLMENT][UNEXPECTED] Ошибка при отправке трансфера {picking.name}: {e}"
-                    )
-        order_ids = self.ids
+                    _logger.exception(f"[FULFILLMENT][UNEXPECTED] {picking.name}: {e}")
 
-        def after_commit():
-            try:
-                env = api.Environment(self.env.cr, self.env.uid, self.env.context)
-
-                orders = env['sale.order'].browse(order_ids)
-
-                profile = env['fulfillment.profile'].search([], limit=1)
-                client = FulfillmentAPIClient(profile) if profile else None
-
-                if not client:
-                    _logger.warning("[FULFILLMENT] Profile not found in postcommit.")
-                    return
-
-                for order in orders:
-                    pickings = order.picking_ids.filtered(
-                        lambda p: not p.fulfillment_transfer_id and p.state not in ('cancel')
-                    )
-
-                    for picking in pickings:
-                        move_items = []
-
-                        for move in picking.move_ids:
-                            move_items.append({
-                                "product_id": (
-                                    move.product_id.fulfillment_product_id
-                                    or move.product_id.default_code
-                                    or str(move.product_id.id)
-                                ),
-                                "quantity": int(move.product_uom_qty),
-                                "unit": move.product_uom.name or "Units",
-                            })
-
-                        payload = {
-                            "reference": picking.name,
-                            "transfer_type": "outgoing",
-                            "warehouse_out": picking.fulfillment_warehouse_id.fulfillment_warehouse_id,
-                            "status": "confirmed",
-                            "items": move_items,
-                        }
-
-                        try:
-                            response = client.transfer.create(payload)
-
-                            transfer_id = response.get("data", {}).get("id")
-
-                            if transfer_id:
-                                picking.write({
-                                    "fulfillment_transfer_id": transfer_id
-                                })
-
-                                _logger.info(
-                                    "[FULFILLMENT][POSTCOMMIT] Transfer created %s for %s",
-                                    transfer_id,
-                                    picking.name
-                                )
-
-                        except Exception:
-                            _logger.exception(
-                                "[FULFILLMENT][POSTCOMMIT] Failed sending picking %s",
-                                picking.name
-                            )
-
-            except Exception:
-                _logger.exception("[FULFILLMENT][POSTCOMMIT] Unexpected error")
-
-        self.env.cr.postcommit.add(after_commit)
         return res
-
 
     def action_unlock(self):
         _logger.info(f"[action_unlock]")

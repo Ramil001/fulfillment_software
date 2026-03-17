@@ -457,13 +457,17 @@ class FulfillmentTransfers(models.Model):
             fulfillment_in = my_fulfillment_id
 
         elif self.picking_type_code == 'outgoing':
-            src_wh = self.env['stock.warehouse'].search(
-                [('lot_stock_id', '=', self.location_id.id)], limit=1
+            src_wh = self.picking_type_id.warehouse_id
+            
+            warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
+            fulfillment_out = src_wh.fulfillment_owner_id.fulfillment_id if src_wh and src_wh.fulfillment_owner_id else my_fulfillment_id
+            
+            _logger.info(
+                "[RESOLVE][OUTGOING] src_wh=%s fwh_id=%s fulfillment_out=%s",
+                src_wh.name if src_wh else None,
+                warehouse_out_id,
+                fulfillment_out
             )
-            warehouse_out_id = getattr(src_wh, "fulfillment_warehouse_id", None) if src_wh else None
-            warehouse_in_id = getattr(self.partner_id, "fulfillment_warehouse_id", None)
-            fulfillment_out = my_fulfillment_id
-            fulfillment_in = self._get_partner_fulfillment_profile_id(self.partner_id)
 
         elif self.picking_type_code == 'internal':
             src_wh = self.env['stock.warehouse'].search(

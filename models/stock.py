@@ -365,7 +365,7 @@ class StockWarehouse(models.Model):
                     location=rec.lot_stock_id.id
                 ).qty_available
 
-                name = f"{name} ({qty})"
+                name = f"{name} ({int(qty)}"
 
             new_result.append((rec_id, name))
 
@@ -398,7 +398,7 @@ class StockWarehouse(models.Model):
                     location=rec.lot_stock_id.id
                 ).qty_available
 
-                display_name = f"{display_name} ({qty})"
+                display_name = f"{display_name} ({int(qty)})"
 
             new_result.append((rec_id, display_name))
 
