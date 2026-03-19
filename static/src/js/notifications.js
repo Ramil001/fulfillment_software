@@ -14,8 +14,30 @@ class FulfillmentNotifier {
             await this.bus.isReady();
         }
         this.bus.subscribe( "fulfillment_notification", this._onNotification );
+        this.bus.subscribe( "fulfillment_new_message", (payload) => {
+            if (payload && payload.partner_id) {
+                this._reloadChatter(payload.partner_id);
+            }
+        });
     }
-    
+
+    /**
+     * Directly fetch new messages via Odoo 18 mail.store (lazy access).
+     * Accessing lazily prevents circular dependency issues at service startup.
+     */
+    _reloadChatter(partnerId) {
+        if (!partnerId) return;
+        try {
+            const mailStore = this.env.services["mail.store"];
+            if (!mailStore) return;
+            const thread = mailStore.Thread.insert({
+                model: "fulfillment.partners",
+                id: partnerId,
+            });
+            thread.fetchNewMessages();
+        } catch (_) {}
+    }
+
     _onNotification ( notification ) {
         if ( notification && notification.type === "fulfillment_notification" ) {
             const msg = notification.payload;

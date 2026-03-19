@@ -1,5 +1,5 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.tools import html2plaintext
 from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
 import logging
 from datetime import datetime, timezone
@@ -8,10 +8,16 @@ _logger = logging.getLogger(__name__)
 
 
 class FulfillmentMessage(models.Model):
+    """
+    Tracks messages exchanged via the Fulfillment API.
+    Used only for deduplication (stores external_id) so we never
+    import the same message twice.  The actual UI is the native
+    Odoo chatter on fulfillment.partners.
+    """
     _name = 'fulfillment.message'
-    _description = 'Fulfillment Inter-Instance Message'
-    _order = 'sent_at asc, id asc'
-    _rec_name = 'content_preview'
+    _description = 'Fulfillment Inter-Instance Message (tracking)'
+    _order = 'sent_at desc'
+    _rec_name = 'external_id'
 
     partner_id = fields.Many2one(
         'fulfillment.partners',
@@ -23,77 +29,19 @@ class FulfillmentMessage(models.Model):
     external_id = fields.Char(string='External ID', index=True, readonly=True)
     direction = fields.Selection(
         [('out', 'Outgoing'), ('in', 'Incoming')],
-        string='Direction',
         required=True,
     )
-    content = fields.Text(string='Message', required=True)
-    content_preview = fields.Char(
-        string='Preview',
-        compute='_compute_preview',
-        store=True,
-    )
-    is_read = fields.Boolean(string='Read', default=False)
-    ref_type = fields.Char(string='Reference Type')   # 'transfer' | 'order'
-    ref_id = fields.Char(string='Reference ID')
-    sent_at = fields.Datetime(string='Sent At', required=True, default=fields.Datetime.now)
-
-    @api.depends('content')
-    def _compute_preview(self):
-        for rec in self:
-            rec.content_preview = (rec.content or '')[:60]
+    sent_at = fields.Datetime(default=fields.Datetime.now)
 
     # ------------------------------------------------------------------ #
-    #  Send a new outgoing message to a partner instance via the API
-    # ------------------------------------------------------------------ #
-    def action_send_message(self, partner, content, ref_type=None, ref_id=None):
-        """
-        Send a message to `partner` (fulfillment.partners record).
-        Creates a local record and pushes it to the central API.
-        """
-        profile = self.env['fulfillment.partners']._get_active_profile()
-        if not profile:
-            raise UserError("Fulfillment profile is not configured.")
-        if not profile.fulfillment_profile_id:
-            raise UserError("This Odoo instance has no fulfillment_profile_id. Please sync the profile first.")
-        if not partner.fulfillment_id:
-            raise UserError(f"Partner '{partner.name}' has no fulfillment_id.")
-
-        client = FulfillmentAPIClient(profile)
-        try:
-            result = client.message.send(
-                sender_fulfillment_id=profile.fulfillment_profile_id,
-                receiver_fulfillment_id=partner.fulfillment_id,
-                content=content,
-                ref_type=ref_type,
-                ref_id=ref_id,
-            )
-        except FulfillmentAPIError as e:
-            raise UserError(f"Failed to send message: {e}")
-
-        api_msg = result.get('data', result)
-        return self.env['fulfillment.message'].create({
-            'partner_id': partner.id,
-            'external_id': api_msg.get('id'),
-            'direction': 'out',
-            'content': content,
-            'ref_type': ref_type,
-            'ref_id': ref_id,
-            'is_read': True,
-            'sent_at': fields.Datetime.now(),
-        })
-
-    # ------------------------------------------------------------------ #
-    #  Poll incoming messages for all followed partners
+    #  Cron: poll incoming messages for all followed partners
     # ------------------------------------------------------------------ #
     @api.model
     def _poll_new_messages(self):
-        """
-        Called by ir.cron every minute.
-        Fetches new messages from the API for every followed partner.
-        """
+        """Called by ir.cron every minute."""
         profile = self.env['fulfillment.partners']._get_active_profile()
         if not profile or not profile.fulfillment_profile_id:
-            _logger.debug("[FulfillmentMessage] No profile configured, skipping poll.")
+            _logger.debug("[FulfillmentMessage] No profile — skipping poll.")
             return
 
         partners = self.env['fulfillment.partners'].search([
@@ -111,21 +59,24 @@ class FulfillmentMessage(models.Model):
                 self._poll_partner(client, my_fulfillment_id, partner)
             except Exception as e:
                 _logger.warning(
-                    "[FulfillmentMessage] Poll failed for partner %s: %s",
+                    "[FulfillmentMessage] Poll failed for %s: %s",
                     partner.name, e,
                 )
 
     def _poll_partner(self, client, my_fulfillment_id, partner):
-        """Fetch new incoming messages from a single partner and create local records."""
-        # Find the most recent message we have from this partner (for since= cursor)
+        """Fetch new messages from API and post them into the partner's chatter."""
+        # Use the most recent tracked message as since= cursor
         last = self.search([
             ('partner_id', '=', partner.id),
             ('direction', '=', 'in'),
         ], order='sent_at desc', limit=1)
 
-        since = None
         if last:
-            since = last.sent_at.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+            now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+            since_dt = min(last.sent_at, now_utc)
+            since = since_dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        else:
+            since = None
 
         result = client.message.fetch(
             fulfillment_id=my_fulfillment_id,
@@ -138,16 +89,18 @@ class FulfillmentMessage(models.Model):
         if not api_messages:
             return
 
+        # Get already-known external IDs for this partner
         existing_ext_ids = set(
             self.search([('partner_id', '=', partner.id)]).mapped('external_id')
         )
 
-        new_records = []
-        unread_ids = []
+        # Use partner's linked res.partner as message author (so name shows in chatter)
+        author_id = partner.partner_id.id if partner.partner_id else False
 
+        new_count = 0
         for msg in api_messages:
             ext_id = msg.get('id')
-            if ext_id in existing_ext_ids:
+            if not ext_id or ext_id in existing_ext_ids:
                 continue
 
             is_incoming = msg.get('sender_fulfillment_id') == partner.fulfillment_id
@@ -159,36 +112,43 @@ class FulfillmentMessage(models.Model):
             except (ValueError, TypeError):
                 sent_at = fields.Datetime.now()
 
-            new_records.append({
+            content = msg.get('content', '')
+
+            if is_incoming and content:
+                # Post into chatter; disable email to avoid smtp-exception popups
+                partner.with_context(
+                    from_fulfillment_api=True,
+                    mail_notify_force_send=False,
+                ).message_post(
+                    body=content,
+                    message_type='comment',
+                    subtype_xmlid='mail.mt_comment',
+                    author_id=author_id,
+                )
+                new_count += 1
+
+                # Push bus notification so the chat popup appears in the UI
+                notification_payload = {
+                    'content': content,
+                    'partner_name': partner.name,
+                    'partner_id': partner.id,
+                    'external_id': ext_id,
+                }
+                bus = self.env['bus.bus'].sudo()
+                for user in self.env['res.users'].sudo().search([('share', '=', False), ('active', '=', True)]):
+                    if user.partner_id:
+                        bus._sendone(user.partner_id, 'fulfillment_new_message', notification_payload)
+
+            # Track in fulfillment.message for deduplication
+            self.create({
                 'partner_id': partner.id,
                 'external_id': ext_id,
                 'direction': direction,
-                'content': msg.get('content', ''),
-                'ref_type': msg.get('ref_type'),
-                'ref_id': msg.get('ref_id'),
-                'is_read': not is_incoming,  # outgoing = already "read"
                 'sent_at': sent_at,
             })
-            if is_incoming:
-                unread_ids.append(ext_id)
 
-        if new_records:
-            created = self.create(new_records)
+        if new_count:
             _logger.info(
-                "[FulfillmentMessage] Imported %d new messages from partner %s",
-                len(created), partner.name,
+                "[FulfillmentMessage] Posted %d new messages from %s into chatter",
+                new_count, partner.name,
             )
-            # Notify Odoo users about new incoming messages
-            if unread_ids:
-                self._notify_new_messages(partner, len(unread_ids))
-
-    def _notify_new_messages(self, partner, count):
-        """Create a system notification for new incoming messages."""
-        try:
-            partner.message_post(
-                body=f"📩 {count} new message(s) from {partner.name}",
-                message_type='comment',
-                subtype_xmlid='mail.mt_note',
-            )
-        except Exception:
-            pass
