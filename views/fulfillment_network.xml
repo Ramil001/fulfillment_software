@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+
+    <!-- =====================================================
+         Kanban view: Warehouse Network (one card = one partner)
+         ===================================================== -->
+    <record id="view_fulfillment_network_kanban" model="ir.ui.view">
+      <field name="name">fulfillment.partners.network.kanban</field>
+      <field name="model">fulfillment.partners</field>
+      <field name="priority">10</field>
+      <field name="arch" type="xml">
+        <kanban string="Warehouse Network" default_order="name"
+                class="o_fulfillment_network_kanban">
+          <field name="id"/>
+          <field name="name"/>
+          <field name="fulfillment_logo"/>
+          <field name="status"/>
+          <field name="warehouse_count"/>
+          <field name="transfer_count"/>
+          <field name="product_count"/>
+          <field name="client_count"/>
+          <field name="order_count"/>
+          <field name="api_domain"/>
+          <templates>
+            <t t-name="kanban-card">
+              <div class="oe_kanban_global_click o_kanban_record o_fulfill_network_card p-0 overflow-hidden"
+                   style="border-radius:12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+
+                <!-- Цветная шапка с логотипом -->
+                <div class="o_fulfill_card_header d-flex align-items-center gap-3 p-3"
+                     style="background: linear-gradient(135deg, #714B67 0%, #017E84 100%); color:#fff; min-height:72px;">
+                  <div class="flex-shrink-0">
+                    <t t-if="record.fulfillment_logo.raw_value">
+                      <img t-att-src="'/web/image/fulfillment.partners/' + record.id.raw_value + '/fulfillment_logo'"
+                           class="rounded-circle border border-2 border-white"
+                           style="width:48px;height:48px;object-fit:cover;"/>
+                    </t>
+                    <t t-else="">
+                      <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold text-uppercase"
+                           style="width:48px;height:48px;background:rgba(255,255,255,0.25);font-size:20px;">
+                        <t t-esc="record.name.raw_value ? record.name.raw_value[0] : '?'"/>
+                      </div>
+                    </t>
+                  </div>
+                  <div class="flex-grow-1 overflow-hidden">
+                    <div class="fw-bold text-truncate" style="font-size:1rem;">
+                      <field name="name"/>
+                    </div>
+                    <div class="mt-1">
+                      <field name="status" widget="badge"
+                             decoration-success="status == 'follow'"
+                             decoration-warning="status == 'unfollow'"/>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Статистика -->
+                <div class="row g-0 text-center border-bottom" style="background:#fafafa;">
+                  <div class="col-3 py-2 border-end">
+                    <div class="fw-bold text-primary" style="font-size:1.2rem;">
+                      <field name="warehouse_count"/>
+                    </div>
+                    <div class="text-muted" style="font-size:0.65rem; text-transform:uppercase; letter-spacing:.5px;">
+                      Склады
+                    </div>
+                  </div>
+                  <div class="col-3 py-2 border-end">
+                    <div class="fw-bold text-success" style="font-size:1.2rem;">
+                      <field name="product_count"/>
+                    </div>
+                    <div class="text-muted" style="font-size:0.65rem; text-transform:uppercase; letter-spacing:.5px;">
+                      Продукты
+                    </div>
+                  </div>
+                  <div class="col-3 py-2 border-end">
+                    <div class="fw-bold" style="font-size:1.2rem; color:#017E84;">
+                      <field name="order_count"/>
+                    </div>
+                    <div class="text-muted" style="font-size:0.65rem; text-transform:uppercase; letter-spacing:.5px;">
+                      Заказы
+                    </div>
+                  </div>
+                  <div class="col-3 py-2">
+                    <div class="fw-bold text-warning" style="font-size:1.2rem;">
+                      <field name="transfer_count"/>
+                    </div>
+                    <div class="text-muted" style="font-size:0.65rem; text-transform:uppercase; letter-spacing:.5px;">
+                      Трансферы
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Футер с API-доменом -->
+                <div class="px-3 py-2" style="background:#fff; min-height:36px;">
+                  <t t-if="record.api_domain.raw_value">
+                    <span class="text-muted d-flex align-items-center gap-1" style="font-size:0.75rem;">
+                      <i class="fa fa-globe text-primary"/>
+                      <span class="text-truncate d-inline-block" style="max-width:180px;">
+                        <field name="api_domain"/>
+                      </span>
+                    </span>
+                  </t>
+                  <t t-else="">
+                    <span class="text-muted" style="font-size:0.75rem;">
+                      <i class="fa fa-circle-o text-muted me-1"/>No API domain
+                    </span>
+                  </t>
+                </div>
+
+              </div>
+            </t>
+          </templates>
+        </kanban>
+      </field>
+    </record>
+
+    <!-- Action: Warehouse Network (kanban first) -->
+    <record id="action_fulfillment_network" model="ir.actions.act_window">
+      <field name="name">Warehouse Network</field>
+      <field name="res_model">fulfillment.partners</field>
+      <field name="view_mode">kanban,list,form</field>
+      <field name="views" eval="[
+        (ref('view_fulfillment_network_kanban'), 'kanban'),
+        (ref('view_fulfillment_partners_list'), 'list'),
+        (False, 'form'),
+      ]"/>
+      <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">
+          Партнёры отсутствуют. Выполните синхронизацию, чтобы увидеть сеть складов.
+        </p>
+      </field>
+    </record>
+
+  </data>
+</odoo>
