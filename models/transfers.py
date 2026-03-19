@@ -20,7 +20,8 @@ class IncomingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            "reference": picking.name or picking.origin or "Odoo",
+            # Use `origin` first because it typically contains a sale/order number.
+            "reference": picking.origin or picking.name or "Odoo",
             "items": items,
             "contacts": contacts or [],
         }
@@ -33,7 +34,8 @@ class OutgoingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            "reference": picking.name or picking.origin or "Odoo",
+            # Use `origin` first because it typically contains a sale/order number.
+            "reference": picking.origin or picking.name or "Odoo",
             "items": items,
             "contacts": contacts or [],
         }
@@ -46,7 +48,8 @@ class InternalTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            "reference": picking.name or "00000",
+            # Prefer a stable human-readable origin if present.
+            "reference": picking.origin or picking.name or "00000",
             "items": items,
         }
 
@@ -420,6 +423,25 @@ class FulfillmentTransfers(models.Model):
         warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in = self._resolve_warehouses_and_profiles(
             my_fulfillment_id
         )
+        # Minimal safety checks: avoid sending incomplete IDs to the backend.
+        if not my_fulfillment_id:
+            raise UserError("[Fulfillment] fulfillment_profile_id is not configured in fulfillment.profile.")
+
+        if self.picking_type_code == "incoming":
+            if not warehouse_out_id or not warehouse_in_id:
+                raise UserError(
+                    "[Fulfillment] Cannot push incoming transfer: missing fulfillment_warehouse mapping for partner or destination."
+                )
+            if not fulfillment_out:
+                raise UserError("[Fulfillment] Cannot push incoming transfer: missing fulfillment_out (partner fulfillment profile).")
+        elif self.picking_type_code == "outgoing":
+            if not warehouse_out_id:
+                raise UserError("[Fulfillment] Cannot push outgoing transfer: missing fulfillment_warehouse_out mapping for source warehouse.")
+            if not fulfillment_out:
+                raise UserError("[Fulfillment] Cannot push outgoing transfer: missing fulfillment_out.")
+        elif self.picking_type_code == "internal":
+            if not warehouse_out_id or not warehouse_in_id:
+                raise UserError("[Fulfillment] Cannot push internal transfer: missing fulfillment_warehouse mapping for source/destination.")
         
 
         payload = PickingAdapter.to_api_payload(
@@ -478,8 +500,21 @@ class FulfillmentTransfers(models.Model):
             )
             warehouse_out_id = getattr(src_wh, "fulfillment_warehouse_id", None) if src_wh else None
             warehouse_in_id = getattr(dest_wh, "fulfillment_warehouse_id", None) if dest_wh else None
-            fulfillment_out = my_fulfillment_id
-            fulfillment_in = my_fulfillment_id
+            # For cross-instance consolidation, ownership can differ:
+            # - `fulfillment_out` must be the creator/owner of source warehouse
+            # - `fulfillment_in` must be the creator/owner of destination warehouse
+            fulfillment_out = (
+                src_wh.fulfillment_owner_id.fulfillment_id
+                if src_wh and getattr(src_wh, "fulfillment_owner_id", None)
+                and getattr(src_wh.fulfillment_owner_id, "fulfillment_id", None)
+                else my_fulfillment_id
+            )
+            fulfillment_in = (
+                dest_wh.fulfillment_owner_id.fulfillment_id
+                if dest_wh and getattr(dest_wh, "fulfillment_owner_id", None)
+                and getattr(dest_wh.fulfillment_owner_id, "fulfillment_id", None)
+                else my_fulfillment_id
+            )
 
         return warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in
 
@@ -658,7 +693,11 @@ class FulfillmentTransfers(models.Model):
         wh_code = warehouse_out.code or warehouse_in.code or "WH"
         type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
         hash_part = str(remote_id)[:8]
-        name = f"[F] {wh_code}/{type_short}/{hash_part}"
+        # Prefer API human-readable reference (usually what was sent as `payload["reference"]`).
+        # Fallback to a deterministic hash-based name.
+        transfer_reference = (transfer.get("reference") or "").strip()
+        fallback_name = f"[F] {wh_code}/{type_short}/{hash_part}"
+        name = transfer_reference or fallback_name
 
         vals = {
             "fulfillment_transfer_id": remote_id,
@@ -669,7 +708,12 @@ class FulfillmentTransfers(models.Model):
         }
 
         if picking:
-            picking.write(vals)
+            vals_write = dict(vals)
+            vals_write.pop("picking_type_id", None)
+            # If this picking was created by the old hash-based naming, update the name now.
+            if transfer_reference and (picking.name or "").startswith("[F]"):
+                vals_write["name"] = name
+            picking.write(vals_write)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
         else:
             vals["name"] = name
