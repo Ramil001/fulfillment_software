@@ -71,6 +71,116 @@ class FulfillmentPartners(models.Model):
         help="Odoo contact linked to this fulfillment partner"
     )
 
+    # Inverse M2M for products (defined on product.template side)
+    sale_product_ids = fields.Many2many(
+        'product.template',
+        'product_sale_fulfillment_rel',
+        'partner_id',
+        'product_id',
+        string='Products for Sale',
+    )
+    purchase_product_ids = fields.Many2many(
+        'product.template',
+        'product_purchase_fulfillment_rel',
+        'partner_id',
+        'product_id',
+        string='Products for Purchase',
+    )
+
+    # ---- Dashboard counters (non-stored, recomputed on access) ----
+    warehouse_count = fields.Integer(compute='_compute_network_counts', string='Warehouses')
+    transfer_count = fields.Integer(compute='_compute_network_counts', string='Transfers')
+    product_count = fields.Integer(compute='_compute_network_counts', string='Products')
+    order_count = fields.Integer(compute='_compute_network_counts', string='Orders')
+    client_count = fields.Integer(compute='_compute_network_counts', string='Clients')
+
+    @api.depends(
+        'warehouses_client_ids', 'warehouses_owner_ids',
+        'transfers_purchase_ids', 'transfers_internal_ids', 'transfers_delivery_ids',
+        'sale_product_ids', 'purchase_product_ids',
+    )
+    def _compute_network_counts(self):
+        for rec in self:
+            rec.warehouse_count = len(rec.warehouses_owner_ids) + len(rec.warehouses_client_ids)
+            rec.transfer_count = (
+                len(rec.transfers_purchase_ids)
+                + len(rec.transfers_internal_ids)
+                + len(rec.transfers_delivery_ids)
+            )
+            rec.product_count = len(rec.sale_product_ids | rec.purchase_product_ids)
+            rec.client_count = len(
+                rec.transfers_delivery_ids.mapped('partner_id').filtered('id')
+            )
+            order_lines = self.env['sale.order.line'].search([
+                ('fulfillment_item_manager', '=', rec.id)
+            ])
+            rec.order_count = len(order_lines.mapped('order_id'))
+
+    # ---- Smart-button actions ----
+    def action_view_warehouses(self):
+        self.ensure_one()
+        wh_ids = (self.warehouses_owner_ids | self.warehouses_client_ids).ids
+        return {
+            'type': 'ir.actions.act_window',
+            'name': f'Warehouses — {self.name}',
+            'res_model': 'stock.warehouse',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', wh_ids)],
+        }
+
+    def action_view_products(self):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': f'Products — {self.name}',
+            'res_model': 'product.template',
+            'view_mode': 'list,kanban,form',
+            'domain': ['|',
+                       ('sale_fulfillment_partner_ids', 'in', [self.id]),
+                       ('purchase_fulfillment_partner_ids', 'in', [self.id])],
+        }
+
+    def action_view_orders(self):
+        self.ensure_one()
+        order_lines = self.env['sale.order.line'].search([
+            ('fulfillment_item_manager', '=', self.id)
+        ])
+        order_ids = order_lines.mapped('order_id').ids
+        return {
+            'type': 'ir.actions.act_window',
+            'name': f'Orders — {self.name}',
+            'res_model': 'sale.order',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', order_ids)],
+        }
+
+    def action_view_clients(self):
+        self.ensure_one()
+        client_ids = (
+            self.transfers_delivery_ids.mapped('partner_id').filtered('id').ids
+        )
+        return {
+            'type': 'ir.actions.act_window',
+            'name': f'Clients — {self.name}',
+            'res_model': 'res.partner',
+            'view_mode': 'list,kanban,form',
+            'domain': [('id', 'in', client_ids)],
+        }
+
+    def action_view_transfers(self):
+        self.ensure_one()
+        picking_ids = (
+            self.transfers_purchase_ids
+            | self.transfers_internal_ids
+            | self.transfers_delivery_ids
+        ).ids
+        return {
+            'type': 'ir.actions.act_window',
+            'name': f'Transfers — {self.name}',
+            'res_model': 'stock.picking',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', picking_ids)],
+        }
 
     def action_fill_webhook_domain(self):
         _logger.info(f"[action_fill_webhook_domain]")
