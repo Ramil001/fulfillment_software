@@ -69,6 +69,24 @@ class FulfillmentOrder(models.Model):
                 if warehouse:
                     grouped_lines.setdefault(warehouse, []).append(line)
 
+            # --- Валидация связей партнёр <-> склад для отправки ---
+            # `preferred_warehouse_id` определяет физический warehouse_out,
+            # а `fulfillment_item_manager` определяет "кто является источником в fulfillment".
+            # Они должны соответствовать, иначе уйдёт неверное `warehouse_out` в API.
+            for warehouse, lines in grouped_lines.items():
+                for line in lines:
+                    if not line.fulfillment_item_manager:
+                        continue
+                    if not line.fulfillment_item_warehouse:
+                        raise UserError(
+                            f"[Fulfillment] Для строки '{line.name}' выбран партнёр отправки, но не выбран/не найден склад в fulfillment-профиле партнёра."
+                        )
+                    if line.fulfillment_item_warehouse and line.preferred_warehouse_id and line.preferred_warehouse_id != line.fulfillment_item_warehouse:
+                        raise UserError(
+                            f"[Fulfillment] Для строки '{line.name}' выбран склад '{line.preferred_warehouse_id.name}', но fulfillment_item_warehouse для партнёра: '{line.fulfillment_item_warehouse.name}'. "
+                            f"Выберите согласованный preferred_warehouse_id (или исправьте fulfillment_item_manager)."
+                        )
+
             if not grouped_lines:
                 _logger.info(f"[FULFILLMENT][ORDER {order.name}] Нет доступных складов — пропуск.")
                 continue
@@ -159,7 +177,9 @@ class FulfillmentOrder(models.Model):
                         continue
 
                     payload = {
-                        "reference": picking.name,
+                        # Use sale order number as a human-readable reference.
+                        # Odoo stores transfers in the fulfillment backend using this `reference`.
+                        "reference": order.name,
                         "transfer_type": "outgoing",
                         "warehouse_out": warehouse.fulfillment_warehouse_id or None,
                         "warehouse_in": None,
