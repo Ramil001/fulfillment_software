@@ -11,3 +11,4 @@ from . import stock
 from . import locations
 from . import orders
 from . import picking
+from . import messages

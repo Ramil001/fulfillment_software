@@ -94,6 +94,16 @@ class FulfillmentPartners(models.Model):
     order_count = fields.Integer(compute='_compute_network_counts', string='Orders')
     client_count = fields.Integer(compute='_compute_network_counts', string='Clients')
 
+    # ---- Messaging ----
+    message_ids_chat = fields.One2many(
+        'fulfillment.message', 'partner_id',
+        string='Chat Messages',
+    )
+    unread_message_count = fields.Integer(
+        compute='_compute_unread_count', string='Unread Messages',
+    )
+    compose_content = fields.Text(string='New Message', store=False)
+
     @api.depends(
         'warehouses_client_ids', 'warehouses_owner_ids',
         'transfers_purchase_ids', 'transfers_internal_ids', 'transfers_delivery_ids',
@@ -115,6 +125,29 @@ class FulfillmentPartners(models.Model):
                 ('fulfillment_item_manager', '=', rec.id)
             ])
             rec.order_count = len(order_lines.mapped('order_id'))
+
+    @api.depends('message_ids_chat')
+    def _compute_unread_count(self):
+        for rec in self:
+            rec.unread_message_count = self.env['fulfillment.message'].search_count([
+                ('partner_id', '=', rec.id),
+                ('direction', '=', 'in'),
+                ('is_read', '=', False),
+            ])
+
+    def action_compose_send(self):
+        """Send a message typed in compose_content field."""
+        self.ensure_one()
+        content = (self.compose_content or '').strip()
+        if not content:
+            raise UserError("Please type a message before sending.")
+        self.env['fulfillment.message'].action_send_message(self, content)
+        # Clear the compose box after sending
+        self.write({'compose_content': False})
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'reload',
+        }
 
     # ---- Smart-button actions ----
     def action_view_warehouses(self):

@@ -8,6 +8,7 @@ from .location import LocationAPI
 from .stock import StockAPI
 from .order import OrderAPI
 from .contact import ContactAPI
+from .message import MessageAPI
 
 __all__ = [
     'FulfillmentAPIClient',
@@ -21,4 +22,5 @@ __all__ = [
     'StockAPI',
     'OrderAPI',
     'ContactAPI',
+    'MessageAPI',
 ]

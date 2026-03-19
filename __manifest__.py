@@ -9,7 +9,7 @@
     'website': "https://fulfillment.software/",
     'application': True,
     'category': 'Inventory',
-    'version': '0.5',
+    'version': '0.6',
     'license': "OEEL-1",
     'depends': ['base', 'contacts', 'account' ,'web','mail', 'purchase', 'stock', 'product', 'sale_management', 'account_invoice_extract'],
     'assets': {
@@ -34,6 +34,7 @@
         'views/fulfillment_products.xml',
         'views/fulfillment_locations.xml',
         'data/action_import_all.xml',
+        'data/cron_messages.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
         'views/fulfillment_main.xml',        
