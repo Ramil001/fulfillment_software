@@ -37,6 +37,11 @@
                 <field name="transfer_count" widget="statinfo" string="Трансферы"/>
               </button>
 
+              <button name="action_compose_send" type="object"
+                      class="oe_stat_button" icon="fa-comments">
+                <field name="unread_message_count" widget="statinfo" string="Сообщения"/>
+              </button>
+
             </div>
 
             <!-- ── Заголовок ── -->
@@ -159,6 +164,39 @@
                     </list>
                   </field>
                 </group>
+              </page>
+
+              <!-- ── Чат ── -->
+              <page string="Чат" name="chat">
+
+                <!-- Messages list -->
+                <field name="message_ids_chat" nolabel="1" mode="list">
+                  <list create="0" delete="0" decoration-info="direction == 'out'" decoration-success="direction == 'in' and is_read" decoration-warning="direction == 'in' and not is_read">
+                    <field name="sent_at" string="Время" optional="show"/>
+                    <field name="direction" widget="badge"
+                           decoration-info="direction == 'out'"
+                           decoration-success="direction == 'in'"
+                           string="Направление"/>
+                    <field name="content" string="Сообщение"/>
+                    <field name="ref_type" string="Тип" optional="hide"/>
+                    <field name="ref_id" string="Ссылка" optional="hide"/>
+                    <field name="is_read" string="Прочитано" optional="show"/>
+                  </list>
+                </field>
+
+                <!-- Compose area -->
+                <separator string="Отправить сообщение"/>
+                <group>
+                  <field name="compose_content" nolabel="1"
+                         placeholder="Введите сообщение…"
+                         widget="text"/>
+                </group>
+                <div class="text-end mb-2">
+                  <button name="action_compose_send" type="object"
+                          string="Отправить" class="btn btn-primary"
+                          icon="fa-paper-plane"/>
+                </div>
+
               </page>
 
             </notebook>
