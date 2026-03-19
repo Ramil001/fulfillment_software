@@ -9,89 +9,67 @@
       <field name="priority">10</field>
       <field name="arch" type="xml">
         <kanban string="Warehouse Network" default_order="name">
-          <field name="id"/>
-          <field name="name"/>
-          <field name="fulfillment_logo"/>
-          <field name="status"/>
-          <field name="warehouse_count"/>
-          <field name="transfer_count"/>
-          <field name="product_count"/>
-          <field name="client_count"/>
-          <field name="order_count"/>
-          <field name="api_domain"/>
           <templates>
-            <t t-name="kanban-card">
-              <div class="oe_kanban_global_click" style="border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1); min-width:200px;">
-
-                <!-- Шапка с градиентом -->
-                <div style="background:linear-gradient(135deg,#714B67 0%,#017E84 100%); padding:16px; display:flex; align-items:center; gap:12px;">
-                  <div style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.25); display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:bold; color:#fff; flex-shrink:0; overflow:hidden;">
-                    <t t-if="record.fulfillment_logo.raw_value">
-                      <img t-attf-src="/web/image/fulfillment.partners/#{record.id.raw_value}/fulfillment_logo"
-                           style="width:48px; height:48px; object-fit:cover; border-radius:50%;"/>
-                    </t>
-                    <t t-else="">
-                      <t t-esc="record.name.value and record.name.value[0] or '?'"/>
-                    </t>
-                  </div>
-                  <div style="flex:1; min-width:0;">
-                    <div style="color:#fff; font-weight:700; font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                      <t t-esc="record.name.value"/>
-                    </div>
-                    <div style="margin-top:4px;">
-                      <span t-attf-style="
-                        background: #{record.status.raw_value == 'follow' ? '#28a745' : '#ffc107'};
-                        color: #{record.status.raw_value == 'follow' ? '#fff' : '#000'};
-                        padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight:600;">
-                        <t t-esc="record.status.value"/>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Статистика -->
-                <div style="display:grid; grid-template-columns:repeat(4,1fr); text-align:center; background:#fafafa; border-bottom:1px solid #eee;">
-                  <div style="padding:10px 4px; border-right:1px solid #eee;">
-                    <div style="font-weight:700; font-size:1.1rem; color:#714B67;">
-                      <t t-esc="record.warehouse_count.value"/>
-                    </div>
-                    <div style="font-size:0.62rem; color:#888; text-transform:uppercase; letter-spacing:.4px;">Склады</div>
-                  </div>
-                  <div style="padding:10px 4px; border-right:1px solid #eee;">
-                    <div style="font-weight:700; font-size:1.1rem; color:#28a745;">
-                      <t t-esc="record.product_count.value"/>
-                    </div>
-                    <div style="font-size:0.62rem; color:#888; text-transform:uppercase; letter-spacing:.4px;">Продукты</div>
-                  </div>
-                  <div style="padding:10px 4px; border-right:1px solid #eee;">
-                    <div style="font-weight:700; font-size:1.1rem; color:#017E84;">
-                      <t t-esc="record.order_count.value"/>
-                    </div>
-                    <div style="font-size:0.62rem; color:#888; text-transform:uppercase; letter-spacing:.4px;">Заказы</div>
-                  </div>
-                  <div style="padding:10px 4px;">
-                    <div style="font-weight:700; font-size:1.1rem; color:#e67e22;">
-                      <t t-esc="record.transfer_count.value"/>
-                    </div>
-                    <div style="font-size:0.62rem; color:#888; text-transform:uppercase; letter-spacing:.4px;">Трансферы</div>
-                  </div>
-                </div>
-
-                <!-- Футер с доменом -->
-                <div style="padding:8px 12px; background:#fff; min-height:32px;">
-                  <t t-if="record.api_domain.raw_value">
-                    <span style="font-size:0.72rem; color:#888; display:flex; align-items:center; gap:4px;">
-                      <i class="fa fa-globe" style="color:#714B67;"/>
-                      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px; display:inline-block;">
-                        <t t-esc="record.api_domain.value"/>
-                      </span>
-                    </span>
+            <t t-name="card">
+              <!-- Header: logo + name + status -->
+              <div class="d-flex align-items-center gap-2 p-2" style="background:linear-gradient(135deg,#714B67 0%,#017E84 100%);">
+                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0 overflow-hidden fw-bold text-white"
+                     style="width:44px;height:44px;font-size:18px;background:rgba(255,255,255,0.25);">
+                  <t t-if="record.fulfillment_logo.raw_value">
+                    <img t-att-src="'/web/image/fulfillment.partners/' + record.id.raw_value + '/fulfillment_logo'"
+                         style="width:44px;height:44px;object-fit:cover;border-radius:50%;"/>
                   </t>
                   <t t-else="">
-                    <span style="font-size:0.72rem; color:#ccc;">No API domain</span>
+                    <t t-out="record.name.value and record.name.value[0] or '?'"/>
                   </t>
                 </div>
+                <div class="flex-grow-1 overflow-hidden">
+                  <div class="fw-bold text-white text-truncate" t-att-title="record.name.value">
+                    <field name="name" readonly="1"/>
+                  </div>
+                  <field name="status" widget="badge" readonly="1"/>
+                </div>
+              </div>
 
+              <!-- Stats grid -->
+              <div class="row g-0 border-bottom text-center small">
+                <div class="col border-end py-2">
+                  <div class="fw-bold" style="color:#714B67;">
+                    <field name="warehouse_count" readonly="1"/>
+                  </div>
+                  <div class="text-muted" style="font-size:0.65rem;text-transform:uppercase;">Склады</div>
+                </div>
+                <div class="col border-end py-2">
+                  <div class="fw-bold text-success">
+                    <field name="product_count" readonly="1"/>
+                  </div>
+                  <div class="text-muted" style="font-size:0.65rem;text-transform:uppercase;">Продукты</div>
+                </div>
+                <div class="col border-end py-2">
+                  <div class="fw-bold" style="color:#017E84;">
+                    <field name="order_count" readonly="1"/>
+                  </div>
+                  <div class="text-muted" style="font-size:0.65rem;text-transform:uppercase;">Заказы</div>
+                </div>
+                <div class="col py-2">
+                  <div class="fw-bold text-warning">
+                    <field name="transfer_count" readonly="1"/>
+                  </div>
+                  <div class="text-muted" style="font-size:0.65rem;text-transform:uppercase;">Трансферы</div>
+                </div>
+              </div>
+
+              <!-- Footer: API domain -->
+              <div class="px-2 py-1 small text-muted d-flex align-items-center gap-1">
+                <t t-if="record.api_domain.raw_value">
+                  <i class="fa fa-globe" style="color:#714B67;"/>
+                  <span class="text-truncate" style="max-width:160px;">
+                    <field name="api_domain" readonly="1"/>
+                  </span>
+                </t>
+                <t t-else="">
+                  <span class="fst-italic">No API domain</span>
+                </t>
               </div>
             </t>
           </templates>
