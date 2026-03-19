@@ -9,6 +9,7 @@
       <field name="priority">10</field>
       <field name="arch" type="xml">
         <kanban string="Warehouse Network" default_order="name">
+          <field name="fulfillment_logo"/>
           <templates>
             <t t-name="card">
               <!-- Header: logo + name + status -->
