@@ -175,12 +175,14 @@ class FulfillmentOrder(models.Model):
 
                 # --- Отправляем трансфер в API ---
                 try:
-                    fulfillment_owner_out = warehouse.fulfillment_owner_id
-                    if not fulfillment_owner_out or not fulfillment_owner_out.fulfillment_id:
+                    fulfillment_partner = warehouse.fulfillment_owner_id
+                    if not fulfillment_partner or not fulfillment_partner.fulfillment_id:
                         _logger.warning(
                             f"[FULFILLMENT] Warehouse {warehouse.name} не имеет fulfillment_owner_id, пропуск трансфера"
                         )
                         continue
+
+                    my_fulfillment_id = profile.fulfillment_profile_id
 
                     payload = {
                         # Use sale order number as a human-readable reference.
@@ -189,8 +191,8 @@ class FulfillmentOrder(models.Model):
                         "transfer_type": "outgoing",
                         "warehouse_out": warehouse.fulfillment_warehouse_id or None,
                         "warehouse_in": None,
-                        "fulfillment_out": fulfillment_owner_out.fulfillment_id,
-                        "fulfillment_in": None,
+                        "fulfillment_out": my_fulfillment_id,
+                        "fulfillment_in": fulfillment_partner.fulfillment_id,
                         "items": move_items,
                     }
 
