@@ -67,8 +67,10 @@ class FulfillmentProfile(models.Model):
     allow_auto_import = fields.Boolean(
         string="Automatic Import",
         help=(
-            "Allows external Odoo partner instances to automatically trigger "
-            "updates of records in this database without manual approval."
+            "When enabled: (1) POST /fulfillment/webhook/sync from the Fulfillment API "
+            "runs the same import as «Run import all» in the background; "
+            "(2) the scheduled «Fulfillment: Auto import» cron acts as a backup. "
+            "Set Webhook domain on your Fulfillment record in the API so the backend can reach this Odoo."
         ),
         default=False,
     )

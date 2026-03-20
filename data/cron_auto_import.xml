@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+  <record id="cron_fulfillment_auto_import" model="ir.cron">
+    <field name="name">Fulfillment: Auto import from API (backup)</field>
+    <field name="model_id" ref="fulfillment_software.model_fulfillment_partners"/>
+    <field name="state">code</field>
+    <field name="code">model.cron_auto_import_from_api()</field>
+    <field name="user_id" ref="base.user_root"/>
+    <field name="interval_number">15</field>
+    <field name="interval_type">minutes</field>
+    <field name="active">True</field>
+  </record>
+
+</odoo>

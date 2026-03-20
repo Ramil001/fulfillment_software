@@ -1,10 +1,38 @@
 import json
-from odoo import http
-from odoo.http import request
-from odoo import SUPERUSER_ID
 import logging
+import threading
+
+import odoo
+from odoo import api, http, SUPERUSER_ID
+from odoo.http import request
 
 _logger = logging.getLogger(__name__)
+
+
+def _run_fulfillment_import_all(dbname):
+    """Background worker: same logic as Partners → Run import all (HTTP must return fast)."""
+    try:
+        registry = odoo.registry(dbname)
+        with registry.cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            profile = env["fulfillment.profile"].sudo().search([], limit=1)
+            if not profile:
+                _logger.info("[Fulfillment webhook/sync] skipped: no fulfillment.profile")
+                return
+            if not profile.allow_auto_import:
+                _logger.info("[Fulfillment webhook/sync] skipped: allow_auto_import is disabled")
+                return
+            partners = env["fulfillment.partners"].sudo()
+            try:
+                prof = partners._get_active_profile()
+            except Exception as err:
+                _logger.warning("[Fulfillment webhook/sync] no active profile: %s", err)
+                return
+            partners.import_all(profile=prof)
+            cr.commit()
+            _logger.info("[Fulfillment webhook/sync] import_all finished OK")
+    except Exception:
+        _logger.exception("[Fulfillment webhook/sync] import_all failed")
 
 
 class FulfillmentWebhookController(http.Controller):
@@ -122,3 +150,56 @@ class FulfillmentWebhookController(http.Controller):
             partner.name, sender_fulfillment_id,
         )
         return _json({'status': 'ok', 'partner': partner.name})
+
+    @http.route(
+        '/fulfillment/webhook/sync',
+        type='http',
+        auth='none',
+        methods=['POST'],
+        csrf=False,
+    )
+    def receive_sync(self, **kwargs):
+        """
+        Called by api.fulfillment.software after orders/transfers (and similar) change.
+        Runs the same import as Partners → «Run import all», in a background thread.
+        Optional shared secret: ir.config_parameter `fulfillment.webhook_sync_token`
+        must match header `X-Fulfillment-Sync-Token` when the parameter is set.
+        Requires fulfillment.profile.allow_auto_import = True.
+        """
+        try:
+            data = json.loads(request.httprequest.data or b'{}')
+        except Exception:
+            data = {}
+
+        def _json(body, status=200):
+            return request.make_response(
+                json.dumps(body),
+                headers=[('Content-Type', 'application/json')],
+                status=status,
+            )
+
+        # Token check (optional): only when parameter is configured on this DB
+        expected = request.env['ir.config_parameter'].sudo().get_param('fulfillment.webhook_sync_token')
+        if expected:
+            got = (request.httprequest.headers.get('X-Fulfillment-Sync-Token') or '').strip()
+            if got != expected:
+                _logger.warning("[Fulfillment webhook/sync] invalid or missing sync token")
+                return _json({'status': 'forbidden'}, status=403)
+
+        profile = request.env['fulfillment.profile'].sudo().search([], limit=1)
+        if not profile or not profile.allow_auto_import:
+            _logger.debug("[Fulfillment webhook/sync] ignored (allow_auto_import off)")
+            return _json({'status': 'ignored', 'reason': 'auto_import_disabled'})
+
+        dbname = request.env.cr.dbname
+        _logger.info(
+            "[Fulfillment webhook/sync] queued import_all event=%s resource=%s",
+            data.get('event'),
+            data.get('resource'),
+        )
+        threading.Thread(
+            target=_run_fulfillment_import_all,
+            args=(dbname,),
+            daemon=True,
+        ).start()
+        return _json({'status': 'accepted', 'resource': data.get('resource')})

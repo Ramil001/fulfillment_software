@@ -461,6 +461,23 @@ class FulfillmentPartners(models.Model):
                 'fadeout': 'slow',
             }
         }
+
+    @api.model
+    def cron_auto_import_from_api(self):
+        """Scheduled backup: same as «Run import all» when allow_auto_import is on."""
+        profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+        if not profile or not profile.allow_auto_import:
+            return
+        try:
+            prof = self._get_active_profile()
+        except UserError as err:
+            _logger.debug("[cron_auto_import_from_api] skip: %s", err)
+            return
+        try:
+            self.import_all(profile=prof)
+        except Exception as err:
+            _logger.exception("[cron_auto_import_from_api] failed: %s", err)
+
     # ---------- Контакты ----------
     def import_contacts(self, partner_record):
         _logger.info(f"[import_contacts]")

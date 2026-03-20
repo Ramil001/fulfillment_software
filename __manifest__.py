@@ -38,6 +38,7 @@
         'views/fulfillment_locations.xml',
         'data/action_import_all.xml',
         'data/cron_messages.xml',
+        'data/cron_auto_import.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
         'views/fulfillment_main.xml',        
