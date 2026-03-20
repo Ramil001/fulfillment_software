@@ -94,15 +94,11 @@ class FulfillmentPartners(models.Model):
     order_count = fields.Integer(compute='_compute_network_counts', string='Orders')
     client_count = fields.Integer(compute='_compute_network_counts', string='Clients')
 
-    # ---- Messaging ----
-    message_ids_chat = fields.One2many(
+    # ---- Messaging (tracking only — chatter is the UI) ----
+    message_ids_fulfillment = fields.One2many(
         'fulfillment.message', 'partner_id',
-        string='Chat Messages',
+        string='API Message Tracking',
     )
-    unread_message_count = fields.Integer(
-        compute='_compute_unread_count', string='Unread Messages',
-    )
-    compose_content = fields.Text(string='New Message', store=False)
 
     @api.depends(
         'warehouses_client_ids', 'warehouses_owner_ids',
@@ -126,28 +122,66 @@ class FulfillmentPartners(models.Model):
             ])
             rec.order_count = len(order_lines.mapped('order_id'))
 
-    @api.depends('message_ids_chat')
-    def _compute_unread_count(self):
-        for rec in self:
-            rec.unread_message_count = self.env['fulfillment.message'].search_count([
-                ('partner_id', '=', rec.id),
-                ('direction', '=', 'in'),
-                ('is_read', '=', False),
-            ])
+    # ---- Chatter → API bridge ----
+    def message_post(self, **kwargs):
+        """
+        Intercept chatter messages and forward them to the Fulfillment API.
+        Only real user comments (not internal notes, not system messages)
+        are forwarded.  The context flag 'from_fulfillment_api' prevents
+        messages received from the API being re-sent back.
+        """
+        result = super().message_post(**kwargs)
 
-    def action_compose_send(self):
-        """Send a message typed in compose_content field."""
-        self.ensure_one()
-        content = (self.compose_content or '').strip()
+        # Skip if message originated from the API (avoid infinite loop)
+        if self.env.context.get('from_fulfillment_api'):
+            return result
+
+        # Only forward regular comments, not internal notes
+        message_type = kwargs.get('message_type', 'comment')
+        subtype_xmlid = kwargs.get('subtype_xmlid', 'mail.mt_comment')
+        if message_type != 'comment' or subtype_xmlid == 'mail.mt_note':
+            return result
+
+        # Skip OdooBot (automated messages posted by the system scheduler)
+        if self.env.user.id == self.env.ref('base.user_root', raise_if_not_found=False).id:
+            return result
+
+        body_html = kwargs.get('body', '')
+        if not body_html:
+            return result
+
+        from odoo.tools import html2plaintext
+        content = html2plaintext(body_html).strip()
         if not content:
-            raise UserError("Please type a message before sending.")
-        self.env['fulfillment.message'].action_send_message(self, content)
-        # Clear the compose box after sending
-        self.write({'compose_content': False})
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'reload',
-        }
+            return result
+
+        profile = self._get_active_profile()
+        if not profile or not profile.fulfillment_profile_id:
+            return result
+
+        client = FulfillmentAPIClient(profile)
+
+        for partner in self.filtered(lambda p: p.status == 'follow' and p.fulfillment_id):
+            try:
+                api_result = client.message.send(
+                    sender_fulfillment_id=profile.fulfillment_profile_id,
+                    receiver_fulfillment_id=partner.fulfillment_id,
+                    content=content,
+                )
+                api_msg = api_result.get('data', api_result)
+                self.env['fulfillment.message'].create({
+                    'partner_id': partner.id,
+                    'external_id': api_msg.get('id'),
+                    'direction': 'out',
+                    'sent_at': fields.Datetime.now(),
+                })
+            except Exception as e:
+                _logger.warning(
+                    "[FulfillmentPartners] Failed to send chatter message to API for %s: %s",
+                    partner.name, e,
+                )
+
+        return result
 
     # ---- Smart-button actions ----
     def action_view_warehouses(self):

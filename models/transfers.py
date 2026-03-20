@@ -92,20 +92,24 @@ class FulfillmentItemBuilder:
 
     def _ensure_remote_product(self, tmpl):
         _logger.info("[_ensure_remote_product]")
-        if not getattr(tmpl, "fulfillment_product_id", None):
-            product_payload = {
-                "name": tmpl.name,
-                "sku": tmpl.default_code or f"SKU-{tmpl.id}",
-                "barcode": tmpl.barcode or str(tmpl.id).zfill(6),
-            }
-            try:
+        product_payload = {
+            "name": tmpl.name,
+            "sku": tmpl.default_code or f"SKU-{tmpl.id}",
+            "barcode": tmpl.barcode or str(tmpl.id).zfill(6),
+        }
+        try:
+            if not getattr(tmpl, "fulfillment_product_id", None):
                 resp = self.client.product.create(product_payload)
                 if resp and resp.get("data", {}).get("id"):
                     tmpl.product_variant_id.fulfillment_product_id = resp["data"].get("id")
-                    _logger.info("[Fulfillment][Create] Remote product %s -> %s",
+                    _logger.info("[Fulfillment][Product][Create] %s -> %s",
                                  tmpl.name, tmpl.fulfillment_product_id)
-            except Exception as e:
-                _logger.error("[Fulfillment][Create] Exception creating product %s: %s", tmpl.name, e)
+            else:
+                self.client.product.update(tmpl.fulfillment_product_id, product_payload)
+                _logger.info("[Fulfillment][Product][Update] %s -> %s",
+                             tmpl.name, tmpl.fulfillment_product_id)
+        except Exception as e:
+            _logger.error("[Fulfillment][Product] Exception syncing product %s: %s", tmpl.name, e)
         return tmpl.fulfillment_product_id
 
 class FulfillmentTransfers(models.Model):
@@ -450,7 +454,33 @@ class FulfillmentTransfers(models.Model):
         )
 
         if self.picking_type_code == 'outgoing' and self.partner_id:
-            contact_id = getattr(self.partner_id, "fulfillment_contact_id", None)
+            partner = self.partner_id
+            contact_data = {
+                "type": "CUSTOMER",
+                "name": partner.name,
+                "email": partner.email or "",
+                "phone": partner.phone or "",
+                "street": partner.street or "",
+                "street2": partner.street2 or "",
+                "city": partner.city or "",
+                "zip": partner.zip or "",
+                "country": partner.country_id.name if partner.country_id else "",
+                "isCompany": partner.is_company,
+            }
+            try:
+                if not getattr(partner, "fulfillment_contact_id", None):
+                    contact_resp = client.contact.create(contact_data)
+                    cid = contact_resp.get("data", {}).get("id") if isinstance(contact_resp, dict) else None
+                    if cid:
+                        partner.write({"fulfillment_contact_id": cid})
+                        _logger.info("[Fulfillment] Created contact %s for partner %s", cid, partner.name)
+                else:
+                    client.contact.update(partner.fulfillment_contact_id, contact_data)
+                    _logger.info("[Fulfillment] Updated contact %s for partner %s", partner.fulfillment_contact_id, partner.name)
+            except Exception as e:
+                _logger.warning("[Fulfillment] Failed to sync contact for %s: %s", partner.name, e)
+
+            contact_id = getattr(partner, "fulfillment_contact_id", None)
             if contact_id:
                 payload["contacts"] = [{"contact_id": str(contact_id), "role": "DELIVERY"}]
                 _logger.info("[Fulfillment] Added contact %s", contact_id)
@@ -635,22 +665,24 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[_find_or_create_partner]")
         partner_id = False
         contact_data = next(
-            (c for c in contacts if c.get("role") == "CUSTOMER"),
+            (c for c in contacts if (c.get("role") or "").upper() == "CUSTOMER"),
             (contacts[0] if contacts else None)
         )
 
         if contact_data:
             cid = contact_data.get("contact_id")
             contact_info = contact_data.get("contact") or {}
-            cname = contact_info.get("name") or "NoName"
+            cname = contact_info.get("name") or ""
             cphone = contact_info.get("phone") or ""
             cemail = contact_info.get("email") or ""
 
-            partner = self.env["res.partner"].search(
-                [("fulfillment_contact_id", "=", cid)], limit=1
-            )
+            partner = None
+            if cid:
+                partner = self.env["res.partner"].search(
+                    [("fulfillment_contact_id", "=", cid)], limit=1
+                )
 
-            if not partner:
+            if not partner and cname:
                 domain = [("name", "=", cname)]
                 if cphone:
                     domain.append(("phone", "=", cphone))
@@ -658,15 +690,27 @@ class FulfillmentTransfers(models.Model):
 
             if not partner:
                 partner = self.env["res.partner"].create({
-                    "name": cname,
+                    "name": cname or f"Contact-{cid}" if cid else "Unknown",
                     "phone": cphone,
                     "email": cemail,
                     "fulfillment_contact_id": cid,
                 })
                 _logger.info("[Fulfillment] Created partner: %s (%s)", cname, cid)
             else:
+                update_vals = {}
                 if not partner.fulfillment_contact_id and cid:
-                    partner.fulfillment_contact_id = cid
+                    update_vals["fulfillment_contact_id"] = cid
+                # Update name if it was a placeholder or missing
+                placeholder_names = {"NoName", "Unknown", "", False, None}
+                if cname and partner.name in placeholder_names:
+                    update_vals["name"] = cname
+                if cphone and not partner.phone:
+                    update_vals["phone"] = cphone
+                if cemail and not partner.email:
+                    update_vals["email"] = cemail
+                if update_vals:
+                    partner.write(update_vals)
+                    _logger.info("[Fulfillment] Updated partner %s: %s", partner.id, update_vals)
 
             partner_id = partner.id
 
@@ -692,12 +736,12 @@ class FulfillmentTransfers(models.Model):
 
         wh_code = warehouse_out.code or warehouse_in.code or "WH"
         type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
-        hash_part = str(remote_id)[:8]
-        # Prefer API human-readable reference (usually what was sent as `payload["reference"]`).
-        # Fallback to a deterministic hash-based name.
         transfer_reference = (transfer.get("reference") or "").strip()
-        fallback_name = f"[F] {wh_code}/{type_short}/{hash_part}"
-        name = transfer_reference or fallback_name
+        # IMPORTANT:
+        # Odoo enforces uniqueness of `stock.picking.name` (reference) per company.
+        # `transfer.reference` is often not unique (e.g. same sale/order origin across multiple moves),
+        # so we MUST not set `name` directly during import.
+        # Instead we let Odoo generate `name` via its sequence and store external reference into `origin`.
 
         vals = {
             "fulfillment_transfer_id": remote_id,
@@ -706,17 +750,15 @@ class FulfillmentTransfers(models.Model):
             "location_id": location_id,
             "location_dest_id": location_dest_id,
         }
+        if transfer_reference:
+            vals["origin"] = transfer_reference
 
         if picking:
             vals_write = dict(vals)
             vals_write.pop("picking_type_id", None)
-            # If this picking was created by the old hash-based naming, update the name now.
-            if transfer_reference and (picking.name or "").startswith("[F]"):
-                vals_write["name"] = name
             picking.write(vals_write)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
         else:
-            vals["name"] = name
             picking = self.with_context(skip_fulfillment_push=True).create(vals)
             _logger.info("[Fulfillment] Created picking %s", picking.name)
 
@@ -740,9 +782,14 @@ class FulfillmentTransfers(models.Model):
                 if fetched:
                     product_data = fetched
 
-            prod_name = product_data.get("name") or "Name not found"
             sku = product_data.get("sku")
             barcode = product_data.get("barcode")
+            prod_name = (
+                product_data.get("name")
+                or sku
+                or barcode
+                or (f"SKU-{fulfillment_product_id}" if fulfillment_product_id else "Unnamed")
+            )
 
             product_tmpl = self._find_or_create_product(
                 fulfillment_product_id, sku, prod_name, barcode
@@ -803,8 +850,20 @@ class FulfillmentTransfers(models.Model):
 
             _logger.info("[Fulfillment] Created product '%s'", prod_name)
         else:
+            update_vals = {}
             if not product_tmpl.fulfillment_product_id and fulfillment_product_id:
-                product_tmpl.fulfillment_product_id = fulfillment_product_id
+                update_vals["fulfillment_product_id"] = fulfillment_product_id
+            placeholder_prefixes = ("SKU-", "Unnamed", "Name not found", "NoName")
+            real_name = prod_name and not any(prod_name.startswith(p) for p in placeholder_prefixes)
+            if real_name and prod_name != product_tmpl.name:
+                update_vals["name"] = prod_name
+            if sku and not product_tmpl.default_code:
+                update_vals["default_code"] = sku
+            if barcode and not product_tmpl.barcode:
+                update_vals["barcode"] = barcode
+            if update_vals:
+                product_tmpl.write(update_vals)
+                _logger.info("[Fulfillment] Updated product %s: %s", product_tmpl.id, update_vals)
 
         return product_tmpl
 

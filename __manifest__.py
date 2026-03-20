@@ -16,8 +16,11 @@
         'web.assets_backend': [
             'fulfillment_software/static/src/js/systray.js',
             'fulfillment_software/static/src/js/notifications.js',
+            'fulfillment_software/static/src/js/chat_popup.js',
             'fulfillment_software/static/src/css/systray.css',
+            'fulfillment_software/static/src/css/chat_popup.css',
             'fulfillment_software/static/src/xml/systray.xml',
+            'fulfillment_software/static/src/xml/chat_popup.xml',
         ],
     },
     'data': [

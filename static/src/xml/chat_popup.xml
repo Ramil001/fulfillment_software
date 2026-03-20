@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+  <!-- ── Container that holds all active popups ── -->
+  <t t-name="FulfillmentChatPopupManager" owl="1">
+    <div class="fcp-container">
+      <t t-foreach="state.popups" t-as="popup" t-key="popup.id">
+        <FulfillmentChatPopup
+          popup="popup"
+          onClose="(id) => this._closePopup(id)"
+          onNavigate="(id) => this._navigateToPartner(id)"
+          onSend="(popup, text) => this._sendReply(popup, text)"
+        />
+      </t>
+    </div>
+  </t>
+
+  <!-- ── Single popup card ── -->
+  <t t-name="FulfillmentChatPopup" owl="1">
+    <div class="fcp-card">
+
+      <!-- Header — clicking navigates to partner form -->
+      <div class="fcp-header" t-on-click="onNavigate" title="Открыть профиль партнёра">
+        <div class="fcp-avatar">
+          <i class="fa fa-comments"/>
+        </div>
+        <div class="fcp-meta">
+          <span class="fcp-name" t-esc="props.popup.partnerName"/>
+          <span class="fcp-hint">Новое сообщение · нажмите для перехода</span>
+        </div>
+        <button class="fcp-close" t-on-click.stop="onClose" title="Закрыть">
+          <i class="fa fa-times"/>
+        </button>
+      </div>
+
+      <!-- Message body -->
+      <div class="fcp-body" t-esc="props.popup.content"/>
+
+      <!-- Quick-reply area -->
+      <div class="fcp-reply">
+        <textarea
+          class="fcp-input"
+          placeholder="Ответить…"
+          rows="1"
+          t-on-input="onInput"
+          t-on-keydown="onKeydown"
+        />
+        <button
+          class="fcp-send"
+          t-on-click="onSend"
+          title="Отправить (Enter)"
+          t-att-disabled="!state.text.trim()"
+        >
+          <i class="fa fa-paper-plane"/>
+        </button>
+      </div>
+
+    </div>
+  </t>
+
+</templates>
