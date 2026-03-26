@@ -1,0 +1,18 @@
+/* Partner card: logo on the right, predictable size */
+.o_ff_partner_form .o_ff_partner_logo_img img {
+    max-width: 128px;
+    max-height: 128px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+/* Hide Mail chatter “subscribe” UI (followers + Follow / Following) on partner form */
+.o_form_view:has(form.o_ff_partner_form) .o-mail-Followers {
+    display: none !important;
+}
+
+.o_form_view:has(form.o_ff_partner_form) .o-mail-Chatter-topbar button.o-mail-Chatter-follow,
+.o_form_view:has(form.o_ff_partner_form) .o-mail-Chatter-topbar button.btn.px-0:has(.o-mail-Chatter-follow) {
+    display: none !important;
+}

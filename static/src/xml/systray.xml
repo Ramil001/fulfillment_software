@@ -2,31 +2,29 @@
 <templates xml:space="preserve">
   <t t-name="systray_icon" owl="1">
     <Dropdown>
-      <div class="new_icon">
-        <div class="icon_div">
-          <div class="toggle-icon" role="button">
-            <i
-              class="fa fa-cube"
-              title="Fulfillment Software"
-              style="cursor:pointer; font-size:18px; margin:auto; display:flex;"
-            />
-          </div>
+      <div class="fulfillment-systray-btn" t-att-title="state.isImporting ? 'Fulfillment: syncing…' : 'Fulfillment Software'">
+        <div class="fulfillment-icon-wrap">
+
+          <!-- Spinner ring (visible during import) -->
+          <span t-if="state.isImporting" class="fulfillment-spinner" aria-hidden="true"/>
+
+          <!-- Cube icon -->
+          <i class="fa fa-cube fulfillment-cube"
+             t-att-class="{ 'fulfillment-cube--faded': state.isImporting }"
+          />
+
         </div>
       </div>
       <t t-set-slot="content">
-
         <DropdownItem onSelected="() => this.runImportAll()">
-                    Run import all
+          Run import all
         </DropdownItem>
-
         <DropdownItem onSelected="() => this.openProfiles()">
           Profiles
         </DropdownItem>
-
         <DropdownItem onSelected="() => this.openPartners()">
           Partners
         </DropdownItem>
-        
       </t>
     </Dropdown>
   </t>

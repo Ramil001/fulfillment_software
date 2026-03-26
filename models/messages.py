@@ -1,6 +1,7 @@
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 from odoo.tools import html2plaintext
-from ..lib.api_client import FulfillmentAPIClient, FulfillmentAPIError
+from odoo.exceptions import ValidationError
+from ..lib.api_client import FulfillmentAPIClient
 import logging
 from datetime import datetime, timezone
 
@@ -22,7 +23,12 @@ class FulfillmentMessage(models.Model):
     partner_id = fields.Many2one(
         'fulfillment.partners',
         string='Partner',
-        required=True,
+        ondelete='cascade',
+        index=True,
+    )
+    picking_id = fields.Many2one(
+        'stock.picking',
+        string='Transfer picking',
         ondelete='cascade',
         index=True,
     )
@@ -32,6 +38,14 @@ class FulfillmentMessage(models.Model):
         required=True,
     )
     sent_at = fields.Datetime(default=fields.Datetime.now)
+
+    @api.constrains('partner_id', 'picking_id')
+    def _check_partner_or_picking(self):
+        for rec in self:
+            if not rec.partner_id and not rec.picking_id:
+                raise ValidationError(
+                    _('Link a fulfillment partner and/or a transfer picking for this API message.')
+                )
 
     # ------------------------------------------------------------------ #
     #  Cron: poll incoming messages for all followed partners
@@ -89,15 +103,16 @@ class FulfillmentMessage(models.Model):
         if not api_messages:
             return
 
-        # Get already-known external IDs for this partner
+        ext_ids = [m.get('id') for m in api_messages if m.get('id')]
         existing_ext_ids = set(
-            self.search([('partner_id', '=', partner.id)]).mapped('external_id')
-        )
+            self.search([('external_id', 'in', ext_ids)]).mapped('external_id')
+        ) if ext_ids else set()
 
         # Use partner's linked res.partner as message author (so name shows in chatter)
         author_id = partner.partner_id.id if partner.partner_id else False
 
         new_count = 0
+        Picking = self.env['stock.picking'].sudo()
         for msg in api_messages:
             ext_id = msg.get('id')
             if not ext_id or ext_id in existing_ext_ids:
@@ -113,9 +128,56 @@ class FulfillmentMessage(models.Model):
                 sent_at = fields.Datetime.now()
 
             content = msg.get('content', '')
+            ref_type = (msg.get('ref_type') or '').strip()
+            ref_id = (msg.get('ref_id') or '').strip()
 
-            if is_incoming and content:
-                # Post into chatter; disable email to avoid smtp-exception popups
+            posted_to_picking = False
+            picking_rec = self.env['stock.picking']
+            if (
+                ref_type == 'transfer'
+                and ref_id
+                and is_incoming
+                and content
+            ):
+                candidates = Picking.search(
+                    [('fulfillment_transfer_id', '=', ref_id)], limit=2
+                )
+                if len(candidates) > 1:
+                    _logger.warning(
+                        "[FulfillmentMessage] Multiple pickings for transfer %s; using first",
+                        ref_id,
+                    )
+                picking_rec = candidates[:1]
+                if picking_rec:
+                    picking_rec.with_context(
+                        from_fulfillment_api=True,
+                        mail_notify_force_send=False,
+                    ).message_post(
+                        body=content,
+                        message_type='comment',
+                        subtype_xmlid='mail.mt_comment',
+                        author_id=author_id,
+                    )
+                    posted_to_picking = True
+                    new_count += 1
+                    notification_payload = {
+                        'content': content,
+                        'partner_name': partner.name,
+                        'partner_id': partner.id,
+                        'external_id': ext_id,
+                        'picking_id': picking_rec.id,
+                    }
+                    bus = self.env['bus.bus'].sudo()
+                    for user in self.env['res.users'].sudo().search(
+                        [('share', '=', False), ('active', '=', True)]
+                    ):
+                        if user.partner_id:
+                            bus._sendone(
+                                user.partner_id, 'fulfillment_new_message', notification_payload
+                            )
+
+            if is_incoming and content and not posted_to_picking:
+                # Post into partner chatter; disable email to avoid smtp-exception popups
                 partner.with_context(
                     from_fulfillment_api=True,
                     mail_notify_force_send=False,
@@ -139,13 +201,15 @@ class FulfillmentMessage(models.Model):
                     if user.partner_id:
                         bus._sendone(user.partner_id, 'fulfillment_new_message', notification_payload)
 
-            # Track in fulfillment.message for deduplication
-            self.create({
+            track_vals = {
                 'partner_id': partner.id,
                 'external_id': ext_id,
                 'direction': direction,
                 'sent_at': sent_at,
-            })
+            }
+            if posted_to_picking and picking_rec:
+                track_vals['picking_id'] = picking_rec.id
+            self.create(track_vals)
 
         if new_count:
             _logger.info(

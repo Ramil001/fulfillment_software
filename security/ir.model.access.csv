@@ -4,4 +4,3 @@ access_fulfillment_subscription,fulfillment.subscription,model_fulfillment_subsc
 access_fulfillment_partners,fulfillment.partners,model_fulfillment_partners,base.group_user,1,1,1,1
 access_fulfillment_profile,fulfillment.profile,model_fulfillment_profile,base.group_user,1,1,1,1
 access_fulfillment_profile_capabilities,fulfillment.profile.capabilities,model_fulfillment_profile_capabilities,base.group_user,1,1,1,1
-access_fulfillment_message,fulfillment.message,model_fulfillment_message,base.group_user,1,1,1,1

@@ -103,28 +103,22 @@ class FulfillmentOrder(models.Model):
                 std_pickings.action_cancel()
                 std_pickings.unlink()
 
-            # --- Создаём / обновляем продукты ---
-            synced_products = set()
+            # --- Создаём продукты если нужно ---
             for warehouse, lines in grouped_lines.items():
                 for line in lines:
                     tmpl = line.product_id.product_tmpl_id
-                    if tmpl.id in synced_products:
+                    if tmpl.fulfillment_product_id:
                         continue
-                    synced_products.add(tmpl.id)
                     product_payload = {
                         "name": tmpl.name,
                         "sku": tmpl.default_code or f"SKU-{tmpl.id}",
                         "barcode": tmpl.barcode or str(tmpl.id).zfill(6),
                     }
                     try:
-                        if not tmpl.fulfillment_product_id:
-                            resp = client.product.create(product_payload)
-                            if resp and resp.get("data", {}).get("id"):
-                                tmpl.product_variant_id.fulfillment_product_id = resp["data"]["id"]
-                                _logger.info("[Fulfillment][Product][Create] %s -> %s", tmpl.name, resp["data"]["id"])
-                        else:
-                            client.product.update(tmpl.fulfillment_product_id, product_payload)
-                            _logger.info("[Fulfillment][Product][Update] %s -> %s", tmpl.name, tmpl.fulfillment_product_id)
+                        resp = client.product.create(product_payload)
+                        if resp and resp.get("data", {}).get("id"):
+                            tmpl.product_variant_id.fulfillment_product_id = resp["data"]["id"]
+                            _logger.info("[Fulfillment][Product][Create] %s -> %s", tmpl.name, resp["data"]["id"])
                     except FulfillmentAPIError as e:
                         _logger.error("[Fulfillment][Product][API Error] %s: %s", tmpl.name, e)
                     except Exception as e:
@@ -175,14 +169,12 @@ class FulfillmentOrder(models.Model):
 
                 # --- Отправляем трансфер в API ---
                 try:
-                    fulfillment_partner = warehouse.fulfillment_owner_id
-                    if not fulfillment_partner or not fulfillment_partner.fulfillment_id:
+                    fulfillment_owner_out = warehouse.fulfillment_owner_id
+                    if not fulfillment_owner_out or not fulfillment_owner_out.fulfillment_id:
                         _logger.warning(
                             f"[FULFILLMENT] Warehouse {warehouse.name} не имеет fulfillment_owner_id, пропуск трансфера"
                         )
                         continue
-
-                    my_fulfillment_id = profile.fulfillment_profile_id
 
                     payload = {
                         # Use sale order number as a human-readable reference.
@@ -191,37 +183,10 @@ class FulfillmentOrder(models.Model):
                         "transfer_type": "outgoing",
                         "warehouse_out": warehouse.fulfillment_warehouse_id or None,
                         "warehouse_in": None,
-                        "fulfillment_out": my_fulfillment_id,
-                        "fulfillment_in": fulfillment_partner.fulfillment_id,
+                        "fulfillment_out": fulfillment_owner_out.fulfillment_id,
+                        "fulfillment_in": None,
                         "items": move_items,
                     }
-
-                    receiver = order.partner_shipping_id
-                    if receiver:
-                        contact_data = {
-                            "type": "CUSTOMER",
-                            "name": receiver.name,
-                            "email": receiver.email or "",
-                            "phone": receiver.phone or "",
-                            "street": receiver.street or "",
-                            "street2": receiver.street2 or "",
-                            "city": receiver.city or "",
-                            "zip": receiver.zip or "",
-                            "country": receiver.country_id.name if receiver.country_id else "",
-                            "isCompany": receiver.is_company,
-                        }
-                        try:
-                            if not receiver.fulfillment_contact_id:
-                                contact_resp = client.contact.create(contact_data)
-                                cid = contact_resp.get("data", {}).get("id") if isinstance(contact_resp, dict) else None
-                                if cid:
-                                    receiver.write({"fulfillment_contact_id": cid})
-                                    _logger.info("[FULFILLMENT][CONTACT] Created contact %s for %s", cid, receiver.name)
-                            else:
-                                client.contact.update(receiver.fulfillment_contact_id, contact_data)
-                                _logger.info("[FULFILLMENT][CONTACT] Updated contact %s for %s", receiver.fulfillment_contact_id, receiver.name)
-                        except Exception as e:
-                            _logger.warning("[FULFILLMENT][CONTACT] Failed to sync contact for %s: %s", receiver.name, e)
 
                     receiver_id = order.partner_shipping_id.fulfillment_contact_id
                     if receiver_id:
@@ -262,22 +227,8 @@ class FulfillmentOrder(models.Model):
         client = FulfillmentAPIClient(profile)
         for order in records:
             try:
-                # We must ensure both the customer and the delivery address
-                # have `fulfillment_contact_id`, otherwise transfers will be
-                # sent without contacts and receiver will fall back to a
-                # default warehouse partner (often looks like "Admin").
-                partner_candidates = [
-                    order.partner_id,                 # customer
-                    order.partner_shipping_id,       # delivery address
-                    order.partner_invoice_id,        # invoice address (optional, but safe)
-                ]
-
-                for partner in partner_candidates:
-                    if not partner or not partner.exists():
-                        continue
-                    if partner.fulfillment_contact_id:
-                        continue
-
+                partner = order.partner_id
+                if not partner.fulfillment_contact_id:
                     contact_payload = {
                         "type": "CUSTOMER",
                         "name": partner.name,
@@ -292,7 +243,6 @@ class FulfillmentOrder(models.Model):
                         "companyName": partner.name if partner.is_company else None,
                         "parentId": None,
                     }
-
                     try:
                         _logger.info(f"[FULFILLMENT][CONTACT][CREATE] Payload: {contact_payload}")
                         contact_resp = client.contact.create(contact_payload)

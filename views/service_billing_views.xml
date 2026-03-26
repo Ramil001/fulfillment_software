@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+
+    <record id="view_fulfillment_service_price_list" model="ir.ui.view">
+      <field name="name">fulfillment.service.price.list</field>
+      <field name="model">fulfillment.service.price</field>
+      <field name="arch" type="xml">
+        <list string="Service prices" create="false" delete="false" edit="false">
+          <field name="partner_id"/>
+          <field name="service_type"/>
+          <field name="unit"/>
+          <field name="amount"/>
+          <field name="currency"/>
+          <field name="warehouse_ext_id"/>
+          <field name="last_sync_at"/>
+        </list>
+      </field>
+    </record>
+
+    <record id="view_fulfillment_service_usage_list" model="ir.ui.view">
+      <field name="name">fulfillment.service.usage.list</field>
+      <field name="model">fulfillment.service.usage</field>
+      <field name="arch" type="xml">
+        <list string="Service billing lines" create="false" delete="false" edit="false">
+          <field name="api_created_at"/>
+          <field name="service_type"/>
+          <field name="creditor_partner_id"/>
+          <field name="debtor_partner_id"/>
+          <field name="line_total" sum="Total"/>
+          <field name="currency"/>
+          <field name="quantity"/>
+          <field name="unit_price"/>
+          <field name="transfer_ref_id" optional="hide"/>
+          <field name="source_ref" optional="hide"/>
+          <field name="status" optional="hide"/>
+        </list>
+      </field>
+    </record>
+
+    <record id="view_fulfillment_service_usage_form" model="ir.ui.view">
+      <field name="name">fulfillment.service.usage.form</field>
+      <field name="model">fulfillment.service.usage</field>
+      <field name="arch" type="xml">
+        <form string="Billing line" create="false" delete="false" edit="false">
+          <sheet>
+            <group>
+              <field name="external_id"/>
+              <field name="service_type"/>
+              <field name="api_created_at"/>
+              <field name="status"/>
+            </group>
+            <group>
+              <field name="creditor_fulfillment_id"/>
+              <field name="debtor_fulfillment_id"/>
+              <field name="creditor_partner_id"/>
+              <field name="debtor_partner_id"/>
+            </group>
+            <group>
+              <field name="quantity"/>
+              <field name="unit_price"/>
+              <field name="line_total"/>
+              <field name="currency"/>
+              <field name="warehouse_ext_id"/>
+              <field name="transfer_ref_id"/>
+              <field name="source_ref"/>
+            </group>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record id="action_server_billing_payables" model="ir.actions.server">
+      <field name="name">I owe (payables)</field>
+      <field name="model_id" ref="fulfillment_software.model_fulfillment_service_usage"/>
+      <field name="state">code</field>
+      <field name="code">action = model.action_open_payables()</field>
+    </record>
+
+    <record id="action_server_billing_receivables" model="ir.actions.server">
+      <field name="name">Owed to me (receivables)</field>
+      <field name="model_id" ref="fulfillment_software.model_fulfillment_service_usage"/>
+      <field name="state">code</field>
+      <field name="code">action = model.action_open_receivables()</field>
+    </record>
+
+    <record id="action_server_billing_sync" model="ir.actions.server">
+      <field name="name">Sync billing from API</field>
+      <field name="model_id" ref="fulfillment_software.model_fulfillment_service_usage"/>
+      <field name="state">code</field>
+      <field name="code">action = model.action_sync_from_api_menu()</field>
+    </record>
+
+  </data>
+</odoo>

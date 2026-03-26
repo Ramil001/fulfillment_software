@@ -9,7 +9,6 @@ from .location import LocationAPI
 from .stock import StockAPI
 from .order import OrderAPI
 from .contact import ContactAPI
-from .message import MessageAPI
 
 
 _logger = logging.getLogger(__name__)
@@ -40,7 +39,6 @@ class FulfillmentAPIClient:
         self.stock = StockAPI(self)
         self.order = OrderAPI(self)
         self.contact = ContactAPI(self)
-        self.message = MessageAPI(self)
 
         _logger.info(f"[FULFILLMENT] Client initialized for api_domain: {self.api_domain}")
 

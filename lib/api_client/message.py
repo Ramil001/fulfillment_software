@@ -24,7 +24,8 @@ class MessageAPI:
             payload['ref_id'] = ref_id
         return self.client._request('POST', self._url(), payload=payload)
 
-    def fetch(self, fulfillment_id, partner_id, since=None, limit=50):
+    def fetch(self, fulfillment_id, partner_id, since=None, limit=50,
+              ref_type=None, ref_id=None):
         """Fetch conversation thread between two fulfillment instances."""
         params = {
             'fulfillment_id': fulfillment_id,
@@ -33,6 +34,10 @@ class MessageAPI:
         }
         if since:
             params['since'] = since
+        if ref_type:
+            params['ref_type'] = ref_type
+        if ref_id:
+            params['ref_id'] = ref_id
         return self.client._request('GET', self._url(), params=params)
 
     def mark_read(self, message_ids, fulfillment_id):

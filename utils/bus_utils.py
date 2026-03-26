@@ -57,3 +57,19 @@ class BusUtils(models.AbstractModel):
 
         except Exception as e:
             _logger.exception("[BUS][FATAL] Ошибка при отправке уведомлений: %s", e)
+
+    def send_sync_status(self, running: bool):
+        """
+        Broadcast import/sync status to all active users.
+        Frontend systray subscribes to 'fulfillment_sync_status' and shows/hides a spinner.
+        """
+        env = self.env
+        try:
+            bus = env["bus.bus"].sudo()
+            users = env["res.users"].sudo().search([("share", "=", False), ("active", "=", True)])
+            payload = {"running": running}
+            for user in users:
+                if user.partner_id:
+                    bus._sendone(user.partner_id, "fulfillment_sync_status", payload)
+        except Exception as e:
+            _logger.exception("[BUS] send_sync_status failed: %s", e)

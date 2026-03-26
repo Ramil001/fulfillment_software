@@ -18,6 +18,7 @@
                      style="width:44px;height:44px;font-size:18px;background:rgba(255,255,255,0.25);">
                   <t t-if="record.fulfillment_logo.raw_value">
                     <img t-att-src="'/web/image/fulfillment.partners/' + record.id.raw_value + '/fulfillment_logo'"
+                         alt=""
                          style="width:44px;height:44px;object-fit:cover;border-radius:50%;"/>
                   </t>
                   <t t-else="">
@@ -63,7 +64,7 @@
               <!-- Footer: API domain -->
               <div class="px-2 py-1 small text-muted d-flex align-items-center gap-1">
                 <t t-if="record.api_domain.raw_value">
-                  <i class="fa fa-globe" style="color:#714B67;"/>
+                  <i class="fa fa-globe" style="color:#714B67;" title="API"></i>
                   <span class="text-truncate" style="max-width:160px;">
                     <field name="api_domain" readonly="1"/>
                   </span>

@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
-from odoo import models, api, fields, _
 import logging
+
+import requests as _requests
+
+from odoo import models, api, fields, _
 from ..lib.api_client import FulfillmentAPIClient
 
 _logger = logging.getLogger(__name__)
@@ -92,24 +96,20 @@ class FulfillmentItemBuilder:
 
     def _ensure_remote_product(self, tmpl):
         _logger.info("[_ensure_remote_product]")
-        product_payload = {
-            "name": tmpl.name,
-            "sku": tmpl.default_code or f"SKU-{tmpl.id}",
-            "barcode": tmpl.barcode or str(tmpl.id).zfill(6),
-        }
-        try:
-            if not getattr(tmpl, "fulfillment_product_id", None):
+        if not getattr(tmpl, "fulfillment_product_id", None):
+            product_payload = {
+                "name": tmpl.name,
+                "sku": tmpl.default_code or f"SKU-{tmpl.id}",
+                "barcode": tmpl.barcode or str(tmpl.id).zfill(6),
+            }
+            try:
                 resp = self.client.product.create(product_payload)
                 if resp and resp.get("data", {}).get("id"):
                     tmpl.product_variant_id.fulfillment_product_id = resp["data"].get("id")
-                    _logger.info("[Fulfillment][Product][Create] %s -> %s",
+                    _logger.info("[Fulfillment][Create] Remote product %s -> %s",
                                  tmpl.name, tmpl.fulfillment_product_id)
-            else:
-                self.client.product.update(tmpl.fulfillment_product_id, product_payload)
-                _logger.info("[Fulfillment][Product][Update] %s -> %s",
-                             tmpl.name, tmpl.fulfillment_product_id)
-        except Exception as e:
-            _logger.error("[Fulfillment][Product] Exception syncing product %s: %s", tmpl.name, e)
+            except Exception as e:
+                _logger.error("[Fulfillment][Create] Exception creating product %s: %s", tmpl.name, e)
         return tmpl.fulfillment_product_id
 
 class FulfillmentTransfers(models.Model):
@@ -336,6 +336,18 @@ class FulfillmentTransfers(models.Model):
     def _push_status_update(self, new_state):
         """Отправка обновления статуса в API"""
         _logger.info("[_push_status_update]")
+
+        # When processing an incoming webhook (skip_fulfillment_push=True) we are
+        # already mirroring a status that came FROM the API — no need to echo it
+        # back, and doing so would create an infinite loop:
+        #   Odoo B validates → API → webhook → Odoo A validates → push → API → ...
+        if self.env.context.get('skip_fulfillment_push'):
+            _logger.info(
+                "[Fulfillment][API] Status push skipped (skip_fulfillment_push) for %s",
+                self.fulfillment_transfer_id,
+            )
+            return
+
         if not self.fulfillment_transfer_id or self.fulfillment_transfer_id == "Empty":
             _logger.warning("Skip status push – no transfer_id yet")
             return
@@ -454,33 +466,7 @@ class FulfillmentTransfers(models.Model):
         )
 
         if self.picking_type_code == 'outgoing' and self.partner_id:
-            partner = self.partner_id
-            contact_data = {
-                "type": "CUSTOMER",
-                "name": partner.name,
-                "email": partner.email or "",
-                "phone": partner.phone or "",
-                "street": partner.street or "",
-                "street2": partner.street2 or "",
-                "city": partner.city or "",
-                "zip": partner.zip or "",
-                "country": partner.country_id.name if partner.country_id else "",
-                "isCompany": partner.is_company,
-            }
-            try:
-                if not getattr(partner, "fulfillment_contact_id", None):
-                    contact_resp = client.contact.create(contact_data)
-                    cid = contact_resp.get("data", {}).get("id") if isinstance(contact_resp, dict) else None
-                    if cid:
-                        partner.write({"fulfillment_contact_id": cid})
-                        _logger.info("[Fulfillment] Created contact %s for partner %s", cid, partner.name)
-                else:
-                    client.contact.update(partner.fulfillment_contact_id, contact_data)
-                    _logger.info("[Fulfillment] Updated contact %s for partner %s", partner.fulfillment_contact_id, partner.name)
-            except Exception as e:
-                _logger.warning("[Fulfillment] Failed to sync contact for %s: %s", partner.name, e)
-
-            contact_id = getattr(partner, "fulfillment_contact_id", None)
+            contact_id = getattr(self.partner_id, "fulfillment_contact_id", None)
             if contact_id:
                 payload["contacts"] = [{"contact_id": str(contact_id), "role": "DELIVERY"}]
                 _logger.info("[Fulfillment] Added contact %s", contact_id)
@@ -659,30 +645,61 @@ class FulfillmentTransfers(models.Model):
             _logger.info("[Fulfillment] Status applied: %s -> %s", picking.name, status)
         except Exception as e:
             _logger.warning("[Fulfillment] Error applying status %s: %s", status, e)
+
+        # Auto-advance newly imported transfers through confirm → assign so that
+        # Odoo immediately checks local stock availability.
+        # - "confirmed"  → stock exists, reserved and ready for operator to pick
+        # - "assigned"   → fully reserved
+        # - still "draft"/"confirmed" after assign → not enough stock, needs attention
+        # This only runs if the transfer is NOT yet done/cancelled and the API
+        # status is still early-stage (draft/confirmed/assigned — not "done").
+        if picking.state not in ('done', 'cancel') and status not in ('done',):
+            try:
+                if picking.state == 'draft':
+                    picking.with_context(skip_fulfillment_push=True).action_confirm()
+                    _logger.info(
+                        "[Fulfillment] Auto-confirmed imported transfer %s", picking.name
+                    )
+                if picking.state == 'confirmed':
+                    picking.with_context(skip_fulfillment_push=True).action_assign()
+                    if picking.state == 'assigned':
+                        _logger.info(
+                            "[Fulfillment] Auto-assigned imported transfer %s — stock available",
+                            picking.name,
+                        )
+                    else:
+                        _logger.info(
+                            "[Fulfillment] Imported transfer %s — insufficient stock "
+                            "(state=%s), awaiting replenishment",
+                            picking.name, picking.state,
+                        )
+            except Exception as e:
+                _logger.warning(
+                    "[Fulfillment] Auto-advance failed for %s: %s", picking.name, e
+                )
+
         return picking
 
     def _find_or_create_partner(self, contacts, wh_in_ext):
         _logger.info("[_find_or_create_partner]")
         partner_id = False
         contact_data = next(
-            (c for c in contacts if (c.get("role") or "").upper() == "CUSTOMER"),
+            (c for c in contacts if c.get("role") == "CUSTOMER"),
             (contacts[0] if contacts else None)
         )
 
         if contact_data:
             cid = contact_data.get("contact_id")
             contact_info = contact_data.get("contact") or {}
-            cname = contact_info.get("name") or ""
+            cname = contact_info.get("name") or "NoName"
             cphone = contact_info.get("phone") or ""
             cemail = contact_info.get("email") or ""
 
-            partner = None
-            if cid:
-                partner = self.env["res.partner"].search(
-                    [("fulfillment_contact_id", "=", cid)], limit=1
-                )
+            partner = self.env["res.partner"].search(
+                [("fulfillment_contact_id", "=", cid)], limit=1
+            )
 
-            if not partner and cname:
+            if not partner:
                 domain = [("name", "=", cname)]
                 if cphone:
                     domain.append(("phone", "=", cphone))
@@ -690,27 +707,15 @@ class FulfillmentTransfers(models.Model):
 
             if not partner:
                 partner = self.env["res.partner"].create({
-                    "name": cname or f"Contact-{cid}" if cid else "Unknown",
+                    "name": cname,
                     "phone": cphone,
                     "email": cemail,
                     "fulfillment_contact_id": cid,
                 })
                 _logger.info("[Fulfillment] Created partner: %s (%s)", cname, cid)
             else:
-                update_vals = {}
                 if not partner.fulfillment_contact_id and cid:
-                    update_vals["fulfillment_contact_id"] = cid
-                # Update name if it was a placeholder or missing
-                placeholder_names = {"NoName", "Unknown", "", False, None}
-                if cname and partner.name in placeholder_names:
-                    update_vals["name"] = cname
-                if cphone and not partner.phone:
-                    update_vals["phone"] = cphone
-                if cemail and not partner.email:
-                    update_vals["email"] = cemail
-                if update_vals:
-                    partner.write(update_vals)
-                    _logger.info("[Fulfillment] Updated partner %s: %s", partner.id, update_vals)
+                    partner.fulfillment_contact_id = cid
 
             partner_id = partner.id
 
@@ -736,12 +741,12 @@ class FulfillmentTransfers(models.Model):
 
         wh_code = warehouse_out.code or warehouse_in.code or "WH"
         type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
+        hash_part = str(remote_id)[:8]
+        # Prefer API human-readable reference (usually what was sent as `payload["reference"]`).
+        # Fallback to a deterministic hash-based name.
         transfer_reference = (transfer.get("reference") or "").strip()
-        # IMPORTANT:
-        # Odoo enforces uniqueness of `stock.picking.name` (reference) per company.
-        # `transfer.reference` is often not unique (e.g. same sale/order origin across multiple moves),
-        # so we MUST not set `name` directly during import.
-        # Instead we let Odoo generate `name` via its sequence and store external reference into `origin`.
+        fallback_name = f"[F] {wh_code}/{type_short}/{hash_part}"
+        name = transfer_reference or fallback_name
 
         vals = {
             "fulfillment_transfer_id": remote_id,
@@ -750,15 +755,17 @@ class FulfillmentTransfers(models.Model):
             "location_id": location_id,
             "location_dest_id": location_dest_id,
         }
-        if transfer_reference:
-            vals["origin"] = transfer_reference
 
         if picking:
             vals_write = dict(vals)
             vals_write.pop("picking_type_id", None)
+            # If this picking was created by the old hash-based naming, update the name now.
+            if transfer_reference and (picking.name or "").startswith("[F]"):
+                vals_write["name"] = name
             picking.write(vals_write)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
         else:
+            vals["name"] = name
             picking = self.with_context(skip_fulfillment_push=True).create(vals)
             _logger.info("[Fulfillment] Created picking %s", picking.name)
 
@@ -782,17 +789,13 @@ class FulfillmentTransfers(models.Model):
                 if fetched:
                     product_data = fetched
 
+            prod_name = product_data.get("name") or "Name not found"
             sku = product_data.get("sku")
             barcode = product_data.get("barcode")
-            prod_name = (
-                product_data.get("name")
-                or sku
-                or barcode
-                or (f"SKU-{fulfillment_product_id}" if fulfillment_product_id else "Unnamed")
-            )
+            img_url = product_data.get("img_url")
 
             product_tmpl = self._find_or_create_product(
-                fulfillment_product_id, sku, prod_name, barcode
+                fulfillment_product_id, sku, prod_name, barcode, img_url=img_url
             )
 
             product_id = product_tmpl.product_variant_id.id
@@ -818,11 +821,82 @@ class FulfillmentTransfers(models.Model):
                 Move.create(move_vals)
 
 
-    def _find_or_create_product(self, fulfillment_product_id, sku, prod_name, barcode):
+    # ------------------------------------------------------------------ #
+    # Image helpers
+    # ------------------------------------------------------------------ #
+
+    def _fetch_image_b64(self, img_url):
+        """Download an image from *img_url* and return base64 bytes, or None."""
+        if not img_url or not img_url.startswith(('http://', 'https://')):
+            return None
+        try:
+            resp = _requests.get(img_url, timeout=10, verify=False)
+            if resp.status_code == 200 and resp.content:
+                return base64.b64encode(resp.content)
+        except Exception as e:
+            _logger.warning('[Fulfillment] Failed to fetch image from %s: %s', img_url, e)
+        return None
+
+    def _resolve_img_url(self, img_url, fulfillment_product_id):
+        """
+        Return a usable absolute img_url.
+        If img_url is already absolute — return as-is.
+        If missing but we have fulfillment_product_id — fetch full product from API to get it.
+        If the API stores a relative URL (legacy products created before absolute-URL fix),
+        try to build an absolute URL using known fulfillment partner webhook_domains.
+        """
+        if img_url and img_url.startswith(('http://', 'https://')):
+            return img_url
+
+        candidate_relative = img_url if (img_url and img_url.startswith('/')) else None
+
+        if fulfillment_product_id:
+            try:
+                product_data = self._fetch_product_from_api(fulfillment_product_id)
+                if product_data:
+                    url = product_data.get('img_url')
+                    if url and url.startswith(('http://', 'https://')):
+                        return url
+                    if url and url.startswith('/'):
+                        candidate_relative = url
+            except Exception as e:
+                _logger.warning(
+                    '[Fulfillment] Could not resolve img_url for product %s: %s',
+                    fulfillment_product_id, e,
+                )
+
+        # Legacy relative URL — try partner webhook_domain to build absolute URL
+        if candidate_relative:
+            partners = self.env['fulfillment.partners'].sudo().search(
+                [('webhook_domain', '!=', False)]
+            )
+            for partner in partners:
+                domain = (partner.webhook_domain or '').strip().rstrip('/')
+                if not domain:
+                    continue
+                if not domain.startswith(('http://', 'https://')):
+                    domain = f'https://{domain}'
+                full_url = domain + candidate_relative
+                try:
+                    resp = _requests.head(full_url, timeout=5, verify=False)
+                    if resp.status_code == 200:
+                        _logger.info(
+                            '[Fulfillment] Resolved relative img_url via partner domain: %s',
+                            full_url,
+                        )
+                        return full_url
+                except Exception:
+                    pass
+
+        return None
+
+    # ------------------------------------------------------------------ #
+
+    def _find_or_create_product(self, fulfillment_product_id, sku, prod_name, barcode, img_url=None):
         _logger.info("[_find_or_create_product]")
         ProductTmpl = self.env["product.template"]
         product_tmpl = False
-        
+
         if fulfillment_product_id:
             product_tmpl = ProductTmpl.search(
                 [("fulfillment_product_id", "=", fulfillment_product_id)], limit=1
@@ -843,27 +917,39 @@ class FulfillmentTransfers(models.Model):
             if barcode:
                 create_vals["barcode"] = barcode
 
+            # Resolve and download image before creating the record
+            resolved_url = self._resolve_img_url(img_url, fulfillment_product_id)
+            image_b64 = self._fetch_image_b64(resolved_url)
+            if image_b64:
+                create_vals["image_1920"] = image_b64
+                _logger.info(
+                    "[Fulfillment] Image downloaded for new product '%s' from %s",
+                    prod_name, resolved_url,
+                )
+
             product_tmpl = ProductTmpl.create(create_vals)
             if not product_tmpl.product_variant_ids:
                 product_tmpl._create_variant_ids()
                 product_tmpl.flush_recordset()
 
             _logger.info("[Fulfillment] Created product '%s'", prod_name)
+
         else:
-            update_vals = {}
             if not product_tmpl.fulfillment_product_id and fulfillment_product_id:
-                update_vals["fulfillment_product_id"] = fulfillment_product_id
-            placeholder_prefixes = ("SKU-", "Unnamed", "Name not found", "NoName")
-            real_name = prod_name and not any(prod_name.startswith(p) for p in placeholder_prefixes)
-            if real_name and prod_name != product_tmpl.name:
-                update_vals["name"] = prod_name
-            if sku and not product_tmpl.default_code:
-                update_vals["default_code"] = sku
-            if barcode and not product_tmpl.barcode:
-                update_vals["barcode"] = barcode
-            if update_vals:
-                product_tmpl.write(update_vals)
-                _logger.info("[Fulfillment] Updated product %s: %s", product_tmpl.id, update_vals)
+                product_tmpl.fulfillment_product_id = fulfillment_product_id
+
+            # Set image if the product exists but has no image yet
+            if not product_tmpl.image_1920:
+                resolved_url = self._resolve_img_url(img_url, fulfillment_product_id)
+                image_b64 = self._fetch_image_b64(resolved_url)
+                if image_b64:
+                    product_tmpl.with_context(skip_fulfillment_push=True).write(
+                        {"image_1920": image_b64}
+                    )
+                    _logger.info(
+                        "[Fulfillment] Image set for existing product '%s' from %s",
+                        product_tmpl.name, resolved_url,
+                    )
 
         return product_tmpl
 
@@ -892,8 +978,20 @@ class FulfillmentTransfers(models.Model):
             self.action_assign()
             state = self.state
 
-        if state == "assigned" and target_i >= sequence.index("done"):
-            self.button_validate()
+        if state in ("assigned", "confirmed") and target_i >= sequence.index("done"):
+            # Ensure all moves have quantity set — Odoo's _sanity_check raises
+            # "no quantities reserved" if move.quantity is 0 for all non-done moves.
+            # On Odoo B there is no physical stock, so we set quantity = demand
+            # to let the transfer validate cleanly (mirroring what Odoo does for
+            # draft pickings in button_validate itself).
+            for move in self.move_ids.filtered(lambda m: m.state not in ('done', 'cancel')):
+                if not move.quantity:
+                    move.quantity = move.product_uom_qty
+                    _logger.info(
+                        "[Fulfillment][_apply_status] Set quantity=%.2f for move '%s'",
+                        move.product_uom_qty, move.product_id.display_name,
+                    )
+            self.with_context(skip_backorder=True).button_validate()
 
     def _map_type(self, transfer, current_picking=None):
         _logger.info("[_map_type]")

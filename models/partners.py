@@ -71,183 +71,6 @@ class FulfillmentPartners(models.Model):
         help="Odoo contact linked to this fulfillment partner"
     )
 
-    # Inverse M2M for products (defined on product.template side)
-    sale_product_ids = fields.Many2many(
-        'product.template',
-        'product_sale_fulfillment_rel',
-        'partner_id',
-        'product_id',
-        string='Products for Sale',
-    )
-    purchase_product_ids = fields.Many2many(
-        'product.template',
-        'product_purchase_fulfillment_rel',
-        'partner_id',
-        'product_id',
-        string='Products for Purchase',
-    )
-
-    # ---- Dashboard counters (non-stored, recomputed on access) ----
-    warehouse_count = fields.Integer(compute='_compute_network_counts', string='Warehouses')
-    transfer_count = fields.Integer(compute='_compute_network_counts', string='Transfers')
-    product_count = fields.Integer(compute='_compute_network_counts', string='Products')
-    order_count = fields.Integer(compute='_compute_network_counts', string='Orders')
-    client_count = fields.Integer(compute='_compute_network_counts', string='Clients')
-
-    # ---- Messaging (tracking only — chatter is the UI) ----
-    message_ids_fulfillment = fields.One2many(
-        'fulfillment.message', 'partner_id',
-        string='API Message Tracking',
-    )
-
-    @api.depends(
-        'warehouses_client_ids', 'warehouses_owner_ids',
-        'transfers_purchase_ids', 'transfers_internal_ids', 'transfers_delivery_ids',
-        'sale_product_ids', 'purchase_product_ids',
-    )
-    def _compute_network_counts(self):
-        for rec in self:
-            rec.warehouse_count = len(rec.warehouses_owner_ids) + len(rec.warehouses_client_ids)
-            rec.transfer_count = (
-                len(rec.transfers_purchase_ids)
-                + len(rec.transfers_internal_ids)
-                + len(rec.transfers_delivery_ids)
-            )
-            rec.product_count = len(rec.sale_product_ids | rec.purchase_product_ids)
-            rec.client_count = len(
-                rec.transfers_delivery_ids.mapped('partner_id').filtered('id')
-            )
-            order_lines = self.env['sale.order.line'].search([
-                ('fulfillment_item_manager', '=', rec.id)
-            ])
-            rec.order_count = len(order_lines.mapped('order_id'))
-
-    # ---- Chatter → API bridge ----
-    def message_post(self, **kwargs):
-        """
-        Intercept chatter messages and forward them to the Fulfillment API.
-        Only real user comments (not internal notes, not system messages)
-        are forwarded.  The context flag 'from_fulfillment_api' prevents
-        messages received from the API being re-sent back.
-        """
-        result = super().message_post(**kwargs)
-
-        # Skip if message originated from the API (avoid infinite loop)
-        if self.env.context.get('from_fulfillment_api'):
-            return result
-
-        # Only forward regular comments, not internal notes
-        message_type = kwargs.get('message_type', 'comment')
-        subtype_xmlid = kwargs.get('subtype_xmlid', 'mail.mt_comment')
-        if message_type != 'comment' or subtype_xmlid == 'mail.mt_note':
-            return result
-
-        # Skip OdooBot (automated messages posted by the system scheduler)
-        if self.env.user.id == self.env.ref('base.user_root', raise_if_not_found=False).id:
-            return result
-
-        body_html = kwargs.get('body', '')
-        if not body_html:
-            return result
-
-        from odoo.tools import html2plaintext
-        content = html2plaintext(body_html).strip()
-        if not content:
-            return result
-
-        profile = self._get_active_profile()
-        if not profile or not profile.fulfillment_profile_id:
-            return result
-
-        client = FulfillmentAPIClient(profile)
-
-        for partner in self.filtered(lambda p: p.status == 'follow' and p.fulfillment_id):
-            try:
-                api_result = client.message.send(
-                    sender_fulfillment_id=profile.fulfillment_profile_id,
-                    receiver_fulfillment_id=partner.fulfillment_id,
-                    content=content,
-                )
-                api_msg = api_result.get('data', api_result)
-                self.env['fulfillment.message'].create({
-                    'partner_id': partner.id,
-                    'external_id': api_msg.get('id'),
-                    'direction': 'out',
-                    'sent_at': fields.Datetime.now(),
-                })
-            except Exception as e:
-                _logger.warning(
-                    "[FulfillmentPartners] Failed to send chatter message to API for %s: %s",
-                    partner.name, e,
-                )
-
-        return result
-
-    # ---- Smart-button actions ----
-    def action_view_warehouses(self):
-        self.ensure_one()
-        wh_ids = (self.warehouses_owner_ids | self.warehouses_client_ids).ids
-        return {
-            'type': 'ir.actions.act_window',
-            'name': f'Warehouses — {self.name}',
-            'res_model': 'stock.warehouse',
-            'view_mode': 'list,form',
-            'domain': [('id', 'in', wh_ids)],
-        }
-
-    def action_view_products(self):
-        self.ensure_one()
-        return {
-            'type': 'ir.actions.act_window',
-            'name': f'Products — {self.name}',
-            'res_model': 'product.template',
-            'view_mode': 'list,kanban,form',
-            'domain': ['|',
-                       ('sale_fulfillment_partner_ids', 'in', [self.id]),
-                       ('purchase_fulfillment_partner_ids', 'in', [self.id])],
-        }
-
-    def action_view_orders(self):
-        self.ensure_one()
-        order_lines = self.env['sale.order.line'].search([
-            ('fulfillment_item_manager', '=', self.id)
-        ])
-        order_ids = order_lines.mapped('order_id').ids
-        return {
-            'type': 'ir.actions.act_window',
-            'name': f'Orders — {self.name}',
-            'res_model': 'sale.order',
-            'view_mode': 'list,form',
-            'domain': [('id', 'in', order_ids)],
-        }
-
-    def action_view_clients(self):
-        self.ensure_one()
-        client_ids = (
-            self.transfers_delivery_ids.mapped('partner_id').filtered('id').ids
-        )
-        return {
-            'type': 'ir.actions.act_window',
-            'name': f'Clients — {self.name}',
-            'res_model': 'res.partner',
-            'view_mode': 'list,kanban,form',
-            'domain': [('id', 'in', client_ids)],
-        }
-
-    def action_view_transfers(self):
-        self.ensure_one()
-        picking_ids = (
-            self.transfers_purchase_ids
-            | self.transfers_internal_ids
-            | self.transfers_delivery_ids
-        ).ids
-        return {
-            'type': 'ir.actions.act_window',
-            'name': f'Transfers — {self.name}',
-            'res_model': 'stock.picking',
-            'view_mode': 'list,form',
-            'domain': [('id', 'in', picking_ids)],
-        }
 
     def action_fill_webhook_domain(self):
         _logger.info(f"[action_fill_webhook_domain]")
@@ -286,66 +109,24 @@ class FulfillmentPartners(models.Model):
     def import_all(self, profile=None):
         _logger.info(f"[import_all]")
         bus = self.env['bus.utils']
+        bus.send_sync_status(running=True)
         try:
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Start of full synchronization with Fulfillment API",
-                level="info",
-                sticky=True
-            )
-
             if not profile:
-                bus.send_notification(
-                    title="Fulfillment Sync",
-                    message="No active profile with API key found",
-                    level="danger",
-                    sticky=True
-                )
+                _logger.warning("[import_all] No active profile with API key found")
+                bus.send_sync_status(running=False)
                 return False
-
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Getting data from the Fulfillment API...",
-                level="info"
-            )
 
             data = self._fetch_api_data(profile)
             if not data:
-                bus.send_notification(
-                    title="Fulfillment Sync",
-                    message="Data from the API was not received",
-                    level="warning",
-                    sticky=True
-                )
+                _logger.warning("[import_all] No data received from API")
+                bus.send_sync_status(running=False)
                 return False
 
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Processing of the received data...",
-                level="info"
-            )
             self._process_api_data(data, profile)
 
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Importing partner and related warehouse data...",
-                level="info"
-            )
-
             for partner in self.search([]):
-                _logger.info(f"[IMPORT DONE][{partner.name}] Purchases={partner.transfers_purchase_ids.ids}")
-                bus.send_notification(
-                    title="Fulfillment Sync",
-                    message=f"Importing warehouses for a partner {partner.name}",
-                    level="info"
-                )
+                _logger.info("[import_all] Importing warehouses for %s", partner.name)
                 self.env['stock.warehouse'].sudo().with_context(skip_api_sync=True).import_warehouses(partner)
-
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Importing transfer data...",
-                level="info"
-            )
 
             for item in data:
                 fulfillment_id = item.get("id")
@@ -353,11 +134,7 @@ class FulfillmentPartners(models.Model):
                     page = 1
                     limit = 100
                     while True:
-                        bus.send_notification(
-                            title="Fulfillment Sync",
-                            message=f"Downloading transfers for {fulfillment_id}, page {page}",
-                            level="info"
-                        )
+                        _logger.info("[import_all] Transfers page %s for %s", page, fulfillment_id)
                         success = self.env['stock.picking'].sudo().with_context(skip_fulfillment_push=True).import_transfers(
                             fulfillment_id=fulfillment_id,
                             page=page,
@@ -367,39 +144,16 @@ class FulfillmentPartners(models.Model):
                             break
                         page += 1
 
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Checking warehouses for importing balances...",
-                level="info"
-            )
-
             warehouses = self.env['stock.warehouse'].search([
                 ('fulfillment_warehouse_id', '!=', False)
             ])
-            if not warehouses:
-                bus.send_notification(
-                    title="Fulfillment Sync",
-                    message="No warehouses with fulfillment_warehouse_id — import of balances skipped",
-                    level="warning",
-                    sticky=True
+            for warehouse in warehouses:
+                _logger.info("[import_all] Importing stock for warehouse %s", warehouse.name)
+                self.env['stock.quant'].sudo().import_stock(
+                    filters={"warehouse_ids": [warehouse.fulfillment_warehouse_id]}
                 )
-            else:
-                for warehouse in warehouses:
-                    bus.send_notification(
-                        title="Fulfillment Sync",
-                        message=f"Importing balances for warehouse {warehouse.name}",
-                        level="info"
-                    )
-                    self.env['stock.quant'].sudo().import_stock(
-                        filters={"warehouse_ids": [warehouse.fulfillment_warehouse_id]}
-                    )
 
-            bus.send_notification(
-                title="Fulfillment Sync",
-                message="Data import from Fulfillment successfully completed",
-                level="success",
-                sticky=True
-            )
+            bus.send_sync_status(running=False)
             return {
                 'type': 'ir.actions.act_window',
                 'name': 'Partners',
@@ -413,7 +167,8 @@ class FulfillmentPartners(models.Model):
             }
 
         except Exception as e:
-            _logger.error("Sync failed: %s", str(e))
+            _logger.error("[import_all] Sync failed: %s", str(e))
+            bus.send_sync_status(running=False)
             bus.send_notification(
                 title="Fulfillment Sync Error",
                 message=f"Error during synchronization: {str(e)}",
@@ -461,23 +216,6 @@ class FulfillmentPartners(models.Model):
                 'fadeout': 'slow',
             }
         }
-
-    @api.model
-    def cron_auto_import_from_api(self):
-        """Scheduled backup: same as «Run import all» when allow_auto_import is on."""
-        profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
-        if not profile or not profile.allow_auto_import:
-            return
-        try:
-            prof = self._get_active_profile()
-        except UserError as err:
-            _logger.debug("[cron_auto_import_from_api] skip: %s", err)
-            return
-        try:
-            self.import_all(profile=prof)
-        except Exception as err:
-            _logger.exception("[cron_auto_import_from_api] failed: %s", err)
-
     # ---------- Контакты ----------
     def import_contacts(self, partner_record):
         _logger.info(f"[import_contacts]")
@@ -568,4 +306,80 @@ class FulfillmentPartners(models.Model):
         _logger.info(f"[_get_fulfillment_tag]")
         tag = self.env['res.partner.category'].search([('name', '=', 'Fulfillment')], limit=1)
         return tag or self.env['res.partner.category'].create({'name': 'Fulfillment'})
-#
+
+    # ---------- Фоновый крон-фолбэк (догоняет офлайн) ----------
+    @api.model
+    def cron_auto_import_from_api(self):
+        """
+        Запускается каждые 5 минут.  Для каждого известного Fulfillment-аккаунта
+        вычитывает трансферы начиная с последнего сохранённого курсора (next_page_token).
+        Это гарантирует, что если Odoo была офлайн и пропустила webhook-и, все
+        пропущенные трансферы будут подтянуты при следующем запуске.
+        """
+        _logger.info('[CRON] cron_auto_import_from_api started')
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile or not profile.fulfillment_api_key:
+            _logger.debug('[CRON] No active profile — skipping')
+            return
+
+        from ..lib.api_client import FulfillmentAPIClient
+        client = FulfillmentAPIClient(profile)
+
+        try:
+            data = client.fulfillment.list().get('data', [])
+        except Exception as e:
+            _logger.error('[CRON] Failed to fetch fulfillment list: %s', e)
+            return
+
+        Params = self.env['ir.config_parameter'].sudo()
+        Picking = self.env['stock.picking'].sudo().with_context(skip_fulfillment_push=True)
+
+        for item in data:
+            fulfillment_id = item.get('id')
+            if not fulfillment_id:
+                continue
+
+            cursor_key = f'fulfillment.transfer.cursor.{fulfillment_id}'
+            cursor = Params.get_param(cursor_key) or None
+
+            _logger.info(
+                '[CRON] Syncing fulfillment=%s cursor=%s', fulfillment_id, cursor
+            )
+
+            try:
+                while True:
+                    response = client.transfer.list(
+                        fulfillment_id=fulfillment_id,
+                        limit=50,
+                        next_page_token=cursor,
+                    )
+                    transfers = response.get('data', [])
+                    meta = response.get('meta', {})
+
+                    if not transfers:
+                        break
+
+                    for transfer in transfers:
+                        try:
+                            Picking._import_transfer(transfer)
+                        except Exception as e:
+                            _logger.error(
+                                '[CRON] Import failed for transfer %s: %s',
+                                transfer.get('id'), e,
+                            )
+
+                    next_cursor = meta.get('next_page_token')
+                    if next_cursor:
+                        Params.set_param(cursor_key, next_cursor)
+                        cursor = next_cursor
+
+                    if not meta.get('has_more'):
+                        break
+
+            except Exception as e:
+                _logger.error(
+                    '[CRON] Error syncing fulfillment %s: %s', fulfillment_id, e
+                )
+
+        _logger.info('[CRON] cron_auto_import_from_api finished')

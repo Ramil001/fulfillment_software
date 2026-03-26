@@ -11,15 +11,10 @@
             action="action_my_fulfillment_profile"
             sequence="1"/>
         <menuitem
-            id="menu_fulfillment_network"
-            name="Warehouse Network"
-            action="action_fulfillment_network"
-            sequence="2"/>
-        <menuitem
             id="menu_fulfillment_partners"
             name="List of Partners"
             action="action_fulfillment_partners"
-            sequence="3"/>
+            sequence="2"/>
         <menuitem
             id="menu_fulfillment_stocks"
             name="Services &amp; Prices"

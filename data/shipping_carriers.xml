@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data noupdate="1">
+
+    <!-- ── Germany ──────────────────────────────────────────────────── -->
+    <record id="carrier_dhl_de" model="fulfillment.shipping.carrier">
+      <field name="name">DHL Paket</field>
+      <field name="code">DHL_DE</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.dhl.de/de/privatkunden/pakete-empfangen/verfolgen.html</field>
+    </record>
+
+    <record id="carrier_dpd_de" model="fulfillment.shipping.carrier">
+      <field name="name">DPD</field>
+      <field name="code">DPD</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://tracking.dpd.de/</field>
+    </record>
+
+    <record id="carrier_hermes_de" model="fulfillment.shipping.carrier">
+      <field name="name">Hermes Germany</field>
+      <field name="code">HERMES_DE</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.myhermes.de/empfangen/sendungsverfolgung/</field>
+    </record>
+
+    <record id="carrier_gls_de" model="fulfillment.shipping.carrier">
+      <field name="name">GLS</field>
+      <field name="code">GLS</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://gls-group.com/track</field>
+    </record>
+
+    <record id="carrier_trans_o_flex" model="fulfillment.shipping.carrier">
+      <field name="name">trans-o-flex</field>
+      <field name="code">TOF</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.trans-o-flex.com/sendungsverfolgung</field>
+    </record>
+
+    <record id="carrier_go_express" model="fulfillment.shipping.carrier">
+      <field name="name">GO! Express &amp; Logistics</field>
+      <field name="code">GO_EXPRESS</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.general-overnight.com/tracking</field>
+    </record>
+
+    <record id="carrier_db_schenker" model="fulfillment.shipping.carrier">
+      <field name="name">DB Schenker</field>
+      <field name="code">DB_SCHENKER</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.dbschenker.com/track</field>
+    </record>
+
+    <record id="carrier_dachser" model="fulfillment.shipping.carrier">
+      <field name="name">Dachser</field>
+      <field name="code">DACHSER</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.dachser.com/tracking</field>
+    </record>
+
+    <record id="carrier_rhenus" model="fulfillment.shipping.carrier">
+      <field name="name">Rhenus Logistics</field>
+      <field name="code">RHENUS</field>
+      <field name="country_group">de</field>
+    </record>
+
+    <record id="carrier_dpag" model="fulfillment.shipping.carrier">
+      <field name="name">Deutsche Post (Brief / Päckchen)</field>
+      <field name="code">DPAG</field>
+      <field name="country_group">de</field>
+      <field name="tracking_url">https://www.deutschepost.de/sendung/simpleQueryResult.html</field>
+    </record>
+
+    <!-- ── EU / Europe ─────────────────────────────────────────────── -->
+    <record id="carrier_ups" model="fulfillment.shipping.carrier">
+      <field name="name">UPS</field>
+      <field name="code">UPS</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.ups.com/track</field>
+    </record>
+
+    <record id="carrier_fedex" model="fulfillment.shipping.carrier">
+      <field name="name">FedEx</field>
+      <field name="code">FEDEX</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.fedex.com/fedextrack/</field>
+    </record>
+
+    <record id="carrier_tnt" model="fulfillment.shipping.carrier">
+      <field name="name">TNT (FedEx Express)</field>
+      <field name="code">TNT</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.tnt.com/express/en_gb/site/tracking.html</field>
+    </record>
+
+    <record id="carrier_dhl_express" model="fulfillment.shipping.carrier">
+      <field name="name">DHL Express (international)</field>
+      <field name="code">DHL_EXPRESS</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.dhl.com/global-en/home/tracking.html</field>
+    </record>
+
+    <record id="carrier_postnl" model="fulfillment.shipping.carrier">
+      <field name="name">PostNL</field>
+      <field name="code">POSTNL</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://jouw.postnl.nl/track-and-trace/</field>
+    </record>
+
+    <record id="carrier_bpost" model="fulfillment.shipping.carrier">
+      <field name="name">bpost (Belgium)</field>
+      <field name="code">BPOST</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://track.bpost.cloud/btr/web/</field>
+    </record>
+
+    <record id="carrier_inpost" model="fulfillment.shipping.carrier">
+      <field name="name">InPost</field>
+      <field name="code">INPOST</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://inpost.pl/sledz-przesylke</field>
+    </record>
+
+    <record id="carrier_royal_mail" model="fulfillment.shipping.carrier">
+      <field name="name">Royal Mail</field>
+      <field name="code">ROYAL_MAIL</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.royalmail.com/track-your-item</field>
+    </record>
+
+    <record id="carrier_colissimo" model="fulfillment.shipping.carrier">
+      <field name="name">Colissimo (La Poste)</field>
+      <field name="code">COLISSIMO</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.laposte.fr/outils/suivre-vos-envois</field>
+    </record>
+
+    <record id="carrier_correos" model="fulfillment.shipping.carrier">
+      <field name="name">Correos (Spain)</field>
+      <field name="code">CORREOS</field>
+      <field name="country_group">eu</field>
+      <field name="tracking_url">https://www.correos.es/ss/Satellite/site/aplicacion-seguimiento_envios/solucion</field>
+    </record>
+
+    <record id="carrier_kuehne_nagel" model="fulfillment.shipping.carrier">
+      <field name="name">Kuehne + Nagel</field>
+      <field name="code">KN</field>
+      <field name="country_group">eu</field>
+    </record>
+
+    <!-- ── International ───────────────────────────────────────────── -->
+    <record id="carrier_amazon_logistics" model="fulfillment.shipping.carrier">
+      <field name="name">Amazon Logistics</field>
+      <field name="code">AMAZON</field>
+      <field name="country_group">int</field>
+    </record>
+
+    <!-- ── Ukraine / CIS ───────────────────────────────────────────── -->
+    <record id="carrier_nova_poshta" model="fulfillment.shipping.carrier">
+      <field name="name">Nova Poshta</field>
+      <field name="code">NP</field>
+      <field name="country_group">ua</field>
+      <field name="tracking_url">https://novaposhta.ua/tracking/</field>
+    </record>
+
+    <record id="carrier_ukrposhta" model="fulfillment.shipping.carrier">
+      <field name="name">Ukrposhta</field>
+      <field name="code">UP</field>
+      <field name="country_group">ua</field>
+      <field name="tracking_url">https://track.ukrposhta.ua/tracking_UA.html</field>
+    </record>
+
+    <record id="carrier_meest" model="fulfillment.shipping.carrier">
+      <field name="name">Meest Express</field>
+      <field name="code">MEEST</field>
+      <field name="country_group">ua</field>
+      <field name="tracking_url">https://meest.com/ua/tracking</field>
+    </record>
+
+    <record id="carrier_justin" model="fulfillment.shipping.carrier">
+      <field name="name">Justin</field>
+      <field name="code">JUSTIN</field>
+      <field name="country_group">ua</field>
+      <field name="tracking_url">https://justin.ua/tracking</field>
+    </record>
+
+  </data>
+</odoo>

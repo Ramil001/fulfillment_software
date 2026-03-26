@@ -26,6 +26,37 @@ class StockQuant(models.Model):
         return quants
 
 
+    @api.model
+    def _update_reserved_quantity(self, product_id, location_id, quantity, lot_id=None,
+                                  package_id=None, owner_id=None, strict=True):
+        """Push reservation changes to the Fulfillment API after Odoo updates reserved_quantity."""
+        result = super()._update_reserved_quantity(
+            product_id, location_id, quantity,
+            lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=strict,
+        )
+
+        if self.env.context.get('skip_fulfillment_push'):
+            return result
+
+        quant = self.env['stock.quant'].search([
+            ('product_id', '=', product_id.id),
+            ('location_id', '=', location_id.id),
+        ], limit=1)
+
+        if quant and quant.fulfillment_stock_id:
+            warehouse = self.env['stock.warehouse'].search([
+                '|',
+                ('lot_stock_id', '=', location_id.id),
+                ('view_location_id', 'parent_of', location_id.id),
+            ], limit=1)
+            if quant._is_local_warehouse(warehouse):
+                try:
+                    quant._sync_fulfillment_stock_update()
+                except Exception as e:
+                    _logger.warning('[FULFILLMENT][RESERVE] Failed to sync reserved_quantity: %s', e)
+
+        return result
+
     def _update_available_quantity(self, product, location, quantity=None, **kwargs):
         _logger.info(f"[_update_available_quantity]")
         result = super()._update_available_quantity(product, location, quantity=quantity, **kwargs)
@@ -193,6 +224,18 @@ class StockQuant(models.Model):
             _logger.warning("[FULFILLMENT][STOCK UPDATE] Нет fulfillment_stock_id — пропуск")
             return
 
+        warehouse = self.env['stock.warehouse'].search([
+            '|',
+            ('lot_stock_id', '=', self.location_id.id),
+            ('view_location_id', 'parent_of', self.location_id.id)
+        ], limit=1)
+        if not self._is_local_warehouse(warehouse):
+            _logger.debug(
+                "[FULFILLMENT] Пропущен stock update — склад '%s' принадлежит другому участнику",
+                warehouse.name if warehouse else '?',
+            )
+            return
+
         try:
             profile = self.env['fulfillment.profile'].search([], limit=1)
             client = FulfillmentAPIClient(profile)
@@ -287,6 +330,29 @@ class StockQuant(models.Model):
             action = "Создан" if is_create else "Обновлён"
             
 
+    def _is_local_warehouse(self, warehouse):
+        """
+        Returns True only when this Odoo instance is the owner of *warehouse*.
+        We must not push stock for warehouses that belong to a fulfillment partner
+        (e.g. virtual quants imported from the API) — those would overwrite the
+        partner's own, authoritative stock values.
+        """
+        if not warehouse or not warehouse.fulfillment_warehouse_id:
+            return False
+
+        owner = getattr(warehouse, 'fulfillment_owner_id', None)
+        if not owner:
+            return True  # no external owner → local warehouse
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        my_id = getattr(profile, 'fulfillment_profile_id', None)
+        owner_id = getattr(owner, 'fulfillment_id', None)
+
+        if not my_id or not owner_id:
+            return True  # can't determine ownership → allow push
+
+        return owner_id == my_id
+
     def _sync_fulfillment_stock_create(self, input_quantity=None, input_reserved=None):
         _logger.info(f"[_sync_fulfillment_stock_create]")
         self.ensure_one()
@@ -300,8 +366,11 @@ class StockQuant(models.Model):
             ('view_location_id', 'parent_of', self.location_id.id)
         ], limit=1)
 
-        if not warehouse or not warehouse.fulfillment_warehouse_id:
-            _logger.debug("[FULFILLMENT] Пропущен — нет fulfillment_warehouse_id")
+        if not self._is_local_warehouse(warehouse):
+            _logger.debug(
+                "[FULFILLMENT] Пропущен stock push — склад '%s' принадлежит другому участнику",
+                warehouse.name if warehouse else '?',
+            )
             return
 
         try:

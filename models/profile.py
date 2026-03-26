@@ -28,7 +28,11 @@ class FulfillmentProfile(models.Model):
         help="API domain, to backend fulfillment.software",
         default="api.fulfillment.software"
     )
-    webhook_domain = fields.Char(string="Webhook domain", help="A webhook is the domain of the site where your Odoo runs. It is necessary to call the update function when your Odoo needs to update resources.", default="example.com")
+    webhook_domain = fields.Char(
+        string="Webhook domain",
+        help="Domain of this Odoo instance. Used by the Fulfillment API to send webhook notifications. Detected automatically from web.base.url.",
+        default=lambda self: self._default_webhook_domain(),
+    )
 
     
 
@@ -67,10 +71,8 @@ class FulfillmentProfile(models.Model):
     allow_auto_import = fields.Boolean(
         string="Automatic Import",
         help=(
-            "When enabled: (1) POST /fulfillment/webhook/sync from the Fulfillment API "
-            "runs the same import as «Run import all» in the background; "
-            "(2) the scheduled «Fulfillment: Auto import» cron acts as a backup. "
-            "Set Webhook domain on your Fulfillment record in the API so the backend can reach this Odoo."
+            "Allows external Odoo partner instances to automatically trigger "
+            "updates of records in this database without manual approval."
         ),
         default=False,
     )
@@ -78,6 +80,11 @@ class FulfillmentProfile(models.Model):
     
     
     
+    @api.model
+    def _default_webhook_domain(self):
+        """Called once when a new profile record is instantiated."""
+        return self._get_domain_from_config() or ''
+
     def _check_availiable_webhook(self):
         _logger.info(f"[_check_availiable_webhook]")
         
@@ -165,7 +172,26 @@ class FulfillmentProfile(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         _logger.info(f"[create]")
+
+        # Auto-fill webhook_domain if not provided or still placeholder
+        for vals in vals_list:
+            domain = vals.get('webhook_domain', '')
+            if not domain or domain in ('example.com', 'localhost', '127.0.0.1'):
+                # Try HTTP request headers first (most accurate when creating via UI)
+                detected = self._get_domain_from_request() or self._get_domain_from_config()
+                if detected:
+                    vals['webhook_domain'] = detected
+                    _logger.info('[Profile] Auto-detected webhook_domain: %s', detected)
+
         records = super().create(vals_list)
+
+        # Check webhook availability right after creation
+        for rec in records:
+            if rec.webhook_domain:
+                try:
+                    rec._check_availiable_webhook()
+                except Exception as e:
+                    _logger.warning('[Profile] Webhook check failed on create: %s', e)
 
         if self.env.context.get('skip_auto_import'):
             _logger.debug("[PARTNERS][CREATE] skip_auto_import in context — skipping auto import_all")
@@ -196,8 +222,18 @@ class FulfillmentProfile(models.Model):
 
     def write(self, vals):
         _logger.info(f"[write]")
-        
+
         vals['update_at'] = datetime.now()
+
+        # Auto-fill webhook_domain when it is being set to a placeholder or is still empty
+        if 'webhook_domain' not in vals:
+            for rec in self:
+                if not rec.webhook_domain or rec.webhook_domain in ('example.com', 'localhost', '127.0.0.1'):
+                    detected = self._get_domain_from_request() or self._get_domain_from_config()
+                    if detected:
+                        vals['webhook_domain'] = detected
+                        _logger.info('[Profile] Auto-set webhook_domain on write: %s', detected)
+                    break  # same value for all records in the set
 
         had_key_before = bool(self.fulfillment_api_key)
         new_key = vals.get("fulfillment_api_key")
@@ -221,6 +257,23 @@ class FulfillmentProfile(models.Model):
         return result
 
 
+    def _resolve_webhook_domain(self):
+        """
+        Return the best available webhook_domain for this Odoo instance.
+        Priority: stored value (if not a placeholder) → web.base.url → request host.
+        Always updates the stored field if it was a placeholder.
+        """
+        _PLACEHOLDERS = {'example.com', 'localhost', '127.0.0.1', '', None}
+        domain = self.webhook_domain
+        if domain in _PLACEHOLDERS:
+            domain = self._get_domain_from_config() or self._get_domain_from_request()
+            if domain and domain not in _PLACEHOLDERS:
+                _logger.info('[Profile] Auto-resolved webhook_domain: %s', domain)
+                super(FulfillmentProfile, self.with_context(skip_webhook_check=True)).write(
+                    {'webhook_domain': domain}
+                )
+        return domain or ''
+
     def _sync_with_fulfillment_api(self):
         _logger.info(f"[_sync_with_fulfillment_api]")
         bus = self.env['bus.utils']
@@ -238,10 +291,13 @@ class FulfillmentProfile(models.Model):
 
             client = FulfillmentAPIClient(record)
 
+            # Always resolve the real domain — never push a placeholder to the API
+            webhook_domain = record._resolve_webhook_domain()
+
             payload = {
                 "name": record.name or "Default Name",
                 "api_domain": record.api_domain or "api.fulfillment.software",
-                "webhook_domain": record.webhook_domain,
+                "webhook_domain": webhook_domain,
             }
 
             try:
@@ -301,6 +357,93 @@ class FulfillmentProfile(models.Model):
             'target': 'current',
             'flags': {'form': {'action_buttons': True}},
             'context': {'create': False},
+        }
+
+    def action_sync_images_from_api(self):
+        """
+        For every product that has a fulfillment_product_id but no local image,
+        fetch its img_url from the Fulfillment API and download the image.
+        Run this on Odoo B to populate missing product images.
+        """
+        self.ensure_one()
+        api = FulfillmentAPIClient(self)
+        Picking = self.env['stock.picking'].sudo()
+
+        products = self.env['product.template'].search([
+            ('fulfillment_product_id', '!=', False),
+            ('image_1920', '=', False),
+        ])
+        updated = 0
+        for rec in products:
+            try:
+                resolved_url = Picking._resolve_img_url(None, rec.fulfillment_product_id)
+                if not resolved_url:
+                    continue
+                image_b64 = Picking._fetch_image_b64(resolved_url)
+                if image_b64:
+                    rec.with_context(skip_fulfillment_push=True).write(
+                        {'image_1920': image_b64}
+                    )
+                    updated += 1
+                    _logger.info(
+                        '[Fulfillment] Image set for product "%s" from %s',
+                        rec.name, resolved_url,
+                    )
+            except Exception as e:
+                _logger.warning(
+                    '[Fulfillment] Failed to sync image for "%s": %s', rec.name, e
+                )
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Image Sync Complete',
+                'message': f'Updated images for {updated} product(s).',
+                'type': 'success',
+                'sticky': False,
+            },
+        }
+
+    def action_resync_images_to_api(self):
+        """
+        Push absolute img_url for every linked product to the Fulfillment API.
+        Run this on Odoo A once to fix legacy relative-URL entries so that
+        Odoo B can download images when importing transfers.
+        """
+        self.ensure_one()
+        api = FulfillmentAPIClient(self)
+        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '').rstrip('/')
+
+        products = self.env['product.template'].search([
+            ('fulfillment_product_id', '!=', False),
+            ('image_1920', '!=', False),
+        ])
+        updated = 0
+        for rec in products:
+            img_url = f"{base_url}/web/image/product.template/{rec.id}/image_1920"
+            try:
+                api.product.update(rec.fulfillment_product_id, {"img_url": img_url})
+                updated += 1
+                _logger.info(
+                    "[Fulfillment] Resynced img_url for product '%s' (id=%s)",
+                    rec.name, rec.fulfillment_product_id,
+                )
+            except Exception as e:
+                _logger.warning(
+                    "[Fulfillment] Failed to resync img_url for '%s': %s",
+                    rec.name, e,
+                )
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Image Resync Complete',
+                'message': f'Updated {updated} product image URL(s) in the Fulfillment API.',
+                'type': 'success',
+                'sticky': False,
+            },
         }
 
     @staticmethod

@@ -8,161 +8,173 @@
       <field name="arch" type="xml">
         <form string="Partner Details" create="False">
           <sheet>
-
-            <!-- ── Smart buttons ── -->
-            <div name="button_box" class="oe_button_box">
-
-              <button name="action_view_warehouses" type="object"
-                      class="oe_stat_button" icon="fa-warehouse">
-                <field name="warehouse_count" widget="statinfo" string="Склады"/>
-              </button>
-
-              <button name="action_view_products" type="object"
-                      class="oe_stat_button" icon="fa-cube">
-                <field name="product_count" widget="statinfo" string="Продукты"/>
-              </button>
-
-              <button name="action_view_orders" type="object"
-                      class="oe_stat_button" icon="fa-shopping-cart">
-                <field name="order_count" widget="statinfo" string="Заказы"/>
-              </button>
-
-              <button name="action_view_clients" type="object"
-                      class="oe_stat_button" icon="fa-users">
-                <field name="client_count" widget="statinfo" string="Клиенты"/>
-              </button>
-
-              <button name="action_view_transfers" type="object"
-                      class="oe_stat_button" icon="fa-exchange">
-                <field name="transfer_count" widget="statinfo" string="Трансферы"/>
-              </button>
-
-            </div>
-
-            <!-- ── Заголовок ── -->
-            <div class="oe_title">
-              <field name="fulfillment_logo" widget="image" class="oe_avatar"/>
-              <h1><field name="name"/></h1>
-            </div>
+<header>
+    
+</header>
+            <group >
+              <group>
+              <field name="status" widget="radio"/>  
+              </group>
+              <group>
+              <field name="fulfillment_logo" widget="image" class="oe_avatar"/>  
+              </group>
+              
+            </group>
 
             <group>
               <group>
-                <field name="status" widget="radio"/>
+                <field name="name"/>
                 <field name="partner_id"/>
                 <field name="fulfillment_id"/>
               </group>
               <group>
                 <field name="api_domain"/>
                 <field name="webhook_domain">
-                  <button name="action_fill_webhook_domain" type="object"
-                          string="Set domain" class="oe_link" icon="fa-globe"/>
+                    <button
+                        name="action_fill_webhook_domain"
+                        type="object"
+                        string="Set domain"
+                        class="oe_link"
+                        icon="fa-globe"/>
                 </field>
               </group>
             </group>
-
             <notebook>
-
-              <!-- ── Склады ── -->
-              <page string="Склады" name="warehouses">
+              <page string="Warehouses">
                 <group>
-                  <separator string="Арендую у партнёра"/>
+                  <separator string="I Rent"/>
                   <field name="warehouses_client_ids" nolabel="1">
                     <list>
                       <field name="name"/>
                       <field name="code"/>
                       <field name="partner_id"/>
+                      <field name="company_id"/>
                       <field name="is_fulfillment"/>
-                      <field name="fulfillment_warehouse_id"/>
-                      <field name="last_update"/>
+                      <field name="fulfillment_client_id"/>
                     </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="partner_id"/>
+                        <field name="company_id"/>
+                        <field name="is_fulfillment"/>
+                        <field name="fulfillment_client_id"/>
+                      </group>
+                    </form>
                   </field>
                 </group>
                 <group>
-                  <separator string="Сдаю партнёру"/>
+                  <separator string="I Rent Out"/>
                   <field name="warehouses_owner_ids" nolabel="1">
                     <list>
                       <field name="name"/>
                       <field name="code"/>
                       <field name="partner_id"/>
+                      <field name="company_id"/>
                       <field name="is_fulfillment"/>
-                      <field name="fulfillment_warehouse_id"/>
-                      <field name="last_update"/>
+                      <field name="fulfillment_client_id"/>
                     </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="partner_id"/>
+                        <field name="company_id"/>
+                        <field name="is_fulfillment"/>
+                        <field name="fulfillment_client_id"/>
+                      </group>
+                    </form>
                   </field>
                 </group>
               </page>
-
-              <!-- ── Продукты ── -->
-              <page string="Продукты" name="products">
+              <page string="Transfers">
                 <group>
-                  <separator string="Продажи"/>
-                  <field name="sale_product_ids" nolabel="1">
-                    <list>
-                      <field name="name"/>
-                      <field name="default_code" string="SKU"/>
-                      <field name="fulfillment_product_id"/>
-                      <field name="type"/>
-                    </list>
-                  </field>
-                </group>
-                <group>
-                  <separator string="Закупки"/>
-                  <field name="purchase_product_ids" nolabel="1">
-                    <list>
-                      <field name="name"/>
-                      <field name="default_code" string="SKU"/>
-                      <field name="fulfillment_product_id"/>
-                      <field name="type"/>
-                    </list>
-                  </field>
-                </group>
-              </page>
-
-              <!-- ── Трансферы ── -->
-              <page string="Трансферы" name="transfers">
-                <group>
-                  <separator string="Приходы (Incoming)"/>
+                  <separator string="Purchases (Incoming)"/>
                   <field name="transfers_purchase_ids" nolabel="1">
                     <list>
                       <field name="name"/>
                       <field name="origin"/>
                       <field name="partner_id"/>
                       <field name="location_id"/>
-                      <field name="location_dest_id"/>
+                      <field name="location_dest_id" />
+                      <field name="fulfillment_partner_id" />
+                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="origin"/>
+                        <field name="partner_id"/>
+                        <field name="location_id"/>
+                        <field name="location_dest_id" />
+                        <field name="fulfillment_partner_id" />
+                        <field name="move_ids_without_package" />
+                        <field name="state"/>
+                      </group>
+                    </form>
                   </field>
                 </group>
                 <group>
-                  <separator string="Внутренние"/>
+                  <separator string="Internal Transfers"/>
                   <field name="transfers_internal_ids" nolabel="1">
                     <list>
                       <field name="name"/>
                       <field name="origin"/>
                       <field name="partner_id"/>
                       <field name="location_id"/>
-                      <field name="location_dest_id"/>
+                      <field name="location_dest_id" />
+                      <field name="fulfillment_partner_id" />
+                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="origin"/>
+                        <field name="partner_id"/>
+                        <field name="location_id"/>
+                        <field name="location_dest_id" />
+                        <field name="fulfillment_partner_id" />
+                        <field name="move_ids_without_package" />
+                        <field name="state"/>
+                      </group>
+                    </form>
                   </field>
                 </group>
                 <group>
-                  <separator string="Доставки (Outgoing)"/>
+                  <separator string="Delivery Orders (Outgoing)"/>
                   <field name="transfers_delivery_ids" nolabel="1">
                     <list>
                       <field name="name"/>
                       <field name="origin"/>
                       <field name="partner_id"/>
                       <field name="location_id"/>
-                      <field name="location_dest_id"/>
+                      <field name="location_dest_id" />
+                      <field name="fulfillment_partner_id" />
+                      <field name="move_ids_without_package" />
                       <field name="state"/>
                     </list>
+                    <form>
+                      <group>
+                        <field name="name"/>
+                        <field name="origin"/>
+                        <field name="partner_id"/>
+                        <field name="location_id"/>
+                        <field name="location_dest_id" />
+                        <field name="fulfillment_partner_id" />
+                        <field name="move_ids_without_package" />
+                        <field name="state"/>
+                      </group>
+                    </form>
                   </field>
                 </group>
               </page>
-
+              <page string="Products"/>
             </notebook>
           </sheet>
+          <!-- Chatter -->
           <chatter/>
         </form>
       </field>

@@ -2,14 +2,29 @@
 
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
-import { Component, useState } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { Dropdown } from "@web/core/dropdown/dropdown";
 import { DropdownItem } from "@web/core/dropdown/dropdown_item";
 
 class SystrayIcon extends Component {
     setup() {
         this.action = useService("action");
-        this.state = useState({});
+        this.bus = useService("bus_service");
+        this.state = useState({ isImporting: false });
+
+        this._onSyncStatus = this._onSyncStatus.bind(this);
+
+        onMounted(() => {
+            this.bus.subscribe("fulfillment_sync_status", this._onSyncStatus);
+        });
+
+        onWillUnmount(() => {
+            this.bus.unsubscribe("fulfillment_sync_status", this._onSyncStatus);
+        });
+    }
+
+    _onSyncStatus(payload) {
+        this.state.isImporting = !!payload?.running;
     }
 
     openProfiles() {
@@ -17,7 +32,7 @@ class SystrayIcon extends Component {
             type: "ir.actions.act_window",
             res_model: "fulfillment.profile",
             views: [[false, "list"], [false, "form"]],
-            target: "new", // <<< откроет как диалог (popup)
+            target: "new",
             name: "Profiles Fulfillment",
         });
     }
@@ -31,7 +46,7 @@ class SystrayIcon extends Component {
             name: "Partners Fulfillment",
         });
     }
-    
+
     runImportAll() {
         this.action.doAction("fulfillment_software.action_run_import_all");
     }

@@ -1,14 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo noupdate="1">
 
+  <!--
+    Fallback cron: catches up on transfers missed while Odoo was offline.
+    Primary sync happens via webhook (/fulfillment/webhook/sync).
+    This cron uses cursor-based pagination so only new transfers are fetched
+    on each run; it does NOT re-process already-imported ones.
+  -->
   <record id="cron_fulfillment_auto_import" model="ir.cron">
-    <field name="name">Fulfillment: Auto import from API (backup)</field>
+    <field name="name">Fulfillment: Catch-up import (cursor-based fallback)</field>
     <field name="model_id" ref="fulfillment_software.model_fulfillment_partners"/>
     <field name="state">code</field>
     <field name="code">model.cron_auto_import_from_api()</field>
     <field name="user_id" ref="base.user_root"/>
-    <field name="interval_number">15</field>
+    <field name="interval_number">5</field>
     <field name="interval_type">minutes</field>
+    <field name="active">True</field>
+  </record>
+
+  <!--
+    Stock import: pulls current stock quantities from the Fulfillment API into
+    local stock.quant records. Runs every 10 minutes so that each Odoo instance
+    has a reasonably up-to-date view of stock held by partner warehouses.
+    Direct quant.write() is used, so this does NOT re-trigger the push hook.
+  -->
+  <record id="cron_fulfillment_stock_import" model="ir.cron">
+    <field name="name">Fulfillment: Stock import from API</field>
+    <field name="model_id" ref="stock.model_stock_quant"/>
+    <field name="state">code</field>
+    <field name="code">model.import_stock()</field>
+    <field name="user_id" ref="base.user_root"/>
+    <field name="interval_number">10</field>
+    <field name="interval_type">minutes</field>
+    <field name="active">True</field>
+  </record>
+
+  <!--
+    Profile heartbeat: syncs webhook_domain to the Fulfillment API every hour.
+    Ensures the correct domain is always registered even after server restarts
+    or IP/domain changes — no manual "Save" required.
+  -->
+  <record id="cron_fulfillment_profile_sync" model="ir.cron">
+    <field name="name">Fulfillment: Profile heartbeat (webhook domain sync)</field>
+    <field name="model_id" ref="fulfillment_software.model_fulfillment_profile"/>
+    <field name="state">code</field>
+    <field name="code">
+profile = model.search([], limit=1)
+if profile and profile.fulfillment_api_key:
+    profile._sync_with_fulfillment_api()
+    </field>
+    <field name="user_id" ref="base.user_root"/>
+    <field name="interval_number">1</field>
+    <field name="interval_type">hours</field>
     <field name="active">True</field>
   </record>
 

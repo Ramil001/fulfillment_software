@@ -185,34 +185,8 @@ class FulfillmentWarehouses(models.Model):
         _logger.info("[WAREHOUSE][CREATE][DONE] processed %s warehouses", len(created_warehouses))
         return created_warehouses
 
-    def _import_fulfillment_stock_for_warehouse(self, fulfillment_warehouse_id):
-        """Import fulfillment stock for a single external warehouse id.
-
-        This is required so that, after renting/importing a warehouse from another
-        fulfillment partner, the user immediately sees qty_available in his Odoo.
-        """
-        if not fulfillment_warehouse_id:
-            return
-
-        try:
-            self.env['stock.quant'].sudo().import_stock(
-                filters={"warehouse_ids": [fulfillment_warehouse_id]}
-            )
-        except Exception as e:
-            _logger.exception(
-                "[FULFILLMENT][STOCK][AUTO_IMPORT] Failed for fulfillment_warehouse_id=%s: %s",
-                fulfillment_warehouse_id,
-                e,
-            )
-
     def write(self, vals):
         _logger.info(f"[write]")
-
-        # Keep previous external warehouse id to avoid re-importing stock
-        # on unrelated updates.
-        before_fulfillment_warehouse_ids = {
-            wh.id: wh.fulfillment_warehouse_id for wh in self
-        }
 
         if not self.env.context.get("from_fulfillment_import"):
             for wh in self:
@@ -223,24 +197,12 @@ class FulfillmentWarehouses(models.Model):
             _logger.info(f"[WAREHOUSE][WRITE][SKIP_API_SYNC] ids={self.ids}")
             vals['last_update'] = datetime.now()
             res = super().write(vals)
-            # If fulfillment_warehouse_id was just set/changed, import balances
-            # right away so qty_available is visible in the warehouse.
-            if vals.get('fulfillment_warehouse_id'):
-                new_ext = vals.get('fulfillment_warehouse_id')
-                for wh in self:
-                    if wh.fulfillment_warehouse_id and wh.fulfillment_warehouse_id != before_fulfillment_warehouse_ids.get(wh.id):
-                        self._import_fulfillment_stock_for_warehouse(new_ext)
             return res
 
         if self.env.context.get('skip_import_warehouses'):
             vals['last_update'] = datetime.now()
             res = super().write(vals)
             _logger.info(f"[WAREHOUSE][WRITE][SKIP_IMPORT] ids={self.ids}")
-            if vals.get('fulfillment_warehouse_id'):
-                new_ext = vals.get('fulfillment_warehouse_id')
-                for wh in self:
-                    if wh.fulfillment_warehouse_id and wh.fulfillment_warehouse_id != before_fulfillment_warehouse_ids.get(wh.id):
-                        self._import_fulfillment_stock_for_warehouse(new_ext)
             return res
 
         res = super().write(vals)

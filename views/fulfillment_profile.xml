@@ -6,6 +6,22 @@
             <field name="model">fulfillment.profile</field>
             <field name="arch" type="xml">
                 <form string="Fulfillment Profile">
+                    <header>
+                        <button
+                            name="action_sync_images_from_api"
+                            type="object"
+                            string="Sync Images from API"
+                            class="btn-primary"
+                            confirm="Download missing product images from the Fulfillment API. Continue?"
+                        />
+                        <button
+                            name="action_resync_images_to_api"
+                            type="object"
+                            string="Resync Product Images to API"
+                            class="btn-secondary"
+                            confirm="This will update img_url for all linked products in the Fulfillment API. Continue?"
+                        />
+                    </header>
                     <sheet>
                         <group col="2">
                             <group>
@@ -32,18 +48,14 @@
                             </group>
                             <group>
                                 <separator string="Webhook"/>
-                                <field name="webhook_domain" placeholder="example.com" required="1" />
-                                 <field name="is_available_webhook" widget="badge"
+                                <field name="webhook_domain"
+                                    placeholder="Detected automatically from web.base.url"
+                                    required="1"
+                                />
+                                <field name="is_available_webhook" widget="badge"
                                     decoration-success="is_available_webhook == 'available'"
                                     decoration-warning="is_available_webhook == 'unavailable'"
-                                 />
-                                 <button 
-                                    name="action_set_current_domain" 
-                                    type="object" 
-                                    string="Auto Setup Domain" 
-                                    class="btn-primary"
-                                />                        
-                               
+                                />
                             </group>
                             <group >
                                 <separator string="Connect with Fulfillment Software" colspan="2"/>

@@ -39,11 +39,22 @@ class FulfillmentProducts(models.Model):
         api = FulfillmentAPIClient(profile)
 
         for rec in records:
+            if rec.fulfillment_product_id:
+                _logger.info(
+                    "[Fulfillment] Product '%s' already linked to fulfillment id %s — skipping remote create",
+                    rec.name, rec.fulfillment_product_id
+                )
+                continue
+
+            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '').rstrip('/')
             payload = {
                 "name": rec.name,
-                "sku": rec.default_code,          # SKU
+                "sku": rec.default_code,
                 "barcode": rec.barcode,
-                "img_url": rec.image_1920 and f"/web/image/product.template/{rec.id}/image_1920" or None,
+                "img_url": (
+                    f"{base_url}/web/image/product.template/{rec.id}/image_1920"
+                    if rec.image_1920 else None
+                ),
             }
 
             payload = {k: v for k, v in payload.items() if v}
@@ -77,16 +88,27 @@ class FulfillmentProducts(models.Model):
         
         res = super(FulfillmentProducts, self).write(vals)
 
+        sync_fields = {"name", "default_code", "barcode", "image_1920"}
+        if not sync_fields.intersection(vals.keys()):
+            return res
+
+        if self.env.context.get('skip_fulfillment_push'):
+            return res
+
         profile = self.env['fulfillment.profile'].search([], limit=1)
         api = FulfillmentAPIClient(profile) if profile else None
 
         for rec in self:
             # --- Build payload for API ---
+            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '').rstrip('/')
             payload = {
                 "name": vals.get("name", rec.name),
                 "sku": vals.get("default_code", rec.default_code),
                 "barcode": vals.get("barcode", rec.barcode),
-                "img_url": rec.image_1920 and f"/web/image/product.template/{rec.id}/image_1920" or None,
+                "img_url": (
+                    f"{base_url}/web/image/product.template/{rec.id}/image_1920"
+                    if rec.image_1920 else None
+                ),
             }
             payload = {k: v for k, v in payload.items() if v}
 
@@ -109,16 +131,5 @@ class FulfillmentProducts(models.Model):
 
             except Exception as e:
                 _logger.exception("[Fulfillment] Failed to sync product %s: %s", rec.name, e)
-
-            
-            message = f"Продукт обновлён: {rec.name} (ID {rec.id})"
-            _logger.info(message)
-            self.env['bus.utils'].send_notification(
-                title="Обновление продукта",
-                message=message,
-                level="info",
-                sticky=False
-            )
-            rec.message_post(body=message)
 
         return res

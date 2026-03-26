@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_fulfillment_profile_merchant_form" model="ir.ui.view">
+            <field name="name">fulfillment.profile.merchant.form</field>
+            <field name="model">fulfillment.profile.merchant</field>
+            <field name="arch" type="xml">
+                <form string="Client / merchant settings">
+                    <sheet>
+                        <field name="profile_id" invisible="1"/>
+                        <group>
+                            <group string="Identity">
+                                <field name="internal_code"/>
+                                <field name="trade_brand_name"/>
+                                <field name="business_type"/>
+                                <field name="priority_level"/>
+                            </group>
+                            <group string="Returns &amp; logistics">
+                                <field name="return_address" placeholder="Full return address"/>
+                                <field name="return_policy_notes"/>
+                                <field name="preferred_carrier_ids" widget="many2many_tags"/>
+                                <field name="default_packaging_type"/>
+                                <field name="insert_rules" placeholder="Invoice, promos, samples…"/>
+                                <field name="branding_requirements"/>
+                            </group>
+                            <group string="Integration">
+                                <field name="shop_webhook_url"/>
+                                <field name="external_erp_id"/>
+                                <field name="stock_alert_threshold"/>
+                                <field name="qos_level"/>
+                            </group>
+                            <group string="Finance">
+                                <field name="settlement_currency_id"/>
+                                <field name="tariff_plan_ref"/>
+                                <field name="order_error_rate" readonly="1"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_fulfillment_profile_provider_form" model="ir.ui.view">
+            <field name="name">fulfillment.profile.provider.form</field>
+            <field name="model">fulfillment.profile.provider</field>
+            <field name="arch" type="xml">
+                <form string="Fulfillment center (provider) settings">
+                    <sheet>
+                        <field name="profile_id" invisible="1"/>
+                        <group>
+                            <group string="Geography &amp; time">
+                                <field name="warehouse_address"/>
+                                <field name="geo_lat"/>
+                                <field name="geo_lng"/>
+                                <field name="timezone"/>
+                                <field name="cut_off_time"/>
+                                <field name="working_schedule" placeholder="Mon–Fri 08:00–20:00…"/>
+                                <field name="processing_sla_pick_minutes"/>
+                                <field name="processing_sla_ship_minutes"/>
+                            </group>
+                            <group string="Capacity &amp; zones">
+                                <field name="daily_order_capacity"/>
+                                <field name="safety_stock_limit"/>
+                                <field name="storage_zone_types" placeholder="Mezzanine, pallet, cold room…"/>
+                                <field name="delivery_pick_up_time" placeholder="Per-carrier windows"/>
+                            </group>
+                            <group string="Supported goods">
+                                <field name="supports_dangerous_goods"/>
+                                <field name="supports_food"/>
+                                <field name="supports_oversized"/>
+                            </group>
+                            <group string="Telemetry &amp; SLA">
+                                <field name="iot_gateway_ids"/>
+                                <field name="label_printer_status"/>
+                                <field name="sla_score"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+    </data>
+</odoo>
