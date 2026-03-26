@@ -1,81 +1,88 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
+import { _t } from "@web/core/l10n/translation";
 
 class FulfillmentNotifier {
-    constructor( env, { bus_service, notification } ) {
+    constructor(env, { bus_service, notification, action }) {
         this.env = env;
         this.bus = bus_service;
         this.notification = notification;
-        this._onNotification = this._onNotification.bind( this );
+        this.action = action;
+        this._onNotification = this._onNotification.bind(this);
     }
-    
-    async start () {
-        if ( this.bus.isReady ) {
-            await this.bus.isReady();
-        }
-        this.bus.subscribe( "fulfillment_notification", this._onNotification );
+
+    async start() {
+        // Subscribe to our custom fulfillment_new_message channel
+        this.bus.subscribe("fulfillment_new_message", this._onNotification);
+        _logger.log("[FulfillmentNotifier] subscribed to fulfillment_new_message");
     }
-    
-    _onNotification ( notification ) {
-        if ( notification && notification.type === "fulfillment_notification" ) {
-            const msg = notification.payload;
-            this._showNotification( msg );
-        } else {
-            console.warn( "Получено уведомление неизвестного типа:", notification?.type );
-        }
-    }
-    
-    _showNotification(msg) {
-        if (!msg || typeof msg !== 'object') {
-            return;
-        }
-        
-        if (!msg.message) {
-            let closeNotification;
-            closeNotification = this.notification.add("Получено уведомление с неправильным форматом", {
-                title: "Ошибка формата",
-                type: "danger",
-                sticky: true,
-                buttons: [
-                    {
-                        name: "Okay",
-                        primary: true,
-                        onClick: () => {
-                            if (closeNotification) {
-                                closeNotification(); 
-                            }
-                        },
-                    },
-                ],
-            });
-            return;
-        }
-        
-        let closeNotification;
-        closeNotification = this.notification.add(msg.message, {
-            title: msg.title || "Fulfillment",
-            type: msg.level || "info",
-            sticky: msg.sticky || false,
-            buttons: [
-                {
-                    name: "Okay",
-                    primary: true,
-                    onClick: () => {
-                        if (closeNotification) {
-                            closeNotification(); 
-                        }
-                    },
+
+    _onNotification(payload) {
+        if (!payload || !payload.content) return;
+
+        const partnerName = payload.partner_name || "Fulfillment";
+        const content = payload.content.length > 80
+            ? payload.content.slice(0, 80) + "…"
+            : payload.content;
+
+        let closeNotif;
+        const buttons = [];
+
+        // If message is linked to a picking, add "Open" button
+        if (payload.picking_id) {
+            buttons.push({
+                name: _t("Open"),
+                primary: true,
+                onClick: () => {
+                    if (closeNotif) closeNotif();
+                    this.action.doAction({
+                        type: "ir.actions.act_window",
+                        res_model: "stock.picking",
+                        res_id: payload.picking_id,
+                        views: [[false, "form"]],
+                        target: "current",
+                    });
                 },
-            ],
+            });
+        } else if (payload.partner_id) {
+            buttons.push({
+                name: _t("Open"),
+                primary: true,
+                onClick: () => {
+                    if (closeNotif) closeNotif();
+                    this.action.doAction({
+                        type: "ir.actions.act_window",
+                        res_model: "fulfillment.partners",
+                        res_id: payload.partner_id,
+                        views: [[false, "form"]],
+                        target: "current",
+                    });
+                },
+            });
+        }
+
+        buttons.push({
+            name: _t("Close"),
+            onClick: () => { if (closeNotif) closeNotif(); },
+        });
+
+        closeNotif = this.notification.add(content, {
+            title: partnerName,
+            type: "info",
+            sticky: false,
+            buttons,
         });
     }
 }
 
-registry.category( "services" ).add( "fulfillment_notifier", {
-    dependencies: ["bus_service", "notification"],
-    async start ( env, deps ) {
-        const notifier = new FulfillmentNotifier( env, deps );
+// Silence the logger reference above (it's just for debug)
+const _logger = { log: () => {} };
+
+registry.category("services").add("fulfillment_notifier", {
+    dependencies: ["bus_service", "notification", "action"],
+    async start(env, deps) {
+        const notifier = new FulfillmentNotifier(env, deps);
         await notifier.start();
         return notifier;
     },
-} );
+});

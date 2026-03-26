@@ -72,6 +72,51 @@ class FulfillmentPartners(models.Model):
     )
 
 
+    def message_post(self, **kwargs):
+        """Forward user-written comments to the Fulfillment API (partner chatter → API)."""
+        result = super().message_post(**kwargs)
+
+        _logger.info(
+            '[FulfillmentMessage][partner] message_post called: '
+            'message_type=%s subtype=%s from_api=%s',
+            kwargs.get('message_type'),
+            kwargs.get('subtype_xmlid'),
+            self.env.context.get('from_fulfillment_api'),
+        )
+
+        msg_type = kwargs.get('message_type', '')
+        is_user_comment = msg_type in ('comment', '') or not msg_type
+        # Only forward genuine user comments — skip system log notes, tracking msgs, etc.
+        if (
+            not self.env.context.get('from_fulfillment_api')
+            and is_user_comment
+            and kwargs.get('body')
+        ):
+            from odoo.tools import html2plaintext
+            content = html2plaintext(kwargs.get('body', '')).strip()
+            if content:
+                profile = self.env['fulfillment.profile'].search([], limit=1)
+                if profile and profile.fulfillment_profile_id:
+                    from ..lib.api_client import FulfillmentAPIClient
+                    client = FulfillmentAPIClient(profile)
+                    for rec in self:
+                        if rec.fulfillment_id:
+                            try:
+                                client.message.send(
+                                    sender_fulfillment_id=profile.fulfillment_profile_id,
+                                    receiver_fulfillment_id=rec.fulfillment_id,
+                                    content=content,
+                                )
+                                _logger.info(
+                                    '[FulfillmentMessage] Sent partner message to %s', rec.name
+                                )
+                            except Exception as e:
+                                _logger.warning(
+                                    '[FulfillmentMessage] Failed to send to API for %s: %s',
+                                    rec.name, e,
+                                )
+        return result
+
     def action_fill_webhook_domain(self):
         _logger.info(f"[action_fill_webhook_domain]")
         base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
