@@ -8,6 +8,119 @@ _logger = logging.getLogger(__name__)
 
 class FulfillmentWebhookController(http.Controller):
 
+    @http.route(
+        '/fulfillment/webhook/message',
+        type='json',
+        auth='public',
+        methods=['POST'],
+        csrf=False,
+    )
+    def message_webhook(self, **kwargs):
+        """
+        Instant push from the Fulfillment API when a partner sends a message.
+        Payload (sent directly by messageService.pushWebhook):
+            {
+                "id":                    "<uuid>",
+                "sender_fulfillment_id": "<uuid>",
+                "sender_name":           "Partner Name",
+                "content":               "message text",
+                "ref_type":              "transfer" | null,
+                "ref_id":                "<uuid>" | null,
+                "created_at":            "2026-…",
+            }
+        Returns 200 always so the API does not retry.
+        """
+        data = request.get_json_data() or {}
+        ext_id             = data.get('id')
+        sender_fid         = data.get('sender_fulfillment_id')
+        sender_name        = data.get('sender_name', 'Fulfillment')
+        content            = (data.get('content') or '').strip()
+        ref_type           = (data.get('ref_type') or '').strip()
+        ref_id             = (data.get('ref_id') or '').strip()
+
+        _logger.info(
+            '[Webhook][message] from=%s ref=%s/%s id=%s',
+            sender_fid, ref_type, ref_id, ext_id,
+        )
+
+        if not sender_fid or not content:
+            return {'status': 'error', 'reason': 'missing fields'}
+
+        env = request.env
+
+        # Deduplication
+        if ext_id:
+            existing = env['fulfillment.message'].sudo().search(
+                [('external_id', '=', ext_id)], limit=1
+            )
+            if existing:
+                return {'status': 'ok', 'reason': 'duplicate'}
+
+        partner = env['fulfillment.partners'].sudo().search(
+            [('fulfillment_id', '=', sender_fid)], limit=1
+        )
+        author_id = partner.partner_id.id if partner and partner.partner_id else False
+
+        posted_to_picking = False
+        picking_rec = env['stock.picking']
+
+        internal_users = env['res.users'].sudo().search([
+            ('share', '=', False),
+            ('active', '=', True),
+        ])
+
+        # Try to post directly to the matching transfer's chatter
+        if ref_type == 'transfer' and ref_id:
+            picking_rec = env['stock.picking'].sudo().search(
+                [('fulfillment_transfer_id', '=', ref_id)], limit=1
+            )
+            if picking_rec:
+                message = picking_rec.with_context(
+                    from_fulfillment_api=True,
+                    mail_notify_force_send=False,
+                ).message_post(
+                    body=content,
+                    message_type='comment',
+                    subtype_xmlid='mail.mt_comment',
+                    author_id=author_id,
+                )
+                posted_to_picking = True
+                _logger.info(
+                    '[Webhook][message] Posted to picking %s', picking_rec.name
+                )
+                # Force inbox + real-time chatter update for all internal users,
+                # bypassing their personal notification_type (email vs inbox).
+                _send_inbox_notifications(picking_rec, message, internal_users, author_id)
+
+        # Fall back to partner chatter
+        if not posted_to_picking and partner:
+            message = partner.with_context(
+                from_fulfillment_api=True,
+                mail_notify_force_send=False,
+            ).message_post(
+                body=content,
+                message_type='comment',
+                subtype_xmlid='mail.mt_comment',
+                author_id=author_id,
+            )
+            _logger.info(
+                '[Webhook][message] Posted to partner chatter %s', partner.name
+            )
+            _send_inbox_notifications(partner, message, internal_users, author_id)
+
+        # Track for deduplication
+        if ext_id:
+            track_vals = {
+                'partner_id': partner.id if partner else False,
+                'external_id': ext_id,
+                'direction': 'in',
+            }
+            if posted_to_picking and picking_rec:
+                track_vals['picking_id'] = picking_rec.id
+            env['fulfillment.message'].sudo().create(track_vals)
+
+        return {'status': 'ok'}
+
     @http.route('/fulfillment/status', type='http', auth='public')
     def status(self):
         return request.make_response(
@@ -224,3 +337,78 @@ _RESOURCE_HANDLERS = {
     'product':  _handle_product,
     'stock':    _handle_stock,
 }
+
+
+def _send_inbox_notifications(thread, message, internal_users, author_id):
+    """Force Inbox (top-bar Discuss icon) + real-time chatter update for all
+    internal users, bypassing their personal notification_type preference.
+
+    Uses a savepoint so that any SQL failure (e.g. duplicate mail.notification
+    from a race condition) rolls back only this sub-transaction and leaves the
+    outer request transaction intact.
+    """
+    if not internal_users or not message:
+        return
+
+    # Exclude partners that already have a notification for this message
+    # (created by Odoo's standard _notify_thread for existing followers)
+    # to avoid unique-constraint violations.
+    try:
+        existing_partner_ids = set(
+            thread.env['mail.notification'].sudo().search([
+                ('mail_message_id', '=', message.id),
+            ]).mapped('res_partner_id').ids
+        )
+    except Exception:
+        existing_partner_ids = set()
+
+    recipients_data = [
+        {
+            'id': user.partner_id.id,
+            'uid': user.id,
+            'notif': 'inbox',
+            'type': 'user',
+            'share': False,
+            'active': True,
+        }
+        for user in internal_users
+        if (
+            user.partner_id
+            and user.partner_id.id != (author_id or 0)
+            and user.partner_id.id not in existing_partner_ids
+        )
+    ]
+
+    if not recipients_data:
+        # Everyone already notified via follower system — still send bus refresh
+        _bus_refresh_chatter(thread, message, internal_users, author_id)
+        return
+
+    try:
+        with thread.env.cr.savepoint():
+            thread._notify_thread_by_inbox(
+                message,
+                recipients_data,
+                msg_vals={'model': message.model, 'res_id': message.res_id},
+            )
+    except Exception as exc:
+        _logger.warning('[Webhook][message] inbox notify failed: %s', exc)
+        # Fallback: plain bus message so the chatter still refreshes
+        _bus_refresh_chatter(thread, message, internal_users, author_id)
+
+
+def _bus_refresh_chatter(thread, message, internal_users, author_id):
+    """Send a lightweight bus event so open chatter views refresh in real time."""
+    try:
+        payload = {
+            'content': message.body or '',
+            'model': message.model,
+            'res_id': message.res_id,
+            'message_id': message.id,
+        }
+        bus = thread.env['bus.bus'].sudo()
+        for user in internal_users:
+            if user.partner_id and user.partner_id.id != (author_id or 0):
+                bus._sendone(user.partner_id, 'fulfillment_new_message', payload)
+    except Exception as exc:
+        _logger.warning('[Webhook][message] bus refresh failed: %s', exc)

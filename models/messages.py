@@ -8,6 +8,53 @@ from datetime import datetime, timezone
 _logger = logging.getLogger(__name__)
 
 
+def _force_inbox_notify(thread, message, internal_users, author_id):
+    """Create Inbox (top-bar Discuss icon) + real-time chatter bus update for
+    all internal users, bypassing their personal notification_type preference.
+
+    Uses a savepoint to avoid aborting the outer transaction on duplicate
+    mail.notification entries (unique-constraint race condition).
+    """
+    if not internal_users or not message:
+        return
+    try:
+        existing_partner_ids = set(
+            thread.env['mail.notification'].sudo().search([
+                ('mail_message_id', '=', message.id),
+            ]).mapped('res_partner_id').ids
+        )
+    except Exception:
+        existing_partner_ids = set()
+
+    recipients_data = [
+        {
+            'id': user.partner_id.id,
+            'uid': user.id,
+            'notif': 'inbox',
+            'type': 'user',
+            'share': False,
+            'active': True,
+        }
+        for user in internal_users
+        if (
+            user.partner_id
+            and user.partner_id.id != (author_id or 0)
+            and user.partner_id.id not in existing_partner_ids
+        )
+    ]
+    if not recipients_data:
+        return
+    try:
+        with thread.env.cr.savepoint():
+            thread._notify_thread_by_inbox(
+                message,
+                recipients_data,
+                msg_vals={'model': message.model, 'res_id': message.res_id},
+            )
+    except Exception as exc:
+        _logger.warning('[FulfillmentMessage] inbox notify failed: %s', exc)
+
+
 class FulfillmentMessage(models.Model):
     """
     Tracks messages exchanged via the Fulfillment API.
@@ -111,6 +158,12 @@ class FulfillmentMessage(models.Model):
         # Use partner's linked res.partner as message author (so name shows in chatter)
         author_id = partner.partner_id.id if partner.partner_id else False
 
+        internal_users = self.env['res.users'].sudo().search([
+            ('share', '=', False),
+            ('active', '=', True),
+        ])
+        internal_partner_ids = internal_users.mapped('partner_id').ids
+
         new_count = 0
         Picking = self.env['stock.picking'].sudo()
         for msg in api_messages:
@@ -149,7 +202,7 @@ class FulfillmentMessage(models.Model):
                     )
                 picking_rec = candidates[:1]
                 if picking_rec:
-                    picking_rec.with_context(
+                    msg = picking_rec.with_context(
                         from_fulfillment_api=True,
                         mail_notify_force_send=False,
                     ).message_post(
@@ -160,25 +213,11 @@ class FulfillmentMessage(models.Model):
                     )
                     posted_to_picking = True
                     new_count += 1
-                    notification_payload = {
-                        'content': content,
-                        'partner_name': partner.name,
-                        'partner_id': partner.id,
-                        'external_id': ext_id,
-                        'picking_id': picking_rec.id,
-                    }
-                    bus = self.env['bus.bus'].sudo()
-                    for user in self.env['res.users'].sudo().search(
-                        [('share', '=', False), ('active', '=', True)]
-                    ):
-                        if user.partner_id:
-                            bus._sendone(
-                                user.partner_id, 'fulfillment_new_message', notification_payload
-                            )
+                    _force_inbox_notify(picking_rec, msg, internal_users, author_id)
 
             if is_incoming and content and not posted_to_picking:
                 # Post into partner chatter; disable email to avoid smtp-exception popups
-                partner.with_context(
+                msg = partner.with_context(
                     from_fulfillment_api=True,
                     mail_notify_force_send=False,
                 ).message_post(
@@ -188,18 +227,7 @@ class FulfillmentMessage(models.Model):
                     author_id=author_id,
                 )
                 new_count += 1
-
-                # Push bus notification so the chat popup appears in the UI
-                notification_payload = {
-                    'content': content,
-                    'partner_name': partner.name,
-                    'partner_id': partner.id,
-                    'external_id': ext_id,
-                }
-                bus = self.env['bus.bus'].sudo()
-                for user in self.env['res.users'].sudo().search([('share', '=', False), ('active', '=', True)]):
-                    if user.partner_id:
-                        bus._sendone(user.partner_id, 'fulfillment_new_message', notification_payload)
+                _force_inbox_notify(partner, msg, internal_users, author_id)
 
             track_vals = {
                 'partner_id': partner.id,
