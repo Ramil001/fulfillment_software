@@ -132,7 +132,14 @@ class FulfillmentTransfers(models.Model):
     fulfillment_transfer_owner_id = fields.Char(
         string="Resource owner",
         default="Empty",
-        help="Fulfillment owner ID",
+        help="Fulfillment owner ID (fulfillment_in)",
+        readonly=True
+    )
+
+    fulfillment_transfer_out_id = fields.Char(
+        string="Fulfillment Out",
+        default="Empty",
+        help="Fulfillment ID of the outgoing partner (fulfillment_out)",
         readonly=True
     )
     
@@ -333,6 +340,126 @@ class FulfillmentTransfers(models.Model):
             self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_cancel")
         return res
 
+    def message_post(self, **kwargs):
+        """Forward user comments on fulfillment-linked transfers to the Fulfillment API."""
+        result = super().message_post(**kwargs)
+
+        _logger.info(
+            '[FulfillmentMessage][transfer] message_post called: '
+            'message_type=%s subtype=%s from_api=%s',
+            kwargs.get('message_type'),
+            kwargs.get('subtype_xmlid'),
+            self.env.context.get('from_fulfillment_api'),
+        )
+
+        # In Odoo 18 the chatter sends message_type='comment'; skip system
+        # notifications ('notification', 'user_notification', 'auto_comment').
+        msg_type = kwargs.get('message_type', '')
+        is_user_comment = msg_type in ('comment', '') or not msg_type
+        if (
+            not self.env.context.get('from_fulfillment_api')
+            and is_user_comment
+            and kwargs.get('body')
+        ):
+            from odoo.tools import html2plaintext
+            content = html2plaintext(str(kwargs.get('body', ''))).strip()
+            if content:
+                profile = self.env['fulfillment.profile'].search([], limit=1)
+                if profile and profile.fulfillment_profile_id:
+                    for rec in self:
+                        transfer_id = rec.fulfillment_transfer_id
+                        my_id = profile.fulfillment_profile_id
+
+                        # Determine the other-side fulfillment_id.
+                        # fulfillment_transfer_owner_id = fulfillment_in (sender/merchant)
+                        # fulfillment_transfer_out_id    = fulfillment_out (fulfillment center)
+                        # The "other party" is whichever of the two is NOT us.
+                        receiver_id = None
+                        for candidate in (rec.fulfillment_transfer_owner_id, rec.fulfillment_transfer_out_id):
+                            if candidate and candidate not in ('Empty', my_id):
+                                receiver_id = candidate
+                                break
+
+                        if not receiver_id:
+                            # Fallback 1: linked fulfillment.partners record
+                            linked_partner = rec.fulfillment_partner_id
+                            receiver_id = linked_partner.fulfillment_id if linked_partner else None
+
+                        if not receiver_id and transfer_id and transfer_id not in ('Empty', ''):
+                            # Fallback 2: query the API for this transfer to find the other party.
+                            # Handles new transfers where fulfillment_in is now stored in the API.
+                            try:
+                                fb_client = self.fulfillment_api
+                                if fb_client:
+                                    resp = fb_client.transfer.get(transfer_id)
+                                    t_data = resp.get('data') or {}
+                                    for fid in (t_data.get('fulfillment_in'), t_data.get('fulfillment_out')):
+                                        if fid and fid not in ('Empty', my_id):
+                                            receiver_id = fid
+                                            # Cache fulfillment_in locally to avoid future API calls
+                                            if t_data.get('fulfillment_in') and t_data['fulfillment_in'] not in ('Empty', my_id):
+                                                rec.with_context(skip_fulfillment_push=True).write({
+                                                    'fulfillment_transfer_owner_id': t_data['fulfillment_in'],
+                                                })
+                                            break
+                                    _logger.info(
+                                        '[FulfillmentMessage][transfer] API fallback receiver: %s',
+                                        receiver_id,
+                                    )
+                            except Exception as fb_err:
+                                _logger.warning(
+                                    '[FulfillmentMessage][transfer] API fallback failed: %s', fb_err
+                                )
+
+                        if not receiver_id:
+                            # Fallback 3: we are the fulfillment_out side — the sender must be
+                            # one of the fulfillment.partners on this instance that is not us.
+                            # Works reliably in the typical 2-instance setup and caches the
+                            # result into fulfillment_transfer_owner_id for future calls.
+                            if rec.fulfillment_transfer_out_id == my_id:
+                                other = rec.env['fulfillment.partners'].sudo().search([
+                                    ('fulfillment_id', 'not in', [my_id, 'Empty', False]),
+                                ], limit=1)
+                                receiver_id = other.fulfillment_id if other else None
+                                if receiver_id:
+                                    rec.with_context(skip_fulfillment_push=True).write({
+                                        'fulfillment_transfer_owner_id': receiver_id,
+                                    })
+                                    _logger.info(
+                                        '[FulfillmentMessage][transfer] Partner fallback receiver: %s',
+                                        receiver_id,
+                                    )
+
+                        _logger.info(
+                            '[FulfillmentMessage][transfer] rec=%s transfer_id=%s receiver_id=%s',
+                            rec.name, transfer_id, receiver_id,
+                        )
+
+                        if (
+                            transfer_id and transfer_id != 'Empty'
+                            and receiver_id and receiver_id not in ('Empty', my_id)
+                        ):
+                            try:
+                                client = self.fulfillment_api
+                                if client:
+                                    client.message.send(
+                                        sender_fulfillment_id=profile.fulfillment_profile_id,
+                                        receiver_fulfillment_id=receiver_id,
+                                        content=content,
+                                        ref_type='transfer',
+                                        ref_id=transfer_id,
+                                    )
+                                    _logger.info(
+                                        '[FulfillmentMessage] Sent transfer message '
+                                        'for %s to %s', transfer_id, receiver_id,
+                                    )
+                            except Exception as e:
+                                _logger.warning(
+                                    '[FulfillmentMessage] Failed to send for transfer %s: %s',
+                                    transfer_id, e,
+                                )
+        return result
+
     def _push_status_update(self, new_state):
         """Отправка обновления статуса в API"""
         _logger.info("[_push_status_update]")
@@ -496,15 +623,24 @@ class FulfillmentTransfers(models.Model):
 
         elif self.picking_type_code == 'outgoing':
             src_wh = self.picking_type_id.warehouse_id
-            
+
             warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
-            fulfillment_out = src_wh.fulfillment_owner_id.fulfillment_id if src_wh and src_wh.fulfillment_owner_id else my_fulfillment_id
-            
+            fulfillment_out = (
+                src_wh.fulfillment_owner_id.fulfillment_id
+                if src_wh and src_wh.fulfillment_owner_id
+                else my_fulfillment_id
+            )
+            # Always mark ourselves as the sender so the receiving instance
+            # can identify us as the reply target (fulfillment_in → stored as
+            # fulfillment_transfer_owner_id on the remote side).
+            fulfillment_in = my_fulfillment_id
+
             _logger.info(
-                "[RESOLVE][OUTGOING] src_wh=%s fwh_id=%s fulfillment_out=%s",
+                "[RESOLVE][OUTGOING] src_wh=%s fwh_id=%s fulfillment_out=%s fulfillment_in=%s",
                 src_wh.name if src_wh else None,
                 warehouse_out_id,
-                fulfillment_out
+                fulfillment_out,
+                fulfillment_in,
             )
 
         elif self.picking_type_code == 'internal':
@@ -560,9 +696,11 @@ class FulfillmentTransfers(models.Model):
                     return
 
                 
+                out_id = api_data.get("fulfillment_out") or "Empty"
                 self.with_context(skip_fulfillment_push=True).write({
                     "fulfillment_transfer_id": remote_id,
-                    "fulfillment_transfer_owner_id": owner_id,
+                    "fulfillment_transfer_owner_id": owner_id or "Empty",
+                    "fulfillment_transfer_out_id": out_id,
                 })
                 _logger.info("[Fulfillment] Success! Linked %s to API ID: %s", self.name, remote_id)
 
@@ -750,6 +888,8 @@ class FulfillmentTransfers(models.Model):
 
         vals = {
             "fulfillment_transfer_id": remote_id,
+            "fulfillment_transfer_owner_id": transfer.get("fulfillment_in") or "Empty",
+            "fulfillment_transfer_out_id": transfer.get("fulfillment_out") or "Empty",
             "picking_type_id": picking_type_id,
             "partner_id": partner_id,
             "location_id": location_id,
