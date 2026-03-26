@@ -24,8 +24,10 @@ class IncomingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            # Use `origin` first because it typically contains a sale/order number.
-            "reference": picking.origin or picking.name or "Odoo",
+            # Use picking name (e.g. htf/IN/00001) so the receiving instance
+            # displays the same reference. origin (sale order) goes to source_ref.
+            "reference": picking.name or picking.origin or "Odoo",
+            "source_ref": picking.origin or "",
             "items": items,
             "contacts": contacts or [],
         }
@@ -38,8 +40,10 @@ class OutgoingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            # Use `origin` first because it typically contains a sale/order number.
-            "reference": picking.origin or picking.name or "Odoo",
+            # Use picking name (e.g. htf/OUT/00027) so the receiving instance
+            # shows the same reference. origin (sale order) goes to source_ref.
+            "reference": picking.name or picking.origin or "Odoo",
+            "source_ref": picking.origin or "",
             "items": items,
             "contacts": contacts or [],
         }
@@ -52,8 +56,8 @@ class InternalTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            # Prefer a stable human-readable origin if present.
-            "reference": picking.origin or picking.name or "00000",
+            "reference": picking.name or picking.origin or "00000",
+            "source_ref": picking.origin or "",
             "items": items,
         }
 
@@ -880,9 +884,10 @@ class FulfillmentTransfers(models.Model):
         wh_code = warehouse_out.code or warehouse_in.code or "WH"
         type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
         hash_part = str(remote_id)[:8]
-        # Prefer API human-readable reference (usually what was sent as `payload["reference"]`).
-        # Fallback to a deterministic hash-based name.
+        # `reference` = original picking name from the sending instance (e.g. htf/OUT/00027)
+        # `source_ref` = sale/order origin from the sending instance (e.g. S00027)
         transfer_reference = (transfer.get("reference") or "").strip()
+        source_ref = (transfer.get("source_ref") or "").strip()
         fallback_name = f"[F] {wh_code}/{type_short}/{hash_part}"
         name = transfer_reference or fallback_name
 
@@ -895,12 +900,15 @@ class FulfillmentTransfers(models.Model):
             "location_id": location_id,
             "location_dest_id": location_dest_id,
         }
+        # Store the origin sale/order reference if present
+        if source_ref:
+            vals["origin"] = source_ref
 
         if picking:
             vals_write = dict(vals)
             vals_write.pop("picking_type_id", None)
-            # If this picking was created by the old hash-based naming, update the name now.
-            if transfer_reference and (picking.name or "").startswith("[F]"):
+            # Update the name whenever it's a stale hash-based value or different from current
+            if transfer_reference and picking.name != transfer_reference:
                 vals_write["name"] = name
             picking.write(vals_write)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
