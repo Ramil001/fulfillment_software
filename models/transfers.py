@@ -907,8 +907,18 @@ class FulfillmentTransfers(models.Model):
         if picking:
             vals_write = dict(vals)
             vals_write.pop("picking_type_id", None)
-            # Update the name whenever it's a stale hash-based value or different from current
-            if transfer_reference and picking.name != transfer_reference:
+            # Only rename if this picking was imported from a remote instance
+            # (we are the fulfillment_out recipient), NOT if we created it locally.
+            # A locally-created picking has a proper Odoo sequence name that must
+            # be preserved.  Imported pickings either have the old [F]-prefix hash
+            # name or a name that doesn't match the canonical reference yet.
+            my_profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+            my_fid = my_profile.fulfillment_profile_id if my_profile else None
+            is_imported = (
+                transfer.get("fulfillment_out") == my_fid   # we are the receiving side
+                or (picking.name or "").startswith("[F]")   # old hash-based fallback name
+            )
+            if transfer_reference and is_imported and picking.name != transfer_reference:
                 vals_write["name"] = name
             picking.write(vals_write)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
