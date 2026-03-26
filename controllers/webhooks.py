@@ -31,12 +31,11 @@ class FulfillmentWebhookController(http.Controller):
         Returns 200 always so the API does not retry.
         """
         data = request.get_json_data() or {}
-        ext_id             = data.get('id')
-        sender_fid         = data.get('sender_fulfillment_id')
-        sender_name        = data.get('sender_name', 'Fulfillment')
-        content            = (data.get('content') or '').strip()
-        ref_type           = (data.get('ref_type') or '').strip()
-        ref_id             = (data.get('ref_id') or '').strip()
+        ext_id     = data.get('id')
+        sender_fid = data.get('sender_fulfillment_id')
+        content    = (data.get('content') or '').strip()
+        ref_type   = (data.get('ref_type') or '').strip()
+        ref_id     = (data.get('ref_id') or '').strip()
 
         _logger.info(
             '[Webhook][message] from=%s ref=%s/%s id=%s',
@@ -44,16 +43,18 @@ class FulfillmentWebhookController(http.Controller):
         )
 
         if not sender_fid or not content:
+            _logger.warning('[Webhook][message] Missing required fields, skipping')
             return {'status': 'error', 'reason': 'missing fields'}
 
         env = request.env
 
-        # Deduplication
+        # Deduplication — only block if we already SUCCESSFULLY posted the message
         if ext_id:
             existing = env['fulfillment.message'].sudo().search(
                 [('external_id', '=', ext_id)], limit=1
             )
             if existing:
+                _logger.info('[Webhook][message] Duplicate id=%s, skipping', ext_id)
                 return {'status': 'ok', 'reason': 'duplicate'}
 
         partner = env['fulfillment.partners'].sudo().search(
@@ -61,21 +62,75 @@ class FulfillmentWebhookController(http.Controller):
         )
         author_id = partner.partner_id.id if partner and partner.partner_id else False
 
-        posted_to_picking = False
-        picking_rec = env['stock.picking']
-
         internal_users = env['res.users'].sudo().search([
             ('share', '=', False),
             ('active', '=', True),
         ])
 
-        # Try to post directly to the matching transfer's chatter
+        posted_to_picking = False
+        message = None
+        picking_rec = env['stock.picking']
+
+        # ── Transfer chatter ──────────────────────────────────────────────────
         if ref_type == 'transfer' and ref_id:
             picking_rec = env['stock.picking'].sudo().search(
                 [('fulfillment_transfer_id', '=', ref_id)], limit=1
             )
+
+            # On-demand import: transfer not yet in local DB → fetch from API now
+            if not picking_rec:
+                _logger.info(
+                    '[Webhook][message] Transfer %s not found locally, '
+                    'triggering on-demand import', ref_id,
+                )
+                try:
+                    _on_demand_import_transfer(env, ref_id)
+                    picking_rec = env['stock.picking'].sudo().search(
+                        [('fulfillment_transfer_id', '=', ref_id)], limit=1
+                    )
+                    if picking_rec:
+                        _logger.info(
+                            '[Webhook][message] On-demand import succeeded: %s',
+                            picking_rec.name,
+                        )
+                    else:
+                        _logger.warning(
+                            '[Webhook][message] Transfer %s still not found '
+                            'after on-demand import', ref_id,
+                        )
+                except Exception as exc:
+                    _logger.warning(
+                        '[Webhook][message] On-demand import failed: %s', exc
+                    )
+
             if picking_rec:
-                message = picking_rec.with_context(
+                try:
+                    message = picking_rec.with_context(
+                        from_fulfillment_api=True,
+                        mail_notify_force_send=False,
+                    ).message_post(
+                        body=content,
+                        message_type='comment',
+                        subtype_xmlid='mail.mt_comment',
+                        author_id=author_id,
+                    )
+                    posted_to_picking = True
+                    _logger.info(
+                        '[Webhook][message] Posted to picking %s', picking_rec.name
+                    )
+                    _send_inbox_notifications(
+                        picking_rec, message, internal_users, author_id
+                    )
+                except Exception as exc:
+                    _logger.error(
+                        '[Webhook][message] message_post failed on %s: %s',
+                        picking_rec.name, exc,
+                    )
+
+        # ── Partner chatter fallback ──────────────────────────────────────────
+        if not posted_to_picking and partner:
+            try:
+                message = partner.with_context(
                     from_fulfillment_api=True,
                     mail_notify_force_send=False,
                 ).message_post(
@@ -84,40 +139,37 @@ class FulfillmentWebhookController(http.Controller):
                     subtype_xmlid='mail.mt_comment',
                     author_id=author_id,
                 )
-                posted_to_picking = True
                 _logger.info(
-                    '[Webhook][message] Posted to picking %s', picking_rec.name
+                    '[Webhook][message] Posted to partner chatter %s', partner.name
                 )
-                # Force inbox + real-time chatter update for all internal users,
-                # bypassing their personal notification_type (email vs inbox).
-                _send_inbox_notifications(picking_rec, message, internal_users, author_id)
+                _send_inbox_notifications(partner, message, internal_users, author_id)
+            except Exception as exc:
+                _logger.error(
+                    '[Webhook][message] message_post failed on partner %s: %s',
+                    partner.name if partner else '?', exc,
+                )
 
-        # Fall back to partner chatter
-        if not posted_to_picking and partner:
-            message = partner.with_context(
-                from_fulfillment_api=True,
-                mail_notify_force_send=False,
-            ).message_post(
-                body=content,
-                message_type='comment',
-                subtype_xmlid='mail.mt_comment',
-                author_id=author_id,
-            )
-            _logger.info(
-                '[Webhook][message] Posted to partner chatter %s', partner.name
-            )
-            _send_inbox_notifications(partner, message, internal_users, author_id)
+        # ── Deduplication record — ONLY when message was actually posted ──────
+        if ext_id and message:
+            try:
+                track_vals = {
+                    'partner_id': partner.id if partner else False,
+                    'external_id': ext_id,
+                    'direction': 'in',
+                }
+                if posted_to_picking and picking_rec:
+                    track_vals['picking_id'] = picking_rec.id
+                env['fulfillment.message'].sudo().create(track_vals)
+            except Exception as exc:
+                _logger.warning(
+                    '[Webhook][message] Dedup record creation failed: %s', exc
+                )
 
-        # Track for deduplication
-        if ext_id:
-            track_vals = {
-                'partner_id': partner.id if partner else False,
-                'external_id': ext_id,
-                'direction': 'in',
-            }
-            if posted_to_picking and picking_rec:
-                track_vals['picking_id'] = picking_rec.id
-            env['fulfillment.message'].sudo().create(track_vals)
+        if not message:
+            _logger.warning(
+                '[Webhook][message] Message NOT posted — transfer=%s partner=%s',
+                ref_id, sender_fid,
+            )
 
         return {'status': 'ok'}
 
@@ -337,6 +389,36 @@ _RESOURCE_HANDLERS = {
     'product':  _handle_product,
     'stock':    _handle_stock,
 }
+
+
+def _on_demand_import_transfer(env, transfer_api_id):
+    """Fetch a specific transfer from the Fulfillment API and import it locally.
+
+    Called from the message webhook when the picking is not yet in the local
+    database — this can happen when a message arrives before the periodic cron
+    has had a chance to sync the transfer.
+    """
+    from ..lib.api_client import FulfillmentAPIClient
+
+    profile = env['fulfillment.profile'].sudo().search([], limit=1)
+    if not profile:
+        _logger.warning('[Webhook][on-demand] No fulfillment profile found')
+        return
+
+    client = FulfillmentAPIClient(profile)
+    response = client.transfer.get(transfer_api_id)
+    transfer_data = response.get('data') if isinstance(response, dict) else None
+
+    if not transfer_data:
+        _logger.warning(
+            '[Webhook][on-demand] API returned no data for transfer %s', transfer_api_id
+        )
+        return
+
+    # Use the same import logic as the cron
+    env['fulfillment.transfers'].sudo().with_context(
+        skip_fulfillment_push=True
+    )._import_transfer(transfer_data)
 
 
 def _send_inbox_notifications(thread, message, internal_users, author_id):
