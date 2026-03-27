@@ -3,18 +3,18 @@ import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
 
 class FulfillmentNotifier {
-    constructor(env, { bus_service, notification, action }) {
+    constructor(env, deps) {
         this.env = env;
-        this.bus = bus_service;
-        this.notification = notification;
-        this.action = action;
+        this.bus = deps["bus_service"];
+        this.notification = deps["notification"];
+        this.action = deps["action"];
+        // mail.store gives us access to the Thread model for real-time refresh
+        this.mailStore = deps["mail.store"] || null;
         this._onNotification = this._onNotification.bind(this);
     }
 
     async start() {
-        // Subscribe to our custom fulfillment_new_message channel
         this.bus.subscribe("fulfillment_new_message", this._onNotification);
-        _logger.log("[FulfillmentNotifier] subscribed to fulfillment_new_message");
     }
 
     _onNotification(payload) {
@@ -25,10 +25,15 @@ class FulfillmentNotifier {
             ? payload.content.slice(0, 80) + "…"
             : payload.content;
 
+        // ── Refresh the chatter in real time ─────────────────────────────────
+        // When the user is on the same picking/partner page, update the thread
+        // without requiring a manual page refresh.
+        this._refreshThread(payload);
+
+        // ── Show a popup notification ─────────────────────────────────────────
         let closeNotif;
         const buttons = [];
 
-        // If message is linked to a picking, add "Open" button
         if (payload.picking_id) {
             buttons.push({
                 name: _t("Open"),
@@ -73,13 +78,29 @@ class FulfillmentNotifier {
             buttons,
         });
     }
+
+    /**
+     * Refresh the thread matching the payload's model/res_id if currently open.
+     * Uses the mail.store Thread model to fetch new messages without page reload.
+     */
+    _refreshThread(payload) {
+        if (!payload.model || !payload.res_id || !this.mailStore) return;
+        try {
+            const Thread = this.mailStore.Thread;
+            if (!Thread) return;
+            // Thread.get returns the cached thread if already loaded in this tab
+            const thread = Thread.get({ model: payload.model, id: payload.res_id });
+            if (thread && typeof thread.fetchNewMessages === "function") {
+                thread.fetchNewMessages();
+            }
+        } catch (_e) {
+            // Fail silently — the user can still refresh manually
+        }
+    }
 }
 
-// Silence the logger reference above (it's just for debug)
-const _logger = { log: () => {} };
-
 registry.category("services").add("fulfillment_notifier", {
-    dependencies: ["bus_service", "notification", "action"],
+    dependencies: ["bus_service", "notification", "action", "mail.store"],
     async start(env, deps) {
         const notifier = new FulfillmentNotifier(env, deps);
         await notifier.start();

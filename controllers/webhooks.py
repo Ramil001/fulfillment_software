@@ -121,6 +121,14 @@ class FulfillmentWebhookController(http.Controller):
                     _send_inbox_notifications(
                         picking_rec, message, internal_users, author_id
                     )
+                    # Always send our custom bus event so the JS can refresh the
+                    # chatter in real time even if Odoo's own notification only
+                    # updates the top-bar Discuss icon.
+                    _bus_refresh_chatter(
+                        picking_rec, message, internal_users, author_id,
+                        extra={'picking_id': picking_rec.id,
+                               'partner_name': data.get('sender_name', 'Fulfillment')},
+                    )
                 except Exception as exc:
                     _logger.error(
                         '[Webhook][message] message_post failed on %s: %s',
@@ -143,6 +151,11 @@ class FulfillmentWebhookController(http.Controller):
                     '[Webhook][message] Posted to partner chatter %s', partner.name
                 )
                 _send_inbox_notifications(partner, message, internal_users, author_id)
+                _bus_refresh_chatter(
+                    partner, message, internal_users, author_id,
+                    extra={'partner_id': partner.id,
+                           'partner_name': data.get('sender_name', 'Fulfillment')},
+                )
             except Exception as exc:
                 _logger.error(
                     '[Webhook][message] message_post failed on partner %s: %s',
@@ -479,15 +492,24 @@ def _send_inbox_notifications(thread, message, internal_users, author_id):
         _bus_refresh_chatter(thread, message, internal_users, author_id)
 
 
-def _bus_refresh_chatter(thread, message, internal_users, author_id):
-    """Send a lightweight bus event so open chatter views refresh in real time."""
+def _bus_refresh_chatter(thread, message, internal_users, author_id, extra=None):
+    """Send fulfillment_new_message bus event so open chatter views refresh.
+
+    The JS notifications.js receives this and calls thread.fetchNewMessages()
+    for the matching thread, giving real-time chatter updates without page reload.
+    extra: optional dict of additional payload fields (picking_id, partner_id…)
+    """
     try:
+        from odoo.tools import html2plaintext
+        plain = html2plaintext(message.body or '').strip()[:200]
         payload = {
-            'content': message.body or '',
+            'content': plain,
             'model': message.model,
             'res_id': message.res_id,
             'message_id': message.id,
         }
+        if extra:
+            payload.update(extra)
         bus = thread.env['bus.bus'].sudo()
         for user in internal_users:
             if user.partner_id and user.partner_id.id != (author_id or 0):

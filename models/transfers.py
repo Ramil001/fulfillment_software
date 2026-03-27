@@ -24,10 +24,10 @@ class IncomingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            # Use picking name (e.g. htf/IN/00001) so the receiving instance
-            # displays the same reference. origin (sale order) goes to source_ref.
+            # Send the Odoo picking name (e.g. htf/IN/00001) as reference so
+            # the receiving instance shows the same name. The API only supports
+            # the `reference` field, not a separate source_ref.
             "reference": picking.name or picking.origin or "Odoo",
-            "source_ref": picking.origin or "",
             "items": items,
             "contacts": contacts or [],
         }
@@ -40,10 +40,8 @@ class OutgoingTransferMapper(BaseTransferMapper):
             "warehouse_in": warehouse_in,
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
-            # Use picking name (e.g. htf/OUT/00027) so the receiving instance
-            # shows the same reference. origin (sale order) goes to source_ref.
+            # Send the Odoo picking name (e.g. htf/OUT/00027) as reference.
             "reference": picking.name or picking.origin or "Odoo",
-            "source_ref": picking.origin or "",
             "items": items,
             "contacts": contacts or [],
         }
@@ -57,7 +55,6 @@ class InternalTransferMapper(BaseTransferMapper):
             "fulfillment_out": fulfillment_out,
             "fulfillment_in": fulfillment_in,
             "reference": picking.name or picking.origin or "00000",
-            "source_ref": picking.origin or "",
             "items": items,
         }
 
@@ -885,9 +882,7 @@ class FulfillmentTransfers(models.Model):
         type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
         hash_part = str(remote_id)[:8]
         # `reference` = original picking name from the sending instance (e.g. htf/OUT/00027)
-        # `source_ref` = sale/order origin from the sending instance (e.g. S00027)
         transfer_reference = (transfer.get("reference") or "").strip()
-        source_ref = (transfer.get("source_ref") or "").strip()
         fallback_name = f"[F] {wh_code}/{type_short}/{hash_part}"
         name = transfer_reference or fallback_name
 
@@ -900,9 +895,10 @@ class FulfillmentTransfers(models.Model):
             "location_id": location_id,
             "location_dest_id": location_dest_id,
         }
-        # Store the origin sale/order reference if present
-        if source_ref:
-            vals["origin"] = source_ref
+        # Store the original transfer reference in origin for traceability
+        # (shows the source picking name like htf/OUT/00027 in the Origin field)
+        if transfer_reference:
+            vals["origin"] = transfer_reference
 
         if picking:
             vals_write = dict(vals)
