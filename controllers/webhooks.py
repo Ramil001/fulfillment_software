@@ -475,8 +475,6 @@ def _send_inbox_notifications(thread, message, internal_users, author_id):
     ]
 
     if not recipients_data:
-        # Everyone already notified via follower system — still send bus refresh
-        _bus_refresh_chatter(thread, message, internal_users, author_id)
         return
 
     try:
@@ -488,8 +486,6 @@ def _send_inbox_notifications(thread, message, internal_users, author_id):
             )
     except Exception as exc:
         _logger.warning('[Webhook][message] inbox notify failed: %s', exc)
-        # Fallback: plain bus message so the chatter still refreshes
-        _bus_refresh_chatter(thread, message, internal_users, author_id)
 
 
 def _bus_refresh_chatter(thread, message, internal_users, author_id, extra=None):

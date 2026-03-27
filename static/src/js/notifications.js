@@ -1,13 +1,10 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
-import { _t } from "@web/core/l10n/translation";
 
 class FulfillmentNotifier {
     constructor(env, deps) {
         this.env = env;
         this.bus = deps["bus_service"];
-        this.notification = deps["notification"];
-        this.action = deps["action"];
         // mail.store gives us access to the Thread model for real-time refresh
         this.mailStore = deps["mail.store"] || null;
         this._onNotification = this._onNotification.bind(this);
@@ -20,63 +17,10 @@ class FulfillmentNotifier {
     _onNotification(payload) {
         if (!payload || !payload.content) return;
 
-        const partnerName = payload.partner_name || "Fulfillment";
-        const content = payload.content.length > 80
-            ? payload.content.slice(0, 80) + "…"
-            : payload.content;
-
-        // ── Refresh the chatter in real time ─────────────────────────────────
-        // When the user is on the same picking/partner page, update the thread
-        // without requiring a manual page refresh.
+        // Refresh the chatter in real time when the user is on the same page.
+        // Odoo's own inbox notification already handles the top-bar bell icon,
+        // so we don't show an extra popup here to avoid duplicates.
         this._refreshThread(payload);
-
-        // ── Show a popup notification ─────────────────────────────────────────
-        let closeNotif;
-        const buttons = [];
-
-        if (payload.picking_id) {
-            buttons.push({
-                name: _t("Open"),
-                primary: true,
-                onClick: () => {
-                    if (closeNotif) closeNotif();
-                    this.action.doAction({
-                        type: "ir.actions.act_window",
-                        res_model: "stock.picking",
-                        res_id: payload.picking_id,
-                        views: [[false, "form"]],
-                        target: "current",
-                    });
-                },
-            });
-        } else if (payload.partner_id) {
-            buttons.push({
-                name: _t("Open"),
-                primary: true,
-                onClick: () => {
-                    if (closeNotif) closeNotif();
-                    this.action.doAction({
-                        type: "ir.actions.act_window",
-                        res_model: "fulfillment.partners",
-                        res_id: payload.partner_id,
-                        views: [[false, "form"]],
-                        target: "current",
-                    });
-                },
-            });
-        }
-
-        buttons.push({
-            name: _t("Close"),
-            onClick: () => { if (closeNotif) closeNotif(); },
-        });
-
-        closeNotif = this.notification.add(content, {
-            title: partnerName,
-            type: "info",
-            sticky: false,
-            buttons,
-        });
     }
 
     /**
@@ -100,7 +44,7 @@ class FulfillmentNotifier {
 }
 
 registry.category("services").add("fulfillment_notifier", {
-    dependencies: ["bus_service", "notification", "action", "mail.store"],
+    dependencies: ["bus_service", "mail.store"],
     async start(env, deps) {
         const notifier = new FulfillmentNotifier(env, deps);
         await notifier.start();

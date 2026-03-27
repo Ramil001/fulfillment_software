@@ -177,14 +177,16 @@ class FulfillmentOrder(models.Model):
                         continue
 
                     payload = {
-                        # Use sale order number as a human-readable reference.
-                        # Odoo stores transfers in the fulfillment backend using this `reference`.
-                        "reference": order.name,
+                        # Use the picking name (e.g. htf/OUT/00035) so the
+                        # receiving Odoo instance shows the same transfer name.
+                        "reference": picking.name,
                         "transfer_type": "outgoing",
                         "warehouse_out": warehouse.fulfillment_warehouse_id or None,
                         "warehouse_in": None,
                         "fulfillment_out": fulfillment_owner_out.fulfillment_id,
-                        "fulfillment_in": None,
+                        # Mark ourselves as the sender so the receiving instance
+                        # can identify the reply target for messages.
+                        "fulfillment_in": profile.fulfillment_profile_id or None,
                         "items": move_items,
                     }
 
