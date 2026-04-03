@@ -57,13 +57,21 @@ class StockQuant(models.Model):
         return not my_id or not owner_fid or owner_fid == my_id
 
     def write(self, vals):
-        """Prevent manual edits to stock quantities for external fulfillment warehouses."""
+        """Prevent manual edits to stock quantities for external fulfillment warehouses.
+
+        Only blocks direct edits from the Inventory Adjustments UI (inventory_mode context).
+        Automatic updates from transfers (stock moves), imports, and system operations
+        are always allowed.
+        """
         qty_fields = {'quantity', 'reserved_quantity'}
-        if (
+        ctx = self.env.context
+        is_manual_edit = (
             qty_fields & set(vals.keys())
-            and not self.env.context.get('from_fulfillment_import')
-            and not self.env.context.get('skip_fulfillment_push')
-        ):
+            and ctx.get('inventory_mode')
+            and not ctx.get('from_fulfillment_import')
+            and not ctx.get('skip_fulfillment_push')
+        )
+        if is_manual_edit:
             for quant in self:
                 warehouse = self.env['stock.warehouse'].search([
                     '|',
