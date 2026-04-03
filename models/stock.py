@@ -1,11 +1,15 @@
-from odoo import models, fields, api
+# -*- coding: utf-8 -*-
 import logging
 
-# правильные импорты
-from ..lib.api_client import FulfillmentAPIClient
-from ..lib.api_client.stock import StockAPI
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
+try:
+    from ..lib.api_client import FulfillmentAPIClient
+except ImportError:
+    FulfillmentAPIClient = None
 
 
 class StockQuant(models.Model):
@@ -13,462 +17,171 @@ class StockQuant(models.Model):
 
     fulfillment_stock_id = fields.Char(
         string='Fulfillment Stock ID',
-        help='External fulfillment system stock identifier',
-        index=True,
+        readonly=True,
+        copy=False,
+        help='External stock record ID from the Fulfillment API',
     )
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        _logger.info(f"[create]")
-        quants = super().create(vals_list)
-        for vals, quant in zip(vals_list, quants):
-            quant._log_fulfillment_event(is_create=True)
-        return quants
+    is_external_fulfillment_stock = fields.Boolean(
+        string='External Fulfillment Stock',
+        compute='_compute_is_external_fulfillment_stock',
+        help='True when this quant belongs to a fulfillment partner warehouse '
+             'that is not owned by this Odoo instance. '
+             'Quantity can only be updated via API import, not manually.',
+    )
 
-
-    @api.model
-    def _update_reserved_quantity(self, product_id, location_id, quantity, lot_id=None,
-                                  package_id=None, owner_id=None, strict=True):
-        """Push reservation changes to the Fulfillment API after Odoo updates reserved_quantity."""
-        result = super()._update_reserved_quantity(
-            product_id, location_id, quantity,
-            lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=strict,
-        )
-
-        if self.env.context.get('skip_fulfillment_push'):
-            return result
-
-        quant = self.env['stock.quant'].search([
-            ('product_id', '=', product_id.id),
-            ('location_id', '=', location_id.id),
-        ], limit=1)
-
-        if quant and quant.fulfillment_stock_id:
+    @api.depends('location_id')
+    def _compute_is_external_fulfillment_stock(self):
+        for quant in self:
             warehouse = self.env['stock.warehouse'].search([
                 '|',
-                ('lot_stock_id', '=', location_id.id),
-                ('view_location_id', 'parent_of', location_id.id),
+                ('lot_stock_id', '=', quant.location_id.id),
+                ('view_location_id', 'parent_of', quant.location_id.id),
             ], limit=1)
-            if quant._is_local_warehouse(warehouse):
-                try:
-                    quant._sync_fulfillment_stock_update()
-                except Exception as e:
-                    _logger.warning('[FULFILLMENT][RESERVE] Failed to sync reserved_quantity: %s', e)
-
-        return result
-
-    def _update_available_quantity(self, product, location, quantity=None, **kwargs):
-        _logger.info(f"[_update_available_quantity]")
-        result = super()._update_available_quantity(product, location, quantity=quantity, **kwargs)
-
-        quant = self.env['stock.quant'].search([
-            ('product_id', '=', product.id),
-            ('location_id', '=', location.id)
-        ], limit=1)
-
-        if not quant:
-            return result
-
-        real_qty = quant.quantity or 0.0
-        reserved_qty = quant.reserved_quantity or 0.0
-
-        quant._log_fulfillment_event(is_create=not bool(quant.fulfillment_stock_id))
-
-        if not quant.fulfillment_stock_id:
-            _logger.info("[FULFILLMENT][STOCK] Нет ID → создаём через API (qty=%.2f)", real_qty)
-            quant._sync_fulfillment_stock_create(
-                input_quantity=real_qty,
-                input_reserved=reserved_qty,
+            quant.is_external_fulfillment_stock = (
+                bool(warehouse)
+                and bool(warehouse.fulfillment_warehouse_id)
+                and not quant._is_local_warehouse(warehouse)
             )
-        else:
-            _logger.info("[FULFILLMENT][STOCK] Есть ID → обновляем через API (qty=%.2f)", real_qty)
-            quant._sync_fulfillment_stock_update()
-
-        return result
-
-
-    def import_stock(self, filters=None):
-        _logger.info(f"[import_stock]")
-
-        try:
-            profile = self.env['fulfillment.profile'].search([], limit=1)
-            if not profile:
-                _logger.error("[FULFILLMENT][IMPORT] Не найден профиль fulfillment.profile")
-                return False
-
-            client = FulfillmentAPIClient(profile)
-
-            payload = {
-                "filters": filters or {},
-                "group_by": ["warehouse_id", "product_id", "location_id"],
-                "include_reserved": False,
-            }
-
-            _logger.info("[FULFILLMENT][IMPORT] Payload → %s", payload)
-
-            response = client.stock.get(payload)
-            _logger.info("[FULFILLMENT][IMPORT] Response → %s", response)
-
-            if not response or response.get("status") != "success":
-                _logger.warning("[FULFILLMENT][IMPORT] Ошибка: %s", response)
-                return False
-
-            data_list = response.get("data", [])
-            _logger.info("[FULFILLMENT][IMPORT] Получено записей: %d", len(data_list))
-            
-            self._sync_fulfillment_locations(data_list)
-
-            for item in data_list:
-                product_ext_id = item.get("product_id")
-                warehouse_ext_id = item.get("warehouse_id")
-                location_ext_id = item.get("location_id")
-                qty = float(item.get("_sum", {}).get("quantity", 0.0))
-                available = float(item.get("_sum", {}).get("available", 0.0))
-
-                product = self.env['product.product'].search([
-                    ('fulfillment_product_id', '=', product_ext_id)
-                ], limit=1)
-
-
-                location = self.env['stock.location'].search([
-                    ('fulfillment_location_id', '=', location_ext_id)
-                ], limit=1)
-
-
-                if not product or not location:
-                    _logger.warning(
-                        "[FULFILLMENT][IMPORT] Пропуск: нет product/location (%s / %s)",
-                        product_ext_id, location_ext_id
-                    )
-                    continue
-
-                quant = self.search([
-                    ('product_id', '=', product.id),
-                    ('location_id', '=', location.id)
-                ], limit=1)
-
-                if quant:
-                    quant.write({
-                        'quantity': qty,
-                        'reserved_quantity': qty - available if qty > available else 0.0,
-                    })
-                    _logger.info(
-                        "[FULFILLMENT][IMPORT] Обновлён квант: %s (%s) qty=%.2f",
-                        product.display_name, location.display_name, qty
-                    )
-                else:
-                    new_quant = self.create({
-                        'product_id': product.id,
-                        'location_id': location.id,
-                        'quantity': qty,
-                        'reserved_quantity': qty - available if qty > available else 0.0,
-                        'fulfillment_stock_id': None, 
-                    })
-                    _logger.info(
-                        "[FULFILLMENT][IMPORT] Создан новый квант: %s (%s) qty=%.2f",
-                        new_quant.product_id.display_name,
-                        new_quant.location_id.display_name,
-                        qty
-                    )
-
-            _logger.info("[FULFILLMENT][IMPORT] Импорт завершён успешно")
-            return True
-
-        except Exception as e:
-            _logger.exception("[FULFILLMENT][IMPORT] Ошибка при импорте остатков: %s", e)
-            return False
-
-
-    def _sync_fulfillment_locations(self, data_list):
-        _logger.info(f"[_sync_fulfillment_locations]")
-        
-        for item in data_list:
-            warehouse_ext_id = item.get("warehouse_id")
-            warehouse_name = item.get("warehouse_name") or "Без имени"
-            location_ext_id = item.get("location_id")
-            location_name = item.get("location_name") or "Stock"
-
-            # Склад
-            warehouse = self.env['stock.warehouse'].search([
-                ('fulfillment_warehouse_id', '=', warehouse_ext_id)
-            ], limit=1)
-            if not warehouse:
-                stock_location = self.env['stock.location'].create({'name': 'Stock'})
-                warehouse = self.env['stock.warehouse'].create({
-                    'name': warehouse_name,
-                    'code': warehouse_name,
-                    'lot_stock_id': stock_location.id,
-                    'fulfillment_warehouse_id': warehouse_ext_id
-                })
-                _logger.info(f"[SYNC] Создан склад: {warehouse.name} ({warehouse_ext_id})")
-
-            # Локация
-            location = self.env['stock.location'].search([
-                ('fulfillment_location_id', '=', location_ext_id)
-            ], limit=1)
-            if not location:
-                location = self.env['stock.location'].create({
-                    'name': location_name,
-                    'location_id': warehouse.lot_stock_id.id,
-                    'fulfillment_location_id': location_ext_id
-                })
-                _logger.info(f"[SYNC] Создана локация: {location.name} ({location_ext_id})")
-        
-
-    def _sync_fulfillment_stock_update(self):
-        _logger.info(f"[_sync_fulfillment_stock_update]")
-        
-        self.ensure_one()
-
-        if not self.fulfillment_stock_id:
-            _logger.warning("[FULFILLMENT][STOCK UPDATE] Нет fulfillment_stock_id — пропуск")
-            return
-
-        warehouse = self.env['stock.warehouse'].search([
-            '|',
-            ('lot_stock_id', '=', self.location_id.id),
-            ('view_location_id', 'parent_of', self.location_id.id)
-        ], limit=1)
-        if not self._is_local_warehouse(warehouse):
-            _logger.debug(
-                "[FULFILLMENT] Пропущен stock update — склад '%s' принадлежит другому участнику",
-                warehouse.name if warehouse else '?',
-            )
-            return
-
-        try:
-            profile = self.env['fulfillment.profile'].search([], limit=1)
-            client = FulfillmentAPIClient(profile)
-
-            payload = {
-                "quantity": float(self.quantity or 0.0),
-                "reserved": float(self.reserved_quantity or 0.0),
-            }
-
-            if payload["quantity"] == 0 and payload["reserved"] == 0:
-                _logger.info(
-                    "[FULFILLMENT][STOCK UPDATE] Кол-во = 0 → выполняем DELETE для %s",
-                    self.fulfillment_stock_id
-                )
-                return self._sync_fulfillment_stock_delete()
-
-            _logger.info(
-                "[FULFILLMENT][STOCK UPDATE] PUT /stock/%s → %s",
-                self.fulfillment_stock_id, payload
-            )
-
-            response = client.stock.update(self.fulfillment_stock_id, payload)
-            _logger.info("[FULFILLMENT][STOCK UPDATE] Response → %s", response)
-
-            if not response or response.get("status") != "success":
-                _logger.warning("[FULFILLMENT][STOCK UPDATE] Ошибка при обновлении стока: %s", response)
-
-        except Exception as e:
-            _logger.exception("[FULFILLMENT][STOCK UPDATE] Исключение: %s", e)
-
-
-    def _sync_fulfillment_stock_delete(self):
-        _logger.info(f"[_sync_fulfillment_stock_delete]")
-        self.ensure_one()
-
-        if not self.fulfillment_stock_id:
-            _logger.info("[FULFILLMENT][STOCK DELETE] Нет ID — пропуск")
-            return
-
-        try:
-            profile = self.env['fulfillment.profile'].search([], limit=1)
-            client = FulfillmentAPIClient(profile)
-
-            _logger.info(
-                "[FULFILLMENT][STOCK DELETE] DELETE /stock/%s",
-                self.fulfillment_stock_id
-            )
-
-            response = client.stock.delete(self.fulfillment_stock_id)
-            _logger.info("[FULFILLMENT][STOCK DELETE] Response → %s", response)
-
-            if response and response.get("status") == "success":
-                self.fulfillment_stock_id = False
-                _logger.info("[FULFILLMENT][STOCK DELETE] Успешно удалено из внешней системы")
-            else:
-                _logger.warning("[FULFILLMENT][STOCK DELETE] Ошибка удаления: %s", response)
-
-        except Exception as e:
-            _logger.exception("[FULFILLMENT][STOCK DELETE] Ошибка при удалении: %s", e)
-
-
-    def unlink(self):
-        _logger.info(f"[unlink]")
-        for quant in self:
-            try:
-                if quant.fulfillment_stock_id:
-                    _logger.info("[FULFILLMENT][UNLINK] Удаляем внешний сток перед удалением %s", quant.id)
-                    quant._sync_fulfillment_stock_delete()
-            except Exception as e:
-                _logger.warning("[FULFILLMENT][UNLINK] Ошибка при удалении: %s", e)
-
-        return super().unlink()
-
-
-    def _log_fulfillment_event(self, is_create=False):
-        _logger.info(f"[_log_fulfillment_event]")
-        self.ensure_one()
-        if self.fulfillment_stock_id:
-            return
-
-        location = self.location_id
-        if not location:
-            return
-
-        warehouse = self.env['stock.warehouse'].search([
-            '|',
-            ('lot_stock_id', '=', location.id),
-            ('view_location_id', 'parent_of', location.id)
-        ], limit=1)
-
-        if warehouse and warehouse.fulfillment_warehouse_id:
-            action = "Создан" if is_create else "Обновлён"
-            
 
     def _is_local_warehouse(self, warehouse):
-        """
-        Returns True only when this Odoo instance is the owner of *warehouse*.
-        We must not push stock for warehouses that belong to a fulfillment partner
-        (e.g. virtual quants imported from the API) — those would overwrite the
-        partner's own, authoritative stock values.
-        """
-        if not warehouse or not warehouse.fulfillment_warehouse_id:
-            return False
-
+        """Return True if this warehouse is owned/operated by the current Odoo instance."""
+        if not warehouse:
+            return True
         owner = getattr(warehouse, 'fulfillment_owner_id', None)
         if not owner:
-            return True  # no external owner → local warehouse
-
+            return True
         profile = self.env['fulfillment.profile'].search([], limit=1)
         my_id = getattr(profile, 'fulfillment_profile_id', None)
-        owner_id = getattr(owner, 'fulfillment_id', None)
+        owner_fid = getattr(owner, 'fulfillment_id', None)
+        return not my_id or not owner_fid or owner_fid == my_id
 
-        if not my_id or not owner_id:
-            return True  # can't determine ownership → allow push
+    def write(self, vals):
+        """Prevent manual edits to stock quantities for external fulfillment warehouses."""
+        qty_fields = {'quantity', 'reserved_quantity'}
+        if (
+            qty_fields & set(vals.keys())
+            and not self.env.context.get('from_fulfillment_import')
+            and not self.env.context.get('skip_fulfillment_push')
+        ):
+            for quant in self:
+                warehouse = self.env['stock.warehouse'].search([
+                    '|',
+                    ('lot_stock_id', '=', quant.location_id.id),
+                    ('view_location_id', 'parent_of', quant.location_id.id),
+                ], limit=1)
+                if (
+                    warehouse
+                    and warehouse.fulfillment_warehouse_id
+                    and not quant._is_local_warehouse(warehouse)
+                ):
+                    raise UserError(_(
+                        "You cannot manually edit stock quantities for the "
+                        "fulfillment partner warehouse '%s'. "
+                        "Use the Import function to synchronise stock from "
+                        "the fulfillment API.",
+                        warehouse.display_name,
+                    ))
+        return super().write(vals)
 
-        return owner_id == my_id
+    def import_stock(self, filters=None):
+        _logger.info("[import_stock]")
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found")
+            return False
 
-    def _sync_fulfillment_stock_create(self, input_quantity=None, input_reserved=None):
-        _logger.info(f"[_sync_fulfillment_stock_create]")
-        self.ensure_one()
+        if FulfillmentAPIClient is None:
+            _logger.error("[Fulfillment] API client not available")
+            return False
 
-        if self.fulfillment_stock_id:
+        client = FulfillmentAPIClient(profile)
+        try:
+            response = client.stock.list(filters=filters)
+        except Exception as e:
+            _logger.error("[Fulfillment] Error fetching stock: %s", e)
+            return False
+
+        data = response.get('data')
+        if not isinstance(data, list):
+            _logger.warning("[Fulfillment] Invalid stock response: %s", response)
+            return False
+
+        for item in data:
+            try:
+                self._import_stock_item(item)
+            except Exception as e:
+                _logger.error("[Fulfillment] Error importing stock item %s: %s", item, e, exc_info=True)
+                self.env.cr.rollback()
+
+        return True
+
+    def _import_stock_item(self, item):
+        fulfillment_product_id = item.get('product_id')
+        warehouse_id = item.get('warehouse_id')
+        qty = float(item.get('quantity') or 0.0)
+        available = float(item.get('available') or 0.0)
+        stock_id = item.get('id')
+
+        if not fulfillment_product_id or not warehouse_id:
+            _logger.warning("[Fulfillment] Stock item missing product or warehouse: %s", item)
             return
 
-        warehouse = self.env['stock.warehouse'].search([
-            '|',
-            ('lot_stock_id', '=', self.location_id.id),
-            ('view_location_id', 'parent_of', self.location_id.id)
+        product = self.env['product.template'].search(
+            [('fulfillment_product_id', '=', fulfillment_product_id)], limit=1
+        )
+        if not product:
+            _logger.warning("[Fulfillment] Product not found for fulfillment_id %s", fulfillment_product_id)
+            return
+
+        warehouse = self.env['stock.warehouse'].search(
+            [('fulfillment_warehouse_id', '=', warehouse_id)], limit=1
+        )
+        if not warehouse:
+            _logger.warning("[Fulfillment] Warehouse not found for fulfillment_id %s", warehouse_id)
+            return
+
+        location = warehouse.lot_stock_id
+        if not location:
+            _logger.warning("[Fulfillment] Warehouse %s has no stock location", warehouse.name)
+            return
+
+        quant = self.search([
+            ('product_id', '=', product.product_variant_id.id),
+            ('location_id', '=', location.id),
         ], limit=1)
 
-        if not self._is_local_warehouse(warehouse):
-            _logger.debug(
-                "[FULFILLMENT] Пропущен stock push — склад '%s' принадлежит другому участнику",
-                warehouse.name if warehouse else '?',
-            )
-            return
-
-        try:
-            profile = self.env['fulfillment.profile'].search([], limit=1)
-            client = FulfillmentAPIClient(profile)
-
-            qty = input_quantity if input_quantity is not None else (self.quantity or 0.0)
-            reserved = input_reserved if input_reserved is not None else (self.reserved_quantity or 0.0)
-
-            payload = {
-                "product_id": str(self.product_id.fulfillment_product_id),
-                "warehouse_id": warehouse.fulfillment_warehouse_id,
-                "location_id": str(self.location_id.fulfillment_location_id),
-                "quantity": float(qty),
-                "reserved": float(reserved),
-            }
-
-            _logger.info("[FULFILLMENT][STOCK CREATE] Payload → %s", payload)
-
-            response = client.stock.create(payload)
-            _logger.info("[FULFILLMENT][STOCK CREATE] Response → %s", response)
-
-            if response and response.get("status") == "success":
-                data = response.get("data", {})
-
-                self.fulfillment_stock_id = data.get("stock_id")
-
-                _logger.info(
-                    "[FULFILLMENT] Сток успешно создан во внешней системе: id=%s",
-                    self.fulfillment_stock_id,
-                )
-            else:
-                _logger.warning("[FULFILLMENT] Ошибка создания стока: %s", response)
-
-        except Exception as e:
-            _logger.exception("[FULFILLMENT] Ошибка при синхронизации стока: %s", e)
-
-
-
-
+        if quant:
+            quant.with_context(from_fulfillment_import=True).write({
+                'quantity': qty,
+                'reserved_quantity': qty - available if qty > available else 0.0,
+            })
+            _logger.info("[Fulfillment] Updated stock: %s qty=%s", product.name, qty)
+        else:
+            self.with_context(from_fulfillment_import=True).create({
+                'product_id': product.product_variant_id.id,
+                'location_id': location.id,
+                'quantity': qty,
+                'reserved_quantity': qty - available if qty > available else 0.0,
+                'fulfillment_stock_id': stock_id,
+            })
+            _logger.info("[Fulfillment] Created stock: %s qty=%s", product.name, qty)
 
 
 class StockWarehouse(models.Model):
-    _inherit = "stock.warehouse"
+    _inherit = 'stock.warehouse'
 
     def name_get(self):
-        result = super().name_get()
-        new_result = []
-
-        product_id = self.env.context.get('product_id')
-        product = None
-
-        if product_id:
-            product = self.env['product.product'].browse(product_id)
-
-        for rec_id, name in result:
-            rec = self.browse(rec_id)
-
-            if product:
-                qty = product.with_context(
-                    location=rec.lot_stock_id.id
-                ).qty_available
-
-                name = f"{name} ({int(qty)}"
-
-            new_result.append((rec_id, name))
-
-        return new_result
-
+        result = []
+        for wh in self:
+            name = wh.name
+            if wh.fulfillment_warehouse_id:
+                name = f"[F] {name}"
+            result.append((wh.id, name))
+        return result
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
-
-        result = super().name_search(
-            name=name,
-            args=args,
-            operator=operator,
-            limit=limit,
-        )
-
-        new_result = []
-
-        product_id = self.env.context.get('product_id')
-        product = None
-
-        if product_id:
-            product = self.env['product.product'].browse(product_id)
-
-        for rec_id, display_name in result:
-            rec = self.browse(rec_id)
-
-            if product:
-                qty = product.with_context(
-                    location=rec.lot_stock_id.id
-                ).qty_available
-
-                display_name = f"{display_name} ({int(qty)})"
-
-            new_result.append((rec_id, display_name))
-
-        return new_result
+        if name.startswith('[F] '):
+            name = name[4:]
+        return super().name_search(name=name, args=args, operator=operator, limit=limit)

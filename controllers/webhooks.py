@@ -194,6 +194,53 @@ class FulfillmentWebhookController(http.Controller):
         )
 
     @http.route(
+        '/fulfillment/webhook/transfer/status',
+        type='json',
+        auth='public',
+        methods=['POST'],
+        csrf=False,
+    )
+    def transfer_status_webhook(self, **kwargs):
+        """
+        Dedicated webhook for transfer status changes from the Fulfillment API.
+        Called when the fulfillment center validates receipt of goods (status → done).
+
+        This route always runs regardless of the allow_auto_import setting —
+        delivery status tracking is a core feature, not an optional import.
+
+        Payload schema:
+            {
+                "transfer_id": "<uuid>",
+                "status":      "done" | "draft" | "confirmed" | "assigned" | "cancel",
+                "fulfillment_id": "<uuid>",   # optional: which side triggered it
+            }
+        """
+        data = request.get_json_data() or {}
+        transfer_id = data.get('transfer_id')
+        status = data.get('status')
+
+        _logger.info(
+            '[Webhook][transfer/status] transfer_id=%s status=%s',
+            transfer_id, status,
+        )
+
+        if not transfer_id or not status:
+            return {'status': 'error', 'reason': 'missing transfer_id or status'}
+
+        env = request.env
+        profile = env['fulfillment.profile'].sudo().search([], limit=1)
+        if not profile:
+            _logger.warning('[Webhook][transfer/status] No fulfillment profile configured')
+            return {'status': 'error', 'reason': 'no_profile'}
+
+        try:
+            _update_transfer_delivery_status(env, transfer_id, status)
+        except Exception:
+            _logger.exception('[Webhook][transfer/status] Handler raised for %s', transfer_id)
+
+        return {'status': 'ok'}
+
+    @http.route(
         '/fulfillment/webhook/sync',
         type='json',
         auth='public',
@@ -242,6 +289,16 @@ class FulfillmentWebhookController(http.Controller):
             _logger.warning('[Webhook] No fulfillment profile configured')
             return {'status': 'error', 'reason': 'no_profile'}
 
+        # Transfer delivery status is always updated, even if auto-import is off.
+        # This ensures merchants always see whether fulfillment received their goods.
+        if resource == 'transfer':
+            transfer_id = data.get('transfer_id')
+            if transfer_id:
+                try:
+                    _update_transfer_delivery_status(env, transfer_id, status=None, profile=profile)
+                except Exception:
+                    _logger.exception('[Webhook][sync] Delivery status update raised for %s', transfer_id)
+
         if not profile.allow_auto_import:
             return {'status': 'disabled'}
 
@@ -262,6 +319,68 @@ class FulfillmentWebhookController(http.Controller):
 # Resource handlers
 # Each receives (env, profile, payload_dict) and returns nothing.
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _update_transfer_delivery_status(env, transfer_id, status=None, profile=None):
+    """Update fulfillment_delivery_status on a local picking when the remote
+    transfer status changes.
+
+    This runs independently of allow_auto_import so that merchants always see
+    whether the fulfillment center has received their goods.
+
+    If `status` is None the current status is fetched from the API.
+    If `status` == 'done' and the local picking has fulfillment_delivery_status
+    == 'delivering', it is upgraded to 'delivered'.
+    """
+    picking = env['stock.picking'].sudo().search(
+        [('fulfillment_transfer_id', '=', transfer_id)], limit=1
+    )
+    if not picking:
+        _logger.debug(
+            '[DeliveryStatus] Local picking not found for transfer %s — skipping',
+            transfer_id,
+        )
+        return
+
+    if status is None:
+        if not profile:
+            profile = env['fulfillment.profile'].sudo().search([], limit=1)
+        if not profile:
+            return
+        try:
+            from ..lib.api_client import FulfillmentAPIClient
+            client = FulfillmentAPIClient(profile)
+            response = client.transfer.get(transfer_id)
+            data = response.get('data') or {}
+            status = data.get('status')
+        except Exception as exc:
+            _logger.warning(
+                '[DeliveryStatus] Could not fetch transfer %s from API: %s',
+                transfer_id, exc,
+            )
+            return
+
+    _logger.info(
+        '[DeliveryStatus] transfer=%s status=%s picking=%s delivery_status=%s',
+        transfer_id, status, picking.name, picking.fulfillment_delivery_status,
+    )
+
+    if status == 'done' and picking.fulfillment_delivery_status == 'delivering':
+        picking.with_context(skip_fulfillment_push=True).write(
+            {'fulfillment_delivery_status': 'delivered'}
+        )
+        _logger.info(
+            '[DeliveryStatus] Set delivered for picking %s (transfer %s)',
+            picking.name, transfer_id,
+        )
+    elif status == 'cancel' and picking.fulfillment_delivery_status == 'delivering':
+        picking.with_context(skip_fulfillment_push=True).write(
+            {'fulfillment_delivery_status': False}
+        )
+        _logger.info(
+            '[DeliveryStatus] Cleared delivery status for cancelled transfer %s',
+            transfer_id,
+        )
+
 
 def _handle_transfer(env, profile, data):
     """Fetch the single updated transfer and import it."""

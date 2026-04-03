@@ -1,26 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <!-- === FORM VIEW EXTENSION === -->
-  <record id="view_stock_quant_form_editable_inherit_fulfillment" model="ir.ui.view">
-    <field name="name">stock.quant.form.editable.fulfillment_stock_id</field>
-    <field name="model">stock.quant</field>
-    <field name="inherit_id" ref="stock.view_stock_quant_form_editable"/>
-    <field name="arch" type="xml">
-      <!-- вставляем после product_id -->
-      <xpath expr="//field[@name='location_id']" position="after">
-        <field name="fulfillment_stock_id"/>
-      </xpath>
-    </field>
-  </record>
+    <data>
+        <!-- Make quantity fields readonly for external fulfillment warehouse stock.
+             Users must use Import to sync quantities from the Fulfillment API. -->
+        <record id="view_stock_quant_form_editable_inherit_fulfillment" model="ir.ui.view">
+            <field name="name">stock.quant.form.editable.inherit.fulfillment</field>
+            <field name="model">stock.quant</field>
+            <field name="inherit_id" ref="stock.view_stock_quant_form_editable"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='quantity']" position="attributes">
+                    <attribute name="readonly">is_external_fulfillment_stock</attribute>
+                </xpath>
+                <xpath expr="//field[@name='quantity']" position="before">
+                    <field name="is_external_fulfillment_stock" invisible="1"/>
+                    <field name="fulfillment_stock_id" invisible="1"/>
+                </xpath>
+            </field>
+        </record>
 
-  <!-- === TREE VIEW EXTENSION === -->
-  <record id="view_stock_quant_tree_inherit_fulfillment" model="ir.ui.view">
-    <field name="name">stock.quant.tree.fulfillment_stock_id</field>
-    <field name="model">stock.quant</field>
-    <field name="inherit_id" ref="stock.view_stock_quant_tree"/>
-    <field name="arch" type="xml">
-      <xpath expr="//field[@name='location_id']" position="after">
-        <field name="fulfillment_stock_id"/>
-      </xpath>
-    </field>
-  </record>
+        <!-- Mark external fulfillment stock rows in the quant tree view -->
+        <record id="view_stock_quant_tree_inherit_fulfillment" model="ir.ui.view">
+            <field name="name">stock.quant.tree.inherit.fulfillment</field>
+            <field name="model">stock.quant</field>
+            <field name="inherit_id" ref="stock.view_stock_quant_tree_editable"/>
+            <field name="arch" type="xml">
+                <xpath expr="//list" position="attributes">
+                    <attribute name="decoration-muted">is_external_fulfillment_stock</attribute>
+                </xpath>
+                <xpath expr="//field[@name='inventory_quantity_auto_apply']" position="before">
+                    <field name="is_external_fulfillment_stock" column_invisible="1"/>
+                    <field name="fulfillment_stock_id" column_invisible="1"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
 </odoo>

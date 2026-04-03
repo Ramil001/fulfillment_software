@@ -1,19 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-  <record id="view_transfers_form_inherit_fulfillment" model="ir.ui.view">
-    <field name="name">stock.picking.form.inherit.fulfillment</field>
-    <field name="model">stock.picking</field>
-    <field name="inherit_id" ref="stock.view_picking_form"/>
-    <field name="arch" type="xml">
-      <xpath expr="//sheet/notebook" position="inside">
-        <page string="Fulfillment Software">
-          <group>
-            <field name="fulfillment_transfer_id"/>
-            <field name="fulfillment_transfer_owner_id"/>
-          </group>
-        </page>
-      </xpath>
-    
-    </field>
-  </record>
+    <data>
+        <!-- Extend stock.picking form: show Fulfillment receipt status badge in header
+             and a dedicated Fulfillment Delivery Status block in the Fulfillment page.
+             The delivery status lifecycle:
+               "Sent to fulfillment (awaiting confirmation)"  — set when handler validates the transfer
+               "Received by fulfillment"                      — set when fulfillment center validates receipt -->
+        <record id="view_transfers_form_inherit_fulfillment" model="ir.ui.view">
+            <field name="name">stock.picking.form.inherit.fulfillment</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form"/>
+            <field name="arch" type="xml">
+                <!-- Banner above the tabs: always visible when goods are tracked to a fulfillment center -->
+                <xpath expr="//sheet/notebook" position="before">
+                    <div class="alert alert-warning mb-0 d-flex align-items-center gap-2"
+                         invisible="fulfillment_delivery_status != 'delivering'"
+                         style="border-radius:6px; font-size:14px;">
+                        <i class="fa fa-truck fa-lg"/>
+                        <span><b>Sent to fulfillment</b> — awaiting confirmation from the fulfillment center.</span>
+                        <field name="fulfillment_delivery_status" invisible="1"/>
+                    </div>
+                    <div class="alert alert-success mb-0 d-flex align-items-center gap-2"
+                         invisible="fulfillment_delivery_status != 'delivered'"
+                         style="border-radius:6px; font-size:14px;">
+                        <i class="fa fa-check-circle fa-lg"/>
+                        <span><b>Received by fulfillment</b> — the fulfillment center confirmed receipt of the goods.</span>
+                        <field name="fulfillment_delivery_status" invisible="1"/>
+                    </div>
+                </xpath>
+                <xpath expr="//sheet/notebook" position="inside">
+                    <page string="Fulfillment Software">
+                        <group string="Fulfillment Transfer">
+                            <field name="fulfillment_transfer_id"/>
+                            <field name="fulfillment_transfer_owner_id"/>
+                            <field name="fulfillment_transfer_out_id"/>
+                        </group>
+                    </page>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- Extend stock.picking list: add Fulfillment receipt status column (shown by default) -->
+        <record id="view_picking_list_inherit_fulfillment_status" model="ir.ui.view">
+            <field name="name">view_picking_list_inherit_fulfillment_status</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.vpicktree"/>
+            <field name="arch" type="xml">
+                <xpath expr="//list/field[@name='state']" position="after">
+                    <field name="fulfillment_delivery_status"
+                           optional="show"
+                           widget="badge"
+                           decoration-warning="fulfillment_delivery_status == 'delivering'"
+                           decoration-success="fulfillment_delivery_status == 'delivered'"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
 </odoo>
