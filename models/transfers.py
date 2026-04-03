@@ -561,15 +561,33 @@ class FulfillmentTransfers(models.Model):
         elif self.picking_type_code == 'outgoing':
             src_wh = self.picking_type_id.warehouse_id
             warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
+            # fulfillment_out = who sends (us / warehouse owner)
             fulfillment_out = (
                 src_wh.fulfillment_owner_id.fulfillment_id
                 if src_wh and src_wh.fulfillment_owner_id
                 else my_fulfillment_id
             )
-            fulfillment_in = my_fulfillment_id
+            # fulfillment_in = who receives: the fulfillment partner linked to the dest location
+            dest_wh = self.env['stock.warehouse'].search([
+                '|',
+                ('lot_stock_id', '=', self.location_dest_id.id),
+                ('view_location_id', 'parent_of', self.location_dest_id.id),
+            ], limit=1)
+            if dest_wh and dest_wh.fulfillment_owner_id and dest_wh.fulfillment_owner_id.fulfillment_id:
+                fulfillment_in = dest_wh.fulfillment_owner_id.fulfillment_id
+            elif dest_wh and dest_wh.fulfillment_warehouse_id:
+                # warehouse belongs to a partner but owner not set — try linked partner
+                linked_fp = self.env['fulfillment.partners'].search(
+                    [('fulfillment_warehouse_id', '=', dest_wh.fulfillment_warehouse_id)], limit=1
+                )
+                fulfillment_in = linked_fp.fulfillment_id if linked_fp else my_fulfillment_id
+            else:
+                fulfillment_in = my_fulfillment_id
             _logger.info(
-                "[RESOLVE][OUTGOING] src_wh=%s fwh_id=%s fulfillment_out=%s fulfillment_in=%s",
-                src_wh.name if src_wh else None, warehouse_out_id, fulfillment_out, fulfillment_in,
+                "[RESOLVE][OUTGOING] src_wh=%s dest_wh=%s fwh_id=%s fulfillment_out=%s fulfillment_in=%s",
+                src_wh.name if src_wh else None,
+                dest_wh.name if dest_wh else None,
+                warehouse_out_id, fulfillment_out, fulfillment_in,
             )
         elif self.picking_type_code == 'internal':
             src_wh = self.env['stock.warehouse'].search(
