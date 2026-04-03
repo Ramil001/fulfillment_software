@@ -917,12 +917,30 @@ class FulfillmentTransfers(models.Model):
     def _map_type(self, transfer, current_picking=None):
         _logger.info("[_map_type]")
         tr_type = transfer.get("transfer_type") or transfer.get("type")
-        type_map = {"incoming": "incoming", "outgoing": "outgoing", "internal": "internal"}
-        if tr_type in type_map:
-            op_code = type_map[tr_type]
+
+        # Determine the operation type from the perspective of THIS Odoo instance.
+        # The API stores transfer_type from the sender's point of view (outgoing).
+        # When we are the receiver (fulfillment_in == my fulfillment_id), the same
+        # transfer must be imported as "incoming" so stock lands in our warehouse.
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        my_id = profile.fulfillment_profile_id if profile else None
+        fulfillment_in = transfer.get("fulfillment_in")
+        fulfillment_out = transfer.get("fulfillment_out")
+
+        if tr_type == "outgoing" and my_id and fulfillment_in == my_id:
+            # Sender pushed an outgoing; we are the destination → incoming for us
+            op_code = "incoming"
+        elif tr_type == "incoming" and my_id and fulfillment_out == my_id:
+            # Sender pushed an incoming (they receive from us); we are the source → outgoing for us
+            op_code = "outgoing"
+        elif tr_type == "internal":
+            op_code = "internal"
+        elif tr_type in ("incoming", "outgoing", "internal"):
+            op_code = tr_type
         else:
             if current_picking:
                 return current_picking.picking_type_id.id
             return False
+
         op_type = self.env["stock.picking.type"].search([("code", "=", op_code)], limit=1)
         return op_type.id if op_type else (current_picking.picking_type_id.id if current_picking else False)
