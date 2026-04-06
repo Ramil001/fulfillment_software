@@ -6,8 +6,12 @@ from datetime import datetime
 
 _logger = logging.getLogger(__name__)
 
-class FulfillmentLocations(models.Model):
-    _inherit = 'stock.location'
+_ICONS = ('📦 ', '🔑 ', '🏠 ', '🟢 ', '🔵 ', '🟠 ')
+
+
+class StockLocation(models.Model):
+    _inherit = "stock.location"
+
     fulfillment_location_id = fields.Char(
         string='Fulfillment Location ID',
         help='External location ID from Fulfillment system',
@@ -15,23 +19,34 @@ class FulfillmentLocations(models.Model):
         copy=False,
         readonly=True,
     )
-    
-    
-    from odoo import models
 
-class StockLocation(models.Model):
-    _inherit = "stock.location"
-
-   
+    def _get_fulfillment_icon(self):
+        """Return an icon prefix if this location belongs to a fulfillment warehouse."""
+        warehouse = self.env['stock.warehouse'].search([
+            ('view_location_id', 'parent_of', self.id),
+        ], limit=1)
+        if not warehouse or not warehouse.fulfillment_warehouse_id:
+            return ''
+        role = warehouse.warehouse_role or 'own'
+        return {'rented': '📦', 'leased_out': '🔑', 'own': '🏠'}.get(role, '📦')
 
     def name_get(self):
+        # Call Odoo's base name_get directly (skip any other inherited overrides
+        # from this module that may have already added icons).
         result = super().name_get()
         new_result = []
-
         for rec_id, name in result:
-            rec = self.browse(rec_id)
+            # Strip any icon that a previous override may have added
+            for icon in _ICONS:
+                if name.startswith(icon):
+                    name = name[len(icon):]
+                    break
 
-            if rec.usage == 'internal':
+            rec = self.browse(rec_id)
+            ff_icon = rec._get_fulfillment_icon()
+            if ff_icon:
+                name = f"{ff_icon} {name}"
+            elif rec.usage == 'internal':
                 name = "🟢 " + name
             elif rec.usage == 'fulfillment':
                 name = "🔵 " + name
@@ -39,13 +54,19 @@ class StockLocation(models.Model):
                 name = "🟠 " + name
 
             new_result.append((rec_id, name))
-
         return new_result
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
+        # Strip any leading icon so search still works
+        stripped = name
+        for icon in _ICONS:
+            if stripped.startswith(icon):
+                stripped = stripped[len(icon):]
+                break
+
         result = super().name_search(
-            name=name,
+            name=stripped,
             args=args,
             operator=operator,
             limit=limit,
@@ -53,9 +74,16 @@ class StockLocation(models.Model):
 
         new_result = []
         for rec_id, display_name in result:
-            rec = self.browse(rec_id)
+            for icon in _ICONS:
+                if display_name.startswith(icon):
+                    display_name = display_name[len(icon):]
+                    break
 
-            if rec.usage == 'internal':
+            rec = self.browse(rec_id)
+            ff_icon = rec._get_fulfillment_icon()
+            if ff_icon:
+                display_name = f"{ff_icon} {display_name}"
+            elif rec.usage == 'internal':
                 display_name = "🟢 " + display_name
             elif rec.usage == 'customer':
                 display_name = "🔵 " + display_name
@@ -65,8 +93,7 @@ class StockLocation(models.Model):
             new_result.append((rec_id, display_name))
 
         return new_result
-    
-    
+
     # =============================
     # CREATE
     # =============================
@@ -93,7 +120,6 @@ class StockLocation(models.Model):
                     response = api.create(payload)
                     _logger.info(f"[create] {payload}")
                     data = response.get('data', {}) if response else {}
-                    
                     _logger.info(f"[create] {data}")
                     if data.get('id'):
                         rec.with_context(skip_api_sync=True).write({
@@ -129,10 +155,10 @@ class StockLocation(models.Model):
         return records
 
     # =============================
-    # WRITE (обновление)
+    # WRITE
     # =============================
     def write(self, vals):
-        _logger.info(f"[write]")        
+        _logger.info(f"[write]")
         res = super().write(vals)
         if self.env.context.get('skip_api_sync'):
             return res
@@ -171,7 +197,7 @@ class StockLocation(models.Model):
         return res
 
     # =============================
-    # UNLINK (удаление)
+    # UNLINK
     # =============================
     def unlink(self):
         _logger.info(f"[unlink]")

@@ -549,6 +549,70 @@ class FulfillmentTransfers(models.Model):
         warehouse_in_id = None
         fulfillment_out = None
         fulfillment_in = None
+
+        op_type = self.picking_type_id.fulfillment_operation_type if self.picking_type_id else None
+        fp = self.picking_type_id.fulfillment_partner_id if self.picking_type_id else None
+
+        # ── Fast path: operation type is explicitly marked for fulfillment ──────────
+        if op_type == 'send_to_fulfillment':
+            # Our warehouse → fulfillment partner warehouse
+            src_wh = self.picking_type_id.warehouse_id
+            dest_wh = self.env['stock.warehouse'].search([
+                '|',
+                ('lot_stock_id', '=', self.location_dest_id.id),
+                ('view_location_id', 'parent_of', self.location_dest_id.id),
+            ], limit=1)
+            warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
+            warehouse_in_id = dest_wh.fulfillment_warehouse_id if dest_wh else None
+            fulfillment_out = my_fulfillment_id
+            fulfillment_in = (
+                (fp.fulfillment_id if fp else None)
+                or (dest_wh.fulfillment_owner_id.fulfillment_id if dest_wh and dest_wh.fulfillment_owner_id else None)
+            )
+            if not warehouse_out_id and my_fulfillment_id:
+                own_wh = self.env['stock.warehouse'].with_context(active_test=False).search(
+                    [('fulfillment_owner_id.fulfillment_id', '=', my_fulfillment_id),
+                     ('fulfillment_warehouse_id', '!=', False)],
+                    limit=1,
+                )
+                if own_wh:
+                    warehouse_out_id = own_wh.fulfillment_warehouse_id
+            _logger.info(
+                "[RESOLVE][SEND_TO_FULFILLMENT] wh_out=%s wh_in=%s ff_out=%s ff_in=%s",
+                warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in,
+            )
+            return warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in
+
+        if op_type == 'request_from_fulfillment':
+            # Fulfillment partner warehouse → our warehouse
+            src_wh = self.env['stock.warehouse'].search([
+                '|',
+                ('lot_stock_id', '=', self.location_id.id),
+                ('view_location_id', 'parent_of', self.location_id.id),
+            ], limit=1)
+            dest_wh = self.picking_type_id.warehouse_id
+            warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
+            warehouse_in_id = dest_wh.fulfillment_warehouse_id if dest_wh else None
+            fulfillment_out = (
+                (fp.fulfillment_id if fp else None)
+                or (src_wh.fulfillment_owner_id.fulfillment_id if src_wh and src_wh.fulfillment_owner_id else None)
+            )
+            fulfillment_in = my_fulfillment_id
+            if not warehouse_in_id and my_fulfillment_id:
+                own_wh = self.env['stock.warehouse'].with_context(active_test=False).search(
+                    [('fulfillment_owner_id.fulfillment_id', '=', my_fulfillment_id),
+                     ('fulfillment_warehouse_id', '!=', False)],
+                    limit=1,
+                )
+                if own_wh:
+                    warehouse_in_id = own_wh.fulfillment_warehouse_id
+            _logger.info(
+                "[RESOLVE][REQUEST_FROM_FULFILLMENT] wh_out=%s wh_in=%s ff_out=%s ff_in=%s",
+                warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in,
+            )
+            return warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in
+
+        # ── Legacy fallback: resolve by picking_type_code and locations ────────────
         partner = self.partner_id if getattr(self, "partner_id", False) else None
         if self.picking_type_code == 'incoming':
             warehouse_out_id = getattr(partner, "fulfillment_warehouse_id", None)
@@ -561,13 +625,25 @@ class FulfillmentTransfers(models.Model):
         elif self.picking_type_code == 'outgoing':
             src_wh = self.picking_type_id.warehouse_id
             warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
-            # fulfillment_out = who sends (us / warehouse owner)
             fulfillment_out = (
                 src_wh.fulfillment_owner_id.fulfillment_id
                 if src_wh and src_wh.fulfillment_owner_id
                 else my_fulfillment_id
             )
-            # fulfillment_in = who receives: the fulfillment partner linked to the dest location
+            if not warehouse_out_id and my_fulfillment_id:
+                my_fp = self.env['fulfillment.partners'].search(
+                    [('fulfillment_id', '=', my_fulfillment_id)], limit=1
+                )
+                fallback_wh = self.env['stock.warehouse'].with_context(active_test=False).search(
+                    [('fulfillment_owner_id', '=', my_fp.id), ('fulfillment_warehouse_id', '!=', False)],
+                    limit=1
+                )
+                if fallback_wh:
+                    warehouse_out_id = fallback_wh.fulfillment_warehouse_id
+                    _logger.info(
+                        "[RESOLVE][OUTGOING] warehouse_out fallback to %s (%s)",
+                        fallback_wh.name, warehouse_out_id,
+                    )
             dest_wh = self.env['stock.warehouse'].search([
                 '|',
                 ('lot_stock_id', '=', self.location_dest_id.id),
@@ -576,18 +652,19 @@ class FulfillmentTransfers(models.Model):
             if dest_wh and dest_wh.fulfillment_owner_id and dest_wh.fulfillment_owner_id.fulfillment_id:
                 fulfillment_in = dest_wh.fulfillment_owner_id.fulfillment_id
             elif dest_wh and dest_wh.fulfillment_warehouse_id:
-                # warehouse belongs to a partner but owner not set — try linked partner
                 linked_fp = self.env['fulfillment.partners'].search(
                     [('fulfillment_warehouse_id', '=', dest_wh.fulfillment_warehouse_id)], limit=1
                 )
                 fulfillment_in = linked_fp.fulfillment_id if linked_fp else my_fulfillment_id
             else:
                 fulfillment_in = my_fulfillment_id
+            if dest_wh and dest_wh.fulfillment_warehouse_id:
+                warehouse_in_id = dest_wh.fulfillment_warehouse_id
             _logger.info(
-                "[RESOLVE][OUTGOING] src_wh=%s dest_wh=%s fwh_id=%s fulfillment_out=%s fulfillment_in=%s",
+                "[RESOLVE][OUTGOING] src_wh=%s dest_wh=%s warehouse_out=%s warehouse_in=%s fulfillment_out=%s fulfillment_in=%s",
                 src_wh.name if src_wh else None,
                 dest_wh.name if dest_wh else None,
-                warehouse_out_id, fulfillment_out, fulfillment_in,
+                warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in,
             )
         elif self.picking_type_code == 'internal':
             src_wh = self.env['stock.warehouse'].search(

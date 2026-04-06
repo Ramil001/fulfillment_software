@@ -37,9 +37,12 @@
         'data/cron_messages.xml',
         'views/stock_quant_views.xml',
         'views/partner_list_in_warehouse.xml',
-        'views/fulfillment_main.xml',        
+        'views/fulfillment_main.xml',
+        'views/fulfillment_order_views.xml',
+        'views/fulfillment_picking_type.xml',
         'views/menu.xml',                   
     ],
+    'post_init_hook': 'hooks.fulfillment_picking_types.create_fulfillment_picking_types',
     'demo': [
         'demo/demo.xml',
     ],

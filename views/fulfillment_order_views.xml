@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Sequence for auto-numbering -->
+    <record id="seq_fulfillment_order" model="ir.sequence">
+        <field name="name">Fulfillment Order</field>
+        <field name="code">fulfillment.order</field>
+        <field name="prefix">FO/%(year)s/</field>
+        <field name="padding">5</field>
+    </record>
+
+    <!-- Tree / List view -->
+    <record id="view_fulfillment_order_tree" model="ir.ui.view">
+        <field name="name">fulfillment.order.tree</field>
+        <field name="model">fulfillment.order</field>
+        <field name="arch" type="xml">
+            <list string="Fulfillment Orders"
+                  decoration-muted="state == 'cancelled'"
+                  decoration-success="state == 'done'"
+                  decoration-info="state == 'confirmed'">
+                <field name="name"/>
+                <field name="fulfillment_partner_id"/>
+                <field name="source_warehouse_id"/>
+                <field name="dest_warehouse_id"/>
+                <field name="state"/>
+                <field name="picking_state" optional="show"/>
+                <field name="fulfillment_transfer_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_fulfillment_order_form" model="ir.ui.view">
+        <field name="name">fulfillment.order.form</field>
+        <field name="model">fulfillment.order</field>
+        <field name="arch" type="xml">
+            <form string="Fulfillment Order">
+                <header>
+                    <button name="action_confirm"
+                            string="Confirm Order"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_view_picking"
+                            string="View Receipt"
+                            type="object"
+                            invisible="not picking_id"/>
+                    <button name="action_cancel"
+                            string="Cancel"
+                            type="object"
+                            invisible="state in ('done', 'cancelled')"/>
+                    <button name="action_reset_draft"
+                            string="Reset to Draft"
+                            type="object"
+                            invisible="state != 'cancelled'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,confirmed,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Order Info">
+                            <field name="fulfillment_partner_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="source_warehouse_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="dest_warehouse_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                        </group>
+                        <group string="Receipt">
+                            <field name="picking_id" readonly="1" options="{'no_create': True}"/>
+                            <field name="picking_state" readonly="1"/>
+                            <field name="fulfillment_transfer_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Products">
+                            <field name="order_line_ids"
+                                   readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="product_id" options="{'no_create': True}"/>
+                                    <field name="product_uom_qty"/>
+                                    <field name="product_uom" options="{'no_create': True}"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes">
+                            <field name="notes" readonly="state != 'draft'"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_fulfillment_order" model="ir.actions.act_window">
+        <field name="name">Fulfillment Orders</field>
+        <field name="res_model">fulfillment.order</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first Fulfillment Order
+            </p>
+            <p>
+                Request goods to be sent from a fulfillment partner's warehouse to your own warehouse.
+            </p>
+        </field>
+    </record>
+
+</odoo>

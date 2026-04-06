@@ -16,6 +16,11 @@
             action="action_fulfillment_partners"
             sequence="2"/>
         <menuitem
+            id="menu_fulfillment_orders"
+            name="Fulfillment Orders"
+            action="action_fulfillment_order"
+            sequence="3"/>
+        <menuitem
             id="menu_fulfillment_stocks"
             name="Services &amp; Prices"
             action="fulfillment_main"

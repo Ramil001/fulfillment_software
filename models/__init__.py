@@ -19,3 +19,4 @@ from . import messages
 from . import service_catalog
 from . import service_billing
 from . import shipping_carrier
+from . import fulfillment_order

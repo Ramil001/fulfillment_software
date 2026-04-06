@@ -16,14 +16,14 @@
                     <div class="alert alert-warning mb-0 d-flex align-items-center gap-2"
                          invisible="fulfillment_delivery_status != 'delivering'"
                          style="border-radius:6px; font-size:14px;">
-                        <i class="fa fa-truck fa-lg"/>
+                        <i class="fa fa-truck fa-lg" title="In transit"/>
                         <span><b>Sent to fulfillment</b> — awaiting confirmation from the fulfillment center.</span>
                         <field name="fulfillment_delivery_status" invisible="1"/>
                     </div>
                     <div class="alert alert-success mb-0 d-flex align-items-center gap-2"
                          invisible="fulfillment_delivery_status != 'delivered'"
                          style="border-radius:6px; font-size:14px;">
-                        <i class="fa fa-check-circle fa-lg"/>
+                        <i class="fa fa-check-circle fa-lg" title="Received"/>
                         <span><b>Received by fulfillment</b> — the fulfillment center confirmed receipt of the goods.</span>
                         <field name="fulfillment_delivery_status" invisible="1"/>
                     </div>

@@ -37,6 +37,28 @@ class FulfillmentOverrideResPartner(models.Model):
         readonly=True
     )
 
+    def name_get(self):
+        result = super().name_get()
+        new_result = []
+        for rec_id, name in result:
+            rec = self.browse(rec_id)
+            wh = rec.linked_warehouse_id
+            if wh and wh.fulfillment_warehouse_id:
+                role = wh.warehouse_role or 'own'
+                icon = {'rented': '📦', 'leased_out': '🔑', 'own': '🏠'}.get(role, '📦')
+                name = f"{icon} {name}"
+            new_result.append((rec_id, name))
+        return new_result
+
+    @api.model
+    def name_search(self, name='', args=None, operator='ilike', limit=100):
+        stripped = name
+        for icon in ('📦 ', '🔑 ', '🏠 '):
+            if stripped.startswith(icon):
+                stripped = stripped[len(icon):]
+                break
+        return super().name_search(name=stripped, args=args, operator=operator, limit=limit)
+
 
 # ---------- Партнеры ----------
 class FulfillmentPartners(models.Model):

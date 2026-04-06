@@ -10,5 +10,4 @@ class FulfillmentUpdateController(http.Controller):
     def set_updates(self, **kwargs):
         data = request.get_json_data() or {}
         return {"status": "ok", "sent": data}
-    
-    
+

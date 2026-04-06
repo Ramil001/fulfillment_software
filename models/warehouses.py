@@ -30,12 +30,6 @@ class FulfillmentWarehouses(models.Model):
         warehouse_name = partner.name or "(new partner)"
 
         if self.env['fulfillment.utils'].is_partner_fulfillment(partner.id):
-            
-            fulfillment_name = self.env['fulfillment.utils'].get_fulfillment_profile_name()
-
-            client_name = partner.name
-            warehouse_name = f"{client_name} ⮕ {fulfillment_name}"
-
             title = "Fulfillment Warehouse"
             message = f"This partner ({partner.display_name}) is managed via Fulfillment."
             try:
@@ -305,10 +299,18 @@ class FulfillmentWarehouses(models.Model):
             existing = self.search([("fulfillment_warehouse_id", "in", [w.get("id") for w in warehouses])])
             existing_map = {w.fulfillment_warehouse_id: w for w in existing}
 
+            profile_fid = getattr(profile, 'fulfillment_profile_id', None)
+
             for wh in warehouses:
                 try:
                     wh_id = wh.get("id")
                     _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
+
+                    # Skip warehouses that belong to us — they are our own registered warehouses
+                    # (e.g. WH registered via _register_own_warehouses). We don't want to rename them.
+                    if profile_fid and wh.get("fulfillment_id") == profile_fid:
+                        _logger.info("[IMPORT][WAREHOUSE] Skipping own warehouse %s", wh.get("name"))
+                        continue
 
                     warehouse = existing_map.get(wh_id)
 
@@ -319,7 +321,10 @@ class FulfillmentWarehouses(models.Model):
                         code = f"{original_code}_{suffix}"
                         suffix += 1
 
-                    base_name = wh.get("name") or "Warehouse"
+                    # Use the fulfillment partner's name as the warehouse name for clarity.
+                    # The API may return names with arrows (e.g. "Händler ⮕ Fulfillment") which
+                    # are confusing from the handler's perspective. We prefer the partner name.
+                    base_name = fulfillment_partner.partner_id.name or wh.get("name") or "Fulfillment"
                     unique_name = base_name
                     suffix = 1
                     while self.search_count([("name", "=", unique_name), ("id", "!=", warehouse.id if warehouse else 0)]):
@@ -396,10 +401,70 @@ class FulfillmentWarehouses(models.Model):
                 len(warehouses)
             )
 
+            # After importing partner warehouses, register any of our own local
+            # warehouses that are not yet known to the API (e.g. the main "WH").
+            try:
+                self._register_own_warehouses(profile, client)
+            except Exception as e:
+                _logger.exception("[IMPORT][WAREHOUSES] _register_own_warehouses failed: %s", e)
 
         except Exception as e:
             _logger.exception(f"[Logger][Exception]: [IMPORT][WAREHOUSES] Fatal error: {str(e)}")
             self.env.cr.rollback()
+
+    @api.model
+    def _register_own_warehouses(self, profile, client):
+        """Register local warehouses that have no fulfillment_warehouse_id into the API.
+
+        This makes them visible as warehouse_out when the handler sends stock
+        to a fulfillment partner warehouse.
+        """
+        my_fulfillment_id = getattr(profile, 'fulfillment_profile_id', None)
+        if not my_fulfillment_id:
+            _logger.warning("[_register_own_warehouses] No fulfillment_profile_id in profile")
+            return
+
+        my_fp = self.env['fulfillment.partners'].search(
+            [('fulfillment_id', '=', my_fulfillment_id)], limit=1
+        )
+
+        unregistered = self.search([
+            ('fulfillment_warehouse_id', '=', False),
+            ('active', '=', True),
+        ])
+
+        for wh in unregistered:
+            try:
+                _logger.info("[_register_own_warehouses] Registering '%s' in API", wh.name)
+                payload = {
+                    "name": wh.name,
+                    "code": wh.code or wh.name,
+                    "short_name": (wh.code or wh.name or "")[:50].upper(),
+                    "location": (wh.partner_id.city or "") if wh.partner_id else "",
+                    "fulfillment_client_id": my_fulfillment_id,
+                }
+                response = client.warehouse.create(
+                    fulfillment_id=my_fulfillment_id,
+                    payload=payload,
+                )
+                data = response.get("data") or {}
+                api_wh_id = data.get("id")
+                if not api_wh_id:
+                    _logger.warning("[_register_own_warehouses] No id in API response for '%s'", wh.name)
+                    continue
+
+                wh.with_context(skip_api_sync=True, from_fulfillment_import=True).write({
+                    'fulfillment_warehouse_id': api_wh_id,
+                    'fulfillment_owner_id': my_fp.id if my_fp else False,
+                    'fulfillment_client_id': my_fp.id if my_fp else False,
+                    'last_update': datetime.now(),
+                })
+                _logger.info("[_register_own_warehouses] Registered '%s' → %s", wh.name, api_wh_id)
+
+            except FulfillmentAPIError as e:
+                _logger.error("[_register_own_warehouses] API error for '%s': %s", wh.name, e)
+            except Exception as e:
+                _logger.exception("[_register_own_warehouses] Unexpected error for '%s': %s", wh.name, e)
 
     def _is_warehouse_creator(self, warehouse_id):
         _logger.info(f"[_is_warehouse_creator]")

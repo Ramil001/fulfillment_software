@@ -176,20 +176,76 @@ class StockQuant(models.Model):
             _logger.info("[Fulfillment] Created stock: %s qty=%s", product.name, qty)
 
 
+class StockPickingType(models.Model):
+    _inherit = 'stock.picking.type'
+
+    fulfillment_operation_type = fields.Selection([
+        ('send_to_fulfillment', 'Send to Fulfillment'),
+        ('request_from_fulfillment', 'Request from Fulfillment'),
+    ], string='Fulfillment Operation', copy=False,
+       help='Mark this operation type for fulfillment integration.\n'
+            '• Send to Fulfillment: outgoing transfer from your warehouse to a fulfillment partner warehouse.\n'
+            '• Request from Fulfillment: incoming transfer requesting goods from a fulfillment partner warehouse.')
+
+    fulfillment_partner_id = fields.Many2one(
+        'fulfillment.partners',
+        string='Fulfillment Partner',
+        copy=False,
+        help='The fulfillment partner associated with this operation type. '
+             'Used to automatically resolve API warehouse IDs during transfer sync.',
+    )
+
+
 class StockWarehouse(models.Model):
     _inherit = 'stock.warehouse'
 
+    warehouse_role = fields.Selection([
+        ('own', 'Own'),
+        ('rented', 'Rented'),
+        ('leased_out', 'Leased out'),
+    ], string='Warehouse Role', compute='_compute_warehouse_role', store=True,
+       help='Own: local warehouse. Rented: physical space leased from a fulfillment partner. '
+            'Leased out: your warehouse space given to a client.')
+
+    @api.depends('fulfillment_owner_id', 'fulfillment_client_id', 'fulfillment_warehouse_id')
+    def _compute_warehouse_role(self):
+        profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+        my_id = profile.fulfillment_profile_id if profile else None
+        for wh in self:
+            if not wh.fulfillment_warehouse_id:
+                wh.warehouse_role = 'own'
+                continue
+            owner_fid = wh.fulfillment_owner_id.fulfillment_id if wh.fulfillment_owner_id else None
+            client_fid = wh.fulfillment_client_id.fulfillment_id if wh.fulfillment_client_id else None
+            if owner_fid and my_id and owner_fid != my_id:
+                # Owner is someone else — we are renting this space
+                wh.warehouse_role = 'rented'
+            elif client_fid and my_id and client_fid != my_id:
+                # Owner is us, client is someone else — we leased it out
+                wh.warehouse_role = 'leased_out'
+            else:
+                wh.warehouse_role = 'own'
+
     def name_get(self):
+        # Icons: 🏠 own local, 📦 rented from partner, 🔑 leased out to client
+        _icons = {
+            'rented': '📦',
+            'leased_out': '🔑',
+            'own': '🏠',
+        }
         result = []
         for wh in self:
-            name = wh.name
-            if wh.fulfillment_warehouse_id:
-                name = f"[F] {name}"
+            role = wh.warehouse_role or ('own' if not wh.fulfillment_warehouse_id else None)
+            icon = _icons.get(role, '')
+            name = f"{icon} {wh.name}" if icon else wh.name
             result.append((wh.id, name))
         return result
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
-        if name.startswith('[F] '):
-            name = name[4:]
+        # Strip any leading icon + space so search still works
+        for icon in ('📦 ', '🔑 ', '🏠 '):
+            if name.startswith(icon):
+                name = name[len(icon):]
+                break
         return super().name_search(name=name, args=args, operator=operator, limit=limit)
