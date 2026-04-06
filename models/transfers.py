@@ -318,10 +318,6 @@ class FulfillmentTransfers(models.Model):
         res = super(FulfillmentTransfers, self).button_validate()
         for rec in self:
             self._log_state_transition(rec, old_states.get(rec.id), rec.state, "button_validate")
-            # When goods are physically dispatched to a fulfillment center
-            # (outgoing linked to API, or internal to a partner warehouse),
-            # mark the picking so UI shows "Delivering to fulfillment"
-            # until the fulfillment center confirms receipt.
             if rec.state == 'done' and not rec.fulfillment_delivery_status:
                 if rec._is_transfer_to_fulfillment():
                     rec.with_context(skip_fulfillment_push=True).write({
@@ -331,7 +327,24 @@ class FulfillmentTransfers(models.Model):
                         "[Fulfillment] Set fulfillment_delivery_status=delivering for %s (%s)",
                         rec.name, rec.picking_type_code,
                     )
+            # Sync linked FulfillmentOrder state
+            if rec.state == 'done':
+                self._sync_fulfillment_orders(rec)
         return res
+
+    @api.model
+    def _sync_fulfillment_orders(self, picking):
+        """Update FulfillmentOrder state when the linked picking is validated."""
+        orders = self.env['fulfillment.order'].search([
+            ('picking_id', '=', picking.id),
+            ('state', '=', 'confirmed'),
+        ])
+        if orders:
+            orders._sync_state_from_picking()
+            _logger.info(
+                "[Fulfillment] Synced %d FulfillmentOrder(s) from picking %s",
+                len(orders), picking.name,
+            )
 
     def action_done(self):
         _logger.info("[action_done]")

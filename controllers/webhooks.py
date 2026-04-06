@@ -7,7 +7,13 @@ _logger = logging.getLogger(__name__)
 
 
 def _update_transfer_delivery_status(env, transfer_id, status=None, profile=None):
-    """Update fulfillment_delivery_status on a local picking when the API reports a status change."""
+    """Update fulfillment_delivery_status on a local picking when the API reports a status change.
+
+    When the remote partner confirms receipt (status='done'):
+    - marks the picking as 'delivered'
+    - marks linked FulfillmentOrder as 'done'
+    - triggers a stock import to sync quantities
+    """
     picking = env['stock.picking'].sudo().search(
         [('fulfillment_transfer_id', '=', transfer_id)], limit=1
     )
@@ -30,6 +36,28 @@ def _update_transfer_delivery_status(env, transfer_id, status=None, profile=None
             {'fulfillment_delivery_status': 'delivered'}
         )
         _logger.info("[webhook] Transfer %s marked as delivered", transfer_id)
+
+        # Mark linked FulfillmentOrder as done
+        try:
+            orders = env['fulfillment.order'].sudo().search([
+                ('picking_id', '=', picking.id),
+                ('state', '=', 'confirmed'),
+            ])
+            if orders:
+                orders._sync_state_from_picking()
+                _logger.info("[webhook] Synced %d FulfillmentOrder(s) to done", len(orders))
+        except Exception as e:
+            _logger.warning("[webhook] Failed to sync FulfillmentOrder state: %s", e)
+
+        # Re-import stock to reflect the new quantities from the fulfillment partner
+        try:
+            env['stock.quant'].sudo().with_context(
+                skip_fulfillment_push=True, from_fulfillment_import=True
+            ).import_stock()
+            _logger.info("[webhook] Stock re-imported after delivery confirmation for transfer %s", transfer_id)
+        except Exception as e:
+            _logger.warning("[webhook] Stock import failed after delivery: %s", e)
+
     elif status == 'cancel' and picking.fulfillment_delivery_status == 'delivering':
         picking.with_context(skip_fulfillment_push=True).write(
             {'fulfillment_delivery_status': False}

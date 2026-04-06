@@ -68,6 +68,11 @@ class FulfillmentOrder(models.Model):
         help="Your local warehouse where goods will arrive.",
     )
     order_line_ids = fields.One2many("fulfillment.order.line", "order_id", string="Products")
+    line_count = fields.Integer(
+        string="Products",
+        compute="_compute_line_count",
+        store=True,
+    )
 
     picking_id = fields.Many2one("stock.picking", string="Receipt", readonly=True, copy=False)
     picking_state = fields.Selection(related="picking_id.state", string="Receipt Status")
@@ -76,6 +81,11 @@ class FulfillmentOrder(models.Model):
         string="API Transfer ID",
         readonly=True,
     )
+
+    @api.depends("order_line_ids")
+    def _compute_line_count(self):
+        for order in self:
+            order.line_count = len(order.order_line_ids)
 
     notes = fields.Html("Notes")
 
@@ -168,6 +178,21 @@ class FulfillmentOrder(models.Model):
         })
         _logger.info("[FulfillmentOrder] Created picking %s for order %s", picking.name, self.name)
         return picking
+
+    def _sync_state_from_picking(self):
+        """Called when the linked picking changes state. Updates the order state accordingly."""
+        for order in self:
+            if order.state not in ('confirmed',):
+                continue
+            picking = order.picking_id
+            if not picking:
+                continue
+            if picking.state == 'done':
+                order.with_context(skip_fulfillment_push=True).write({'state': 'done'})
+                order.message_post(body=_("Order marked as Done — receipt %s validated.") % picking.name)
+            elif picking.state == 'cancel':
+                order.with_context(skip_fulfillment_push=True).write({'state': 'cancelled'})
+                order.message_post(body=_("Order cancelled — receipt %s was cancelled.") % picking.name)
 
     def action_cancel(self):
         for order in self:

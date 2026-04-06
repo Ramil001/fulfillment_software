@@ -16,15 +16,15 @@
         <field name="arch" type="xml">
             <list string="Fulfillment Orders"
                   decoration-muted="state == 'cancelled'"
-                  decoration-success="state == 'done'"
-                  decoration-info="state == 'confirmed'">
-                <field name="name"/>
-                <field name="fulfillment_partner_id"/>
-                <field name="source_warehouse_id"/>
-                <field name="dest_warehouse_id"/>
-                <field name="state"/>
-                <field name="picking_state" optional="show"/>
-                <field name="fulfillment_transfer_id" optional="hide"/>
+                  decoration-success="state == 'done'">
+                <field name="name" string="Order"/>
+                <field name="fulfillment_partner_id" string="Partner"/>
+                <field name="source_warehouse_id" string="From"/>
+                <field name="dest_warehouse_id" string="To"/>
+                <field name="line_count" string="Products" widget="integer"/>
+                <field name="state" widget="badge" string="Status"/>
+                <field name="picking_state" widget="badge" optional="show" string="Receipt"/>
+                <field name="fulfillment_transfer_id" optional="hide" string="API ID"/>
             </list>
         </field>
     </record>
@@ -42,8 +42,9 @@
                             class="btn-primary"
                             invisible="state != 'draft'"/>
                     <button name="action_view_picking"
-                            string="View Receipt"
+                            string="📋 View Receipt"
                             type="object"
+                            class="btn-secondary"
                             invisible="not picking_id"/>
                     <button name="action_cancel"
                             string="Cancel"
@@ -57,6 +58,24 @@
                            statusbar_visible="draft,confirmed,done"/>
                 </header>
                 <sheet>
+                    <!-- stat buttons -->
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_picking"
+                                type="object"
+                                class="oe_stat_button"
+                                icon="fa-truck"
+                                invisible="not picking_id">
+                            <field name="picking_state" widget="badge"
+                                decoration-secondary="picking_state == 'draft'"
+                                decoration-info="picking_state in ('waiting', 'confirmed', 'assigned')"
+                                decoration-success="picking_state == 'done'"
+                                decoration-danger="picking_state == 'cancel'"
+                                string="Receipt"/>
+                        </button>
+                        <button class="oe_stat_button" icon="fa-cubes" type="object" name="action_view_picking">
+                            <field name="line_count" widget="statinfo" string="Products"/>
+                        </button>
+                    </div>
                     <div class="oe_title">
                         <h1>
                             <field name="name" readonly="1"/>
@@ -76,22 +95,21 @@
                         </group>
                         <group string="Receipt">
                             <field name="picking_id" readonly="1" options="{'no_create': True}"/>
-                            <field name="picking_state" readonly="1"/>
                             <field name="fulfillment_transfer_id" readonly="1"/>
                         </group>
                     </group>
                     <notebook>
-                        <page string="Products">
+                        <page string="Products" name="products">
                             <field name="order_line_ids"
                                    readonly="state != 'draft'">
                                 <list editable="bottom">
                                     <field name="product_id" options="{'no_create': True}"/>
-                                    <field name="product_uom_qty"/>
-                                    <field name="product_uom" options="{'no_create': True}"/>
+                                    <field name="product_uom_qty" string="Qty"/>
+                                    <field name="product_uom" string="Unit" options="{'no_create': True}"/>
                                 </list>
                             </field>
                         </page>
-                        <page string="Notes">
+                        <page string="Notes" name="notes">
                             <field name="notes" readonly="state != 'draft'"/>
                         </page>
                     </notebook>
