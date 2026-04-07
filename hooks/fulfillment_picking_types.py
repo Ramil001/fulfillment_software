@@ -13,8 +13,8 @@ from odoo import api, SUPERUSER_ID
 _logger = logging.getLogger(__name__)
 
 
-def create_fulfillment_picking_types(cr, registry):
-    env = api.Environment(cr, SUPERUSER_ID, {})
+def create_fulfillment_picking_types(env):
+    """Odoo 18 post_init_hook receives env directly."""
     try:
         _create_fulfillment_picking_types(env)
     except Exception as e:
