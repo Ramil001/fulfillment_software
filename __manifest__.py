@@ -42,7 +42,7 @@
         'views/fulfillment_picking_type.xml',
         'views/menu.xml',                   
     ],
-    'post_init_hook': 'hooks.fulfillment_picking_types.create_fulfillment_picking_types',
+    'post_init_hook': 'create_fulfillment_picking_types',
     'demo': [
         'demo/demo.xml',
     ],

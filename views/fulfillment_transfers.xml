@@ -11,7 +11,28 @@
             <field name="model">stock.picking</field>
             <field name="inherit_id" ref="stock.view_picking_form"/>
             <field name="arch" type="xml">
-                <!-- Banner above the tabs: always visible when goods are tracked to a fulfillment center -->
+                <!-- Hidden field to drive visibility -->
+                <xpath expr="//sheet/group" position="before">
+                    <field name="fulfillment_operation_type" invisible="1"/>
+                </xpath>
+                <!-- Filter location fields: hide View-type locations for fulfillment transfers -->
+                <xpath expr="//field[@name='location_id'][@groups='stock.group_stock_multi_locations']" position="attributes">
+                    <attribute name="domain" add="[('usage', '!=', 'view')]" separator=" and "/>
+                </xpath>
+                <xpath expr="//field[@name='location_dest_id'][@groups='stock.group_stock_multi_locations']" position="attributes">
+                    <attribute name="domain" add="[('usage', '!=', 'view')]" separator=" and "/>
+                </xpath>
+                <!-- Fulfillment partner block — visible only for fulfillment operation types -->
+                <xpath expr="//sheet/group" position="after">
+                    <group string="Fulfillment"
+                           invisible="not fulfillment_operation_type">
+                        <field name="fulfillment_partner_id"
+                               options="{'no_create': True}"
+                               required="fulfillment_operation_type != False"/>
+                        <field name="fulfillment_operation_type" readonly="1"/>
+                    </group>
+                </xpath>
+                <!-- Status banners -->
                 <xpath expr="//sheet/notebook" position="before">
                     <div class="alert alert-warning mb-0 d-flex align-items-center gap-2"
                          invisible="fulfillment_delivery_status != 'delivering'"

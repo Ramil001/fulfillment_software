@@ -151,6 +151,48 @@ class FulfillmentTransfers(models.Model):
         ('delivered', 'Received by fulfillment'),
     ], string='Fulfillment Delivery Status', readonly=True, copy=False, index=True)
 
+    # Computed: expose the fulfillment_operation_type of the picking type for use in views
+    fulfillment_operation_type = fields.Selection(
+        related='picking_type_id.fulfillment_operation_type',
+        string='Fulfillment Operation',
+        store=False,
+        readonly=True,
+    )
+
+    @api.onchange('picking_type_id', 'fulfillment_partner_id')
+    def _onchange_fulfillment_picking_type(self):
+        """When a fulfillment operation type is selected, auto-fill locations and partner."""
+        op_type = self.picking_type_id.fulfillment_operation_type if self.picking_type_id else None
+        if not op_type:
+            return
+
+        # Auto-fill fulfillment_partner_id from the picking type if not set
+        if not self.fulfillment_partner_id and self.picking_type_id.fulfillment_partner_id:
+            self.fulfillment_partner_id = self.picking_type_id.fulfillment_partner_id
+
+        fp = self.fulfillment_partner_id
+        if not fp:
+            return
+
+        # Find the partner's warehouse
+        partner_wh = self.env['stock.warehouse'].search([
+            ('fulfillment_owner_id', '=', fp.id),
+            ('fulfillment_warehouse_id', '!=', False),
+        ], limit=1)
+        # Find our own warehouse
+        own_wh = self.picking_type_id.warehouse_id
+
+        if op_type == 'send_to_fulfillment':
+            if own_wh:
+                self.location_id = own_wh.lot_stock_id
+            if partner_wh:
+                self.location_dest_id = partner_wh.lot_stock_id
+        elif op_type == 'request_from_fulfillment':
+            if partner_wh:
+                self.location_id = partner_wh.lot_stock_id
+            if own_wh:
+                self.location_dest_id = own_wh.lot_stock_id
+
     def _fetch_product_from_api(self, fulfillment_product_id):
         _logger.info("[_fetch_product_from_api]")
         if not fulfillment_product_id:
@@ -525,7 +567,21 @@ class FulfillmentTransfers(models.Model):
         if not my_fulfillment_id:
             _logger.warning("[Fulfillment] fulfillment_profile_id not configured — skipping API push for %s.", self.name)
             return
-        if self.picking_type_code == "incoming":
+        op_type = self.picking_type_id.fulfillment_operation_type if self.picking_type_id else None
+
+        if op_type in ('send_to_fulfillment', 'request_from_fulfillment'):
+            # For explicit fulfillment operation types we need both warehouses and fulfillment_in
+            if not warehouse_out_id or not warehouse_in_id:
+                raise UserError(
+                    "[Fulfillment] Cannot push transfer: missing warehouse mapping. "
+                    "Make sure the fulfillment partner's warehouse is imported and linked."
+                )
+            if not fulfillment_in:
+                raise UserError(
+                    "[Fulfillment] Cannot push transfer: fulfillment partner has no API ID. "
+                    "Check the Fulfillment Partner record."
+                )
+        elif self.picking_type_code == "incoming":
             if not warehouse_out_id or not warehouse_in_id:
                 raise UserError("[Fulfillment] Cannot push incoming transfer: missing fulfillment_warehouse mapping.")
             if not fulfillment_out:
@@ -537,8 +593,6 @@ class FulfillmentTransfers(models.Model):
                 raise UserError("[Fulfillment] Cannot push outgoing transfer: missing fulfillment_out.")
         elif self.picking_type_code == "internal":
             if not warehouse_out_id or not warehouse_in_id:
-                # Internal transfer between non-fulfillment warehouses — skip silently.
-                # The delivery status is set in button_validate if needed.
                 _logger.debug(
                     "[Fulfillment] Internal transfer %s has no fulfillment warehouse mapping — skipping API push.",
                     self.name,
@@ -575,13 +629,10 @@ class FulfillmentTransfers(models.Model):
                 ('lot_stock_id', '=', self.location_dest_id.id),
                 ('view_location_id', 'parent_of', self.location_dest_id.id),
             ], limit=1)
+
+            # warehouse_out: our warehouse API id
             warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
-            warehouse_in_id = dest_wh.fulfillment_warehouse_id if dest_wh else None
-            fulfillment_out = my_fulfillment_id
-            fulfillment_in = (
-                (fp.fulfillment_id if fp else None)
-                or (dest_wh.fulfillment_owner_id.fulfillment_id if dest_wh and dest_wh.fulfillment_owner_id else None)
-            )
+            # Fallback: find any own warehouse registered in API
             if not warehouse_out_id and my_fulfillment_id:
                 own_wh = self.env['stock.warehouse'].with_context(active_test=False).search(
                     [('fulfillment_owner_id.fulfillment_id', '=', my_fulfillment_id),
@@ -590,6 +641,21 @@ class FulfillmentTransfers(models.Model):
                 )
                 if own_wh:
                     warehouse_out_id = own_wh.fulfillment_warehouse_id
+
+            # warehouse_in: fulfillment partner warehouse API id
+            warehouse_in_id = dest_wh.fulfillment_warehouse_id if dest_wh else None
+
+            # fulfillment_out = us
+            fulfillment_out = my_fulfillment_id
+
+            # fulfillment_in = partner: prefer picking.fulfillment_partner_id, then picking_type, then dest_wh owner
+            picking_fp = self.fulfillment_partner_id
+            fulfillment_in = (
+                (picking_fp.fulfillment_id if picking_fp else None)
+                or (fp.fulfillment_id if fp else None)
+                or (dest_wh.fulfillment_owner_id.fulfillment_id if dest_wh and dest_wh.fulfillment_owner_id else None)
+            )
+
             _logger.info(
                 "[RESOLVE][SEND_TO_FULFILLMENT] wh_out=%s wh_in=%s ff_out=%s ff_in=%s",
                 warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in,
@@ -604,13 +670,12 @@ class FulfillmentTransfers(models.Model):
                 ('view_location_id', 'parent_of', self.location_id.id),
             ], limit=1)
             dest_wh = self.picking_type_id.warehouse_id
+
+            # warehouse_out: fulfillment partner warehouse API id
             warehouse_out_id = src_wh.fulfillment_warehouse_id if src_wh else None
+
+            # warehouse_in: our warehouse API id
             warehouse_in_id = dest_wh.fulfillment_warehouse_id if dest_wh else None
-            fulfillment_out = (
-                (fp.fulfillment_id if fp else None)
-                or (src_wh.fulfillment_owner_id.fulfillment_id if src_wh and src_wh.fulfillment_owner_id else None)
-            )
-            fulfillment_in = my_fulfillment_id
             if not warehouse_in_id and my_fulfillment_id:
                 own_wh = self.env['stock.warehouse'].with_context(active_test=False).search(
                     [('fulfillment_owner_id.fulfillment_id', '=', my_fulfillment_id),
@@ -619,6 +684,18 @@ class FulfillmentTransfers(models.Model):
                 )
                 if own_wh:
                     warehouse_in_id = own_wh.fulfillment_warehouse_id
+
+            # fulfillment_out = partner: prefer picking.fulfillment_partner_id, then picking_type, then src_wh owner
+            picking_fp = self.fulfillment_partner_id
+            fulfillment_out = (
+                (picking_fp.fulfillment_id if picking_fp else None)
+                or (fp.fulfillment_id if fp else None)
+                or (src_wh.fulfillment_owner_id.fulfillment_id if src_wh and src_wh.fulfillment_owner_id else None)
+            )
+
+            # fulfillment_in = us
+            fulfillment_in = my_fulfillment_id
+
             _logger.info(
                 "[RESOLVE][REQUEST_FROM_FULFILLMENT] wh_out=%s wh_in=%s ff_out=%s ff_in=%s",
                 warehouse_out_id, warehouse_in_id, fulfillment_out, fulfillment_in,
@@ -810,11 +887,11 @@ class FulfillmentTransfers(models.Model):
     def _find_or_create_partner(self, contacts, wh_in_ext):
         _logger.info("[_find_or_create_partner]")
         partner_id = False
-        contact_data = next((c for c in contacts if c.get("role") == "CUSTOMER"), (contacts[0] if contacts else None))
+        contact_data = next((c for c in contacts if (c.get("role") or "").upper() == "CUSTOMER"), (contacts[0] if contacts else None))
         if contact_data:
             cid = contact_data.get("contact_id")
             contact_info = contact_data.get("contact") or {}
-            cname = contact_info.get("name") or "NoName"
+            cname = contact_info.get("name") or ""
             cphone = contact_info.get("phone") or ""
             cemail = contact_info.get("email") or ""
             partner = self.env["res.partner"].search([("fulfillment_contact_id", "=", cid)], limit=1)
@@ -829,8 +906,18 @@ class FulfillmentTransfers(models.Model):
                 })
                 _logger.info("[Fulfillment] Created partner: %s (%s)", cname, cid)
             else:
+                update_vals = {}
                 if not partner.fulfillment_contact_id and cid:
-                    partner.fulfillment_contact_id = cid
+                    update_vals["fulfillment_contact_id"] = cid
+                if cname and partner.name in {"NoName", "Unknown", "", False, None}:
+                    update_vals["name"] = cname
+                if cphone and not partner.phone:
+                    update_vals["phone"] = cphone
+                if cemail and not partner.email:
+                    update_vals["email"] = cemail
+                if update_vals:
+                    partner.write(update_vals)
+                    _logger.info("[Fulfillment] Updated partner %s: %s", partner.id, update_vals)
             partner_id = partner.id
         if not partner_id:
             partner_fallback = self.env["res.partner"].search([("fulfillment_warehouse_id", "=", wh_in_ext)], limit=1)
@@ -892,7 +979,13 @@ class FulfillmentTransfers(models.Model):
                 fetched = self._fetch_product_from_api(fulfillment_product_id)
                 if fetched:
                     product_data = fetched
-            prod_name = product_data.get("name") or "Name not found"
+            _prod_name_raw = product_data.get("name") or ""
+            prod_name = (
+                _prod_name_raw
+                or product_data.get("sku")
+                or product_data.get("barcode")
+                or (f"SKU-{fulfillment_product_id}" if fulfillment_product_id else "Unnamed")
+            )
             sku = product_data.get("sku")
             barcode = product_data.get("barcode")
             img_url = product_data.get("img_url")
@@ -982,8 +1075,21 @@ class FulfillmentTransfers(models.Model):
                 product_tmpl.flush_recordset()
             _logger.info("[Fulfillment] Created product '%s'", prod_name)
         else:
+            _prod_update = {}
             if not product_tmpl.fulfillment_product_id and fulfillment_product_id:
-                product_tmpl.fulfillment_product_id = fulfillment_product_id
+                _prod_update["fulfillment_product_id"] = fulfillment_product_id
+            if sku and not product_tmpl.default_code:
+                _prod_update["default_code"] = sku
+            if barcode and not product_tmpl.barcode:
+                _prod_update["barcode"] = barcode
+            _placeholder_prefixes = ("SKU-", "Unnamed", "Name not found", "NoName")
+            _is_placeholder = (not product_tmpl.name) or any(product_tmpl.name.startswith(p) for p in _placeholder_prefixes)
+            _real_name = prod_name and not any(prod_name.startswith(p) for p in _placeholder_prefixes)
+            if _is_placeholder and _real_name:
+                _prod_update["name"] = prod_name
+            if _prod_update:
+                product_tmpl.with_context(skip_fulfillment_push=True).write(_prod_update)
+                _logger.info("[Fulfillment] Updated product %s: %s", product_tmpl.id, _prod_update)
             if not product_tmpl.image_1920:
                 resolved_url = self._resolve_img_url(img_url, fulfillment_product_id)
                 image_b64 = self._fetch_image_b64(resolved_url)
