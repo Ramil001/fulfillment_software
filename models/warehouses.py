@@ -304,10 +304,26 @@ class FulfillmentWarehouses(models.Model):
             for wh in warehouses:
                 try:
                     wh_id = wh.get("id")
+                    # Re-check DB each iteration to prevent race-condition duplicates
+                    # (e.g. when cron runs overlap or import is triggered multiple times)
+                    if wh_id and wh_id not in existing_map:
+                        fresh = self.search([("fulfillment_warehouse_id", "=", wh_id)], limit=1)
+                        if fresh:
+                            existing_map[wh_id] = fresh
                     _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
 
-                    # Skip warehouses that belong to us — they are our own registered warehouses
-                    # (e.g. WH registered via _register_own_warehouses). We don't want to rename them.
+                    # Only import warehouses created FOR US by this partner.
+                    # A warehouse belongs to us as a client when fulfillment_client_id == our profile id.
+                    # Skip warehouses that are not rented to us (belong to other clients or are unassigned).
+                    wh_client_id = wh.get("fulfillment_client_id")
+                    if not wh_client_id or (profile_fid and wh_client_id != profile_fid):
+                        _logger.info(
+                            "[IMPORT][WAREHOUSE] Skipping warehouse %s — not rented to us (client=%s, our=%s)",
+                            wh.get("name"), wh_client_id, profile_fid
+                        )
+                        continue
+
+                    # Skip warehouses that belong to us as owner (already registered locally).
                     if profile_fid and wh.get("fulfillment_id") == profile_fid:
                         _logger.info("[IMPORT][WAREHOUSE] Skipping own warehouse %s", wh.get("name"))
                         continue
@@ -321,10 +337,22 @@ class FulfillmentWarehouses(models.Model):
                         code = f"{original_code}_{suffix}"
                         suffix += 1
 
-                    # Use the fulfillment partner's name as the warehouse name for clarity.
-                    # The API may return names with arrows (e.g. "Händler ⮕ Fulfillment") which
-                    # are confusing from the handler's perspective. We prefer the partner name.
-                    base_name = fulfillment_partner.partner_id.name or wh.get("name") or "Fulfillment"
+                    # Use the API warehouse name as the primary name so that each warehouse
+                    # from the same partner gets a distinct human-readable name.
+                    # Strip arrow-notation (e.g. "Händler ⮕ Fulfillment") keeping only the part
+                    # after the arrow when present, otherwise use the raw name.
+                    api_wh_name = (wh.get("name") or "").strip()
+                    for sep in (" ⮕ ", " → ", " -> ", " > "):
+                        if sep in api_wh_name:
+                            api_wh_name = api_wh_name.split(sep)[-1].strip()
+                            break
+                    partner_name = (fulfillment_partner.partner_id.name or "").strip()
+                    # If the API name already contains the partner name, use it as-is;
+                    # otherwise prefix with partner name for clarity.
+                    if api_wh_name and partner_name and partner_name.lower() not in api_wh_name.lower():
+                        base_name = f"{partner_name} – {api_wh_name}"
+                    else:
+                        base_name = api_wh_name or partner_name or "Fulfillment"
                     unique_name = base_name
                     suffix = 1
                     while self.search_count([("name", "=", unique_name), ("id", "!=", warehouse.id if warehouse else 0)]):
