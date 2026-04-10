@@ -1352,6 +1352,10 @@ class FulfillmentTransfers(models.Model):
             product_tmpl = ProductTmpl.search([("fulfillment_product_id", "=", fulfillment_product_id)], limit=1)
         if not product_tmpl and sku:
             product_tmpl = ProductTmpl.search([("default_code", "=", sku)], limit=1)
+        if not product_tmpl and prod_name:
+            # Fallback: match by name to avoid duplicates when the product was
+            # created locally before the API assigned a fulfillment_product_id.
+            product_tmpl = ProductTmpl.search([("name", "=", prod_name)], limit=1)
         if not product_tmpl:
             create_vals = {
                 "name": prod_name, "type": "consu", "is_storable": True,
