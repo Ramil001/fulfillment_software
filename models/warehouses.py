@@ -331,7 +331,12 @@ class FulfillmentWarehouses(models.Model):
 
             warehouses = response.get("data")
             if not warehouses:
-                _logger.error("[IMPORT][WAREHOUSES] Empty or invalid API response: %s", response)
+                _logger.info("[IMPORT][WAREHOUSES] No warehouses from partner — will still register own.")
+                # Even if partner has no warehouses, register our own unregistered warehouses.
+                try:
+                    self._register_own_warehouses(profile, client)
+                except Exception as e:
+                    _logger.exception("[IMPORT][WAREHOUSES] _register_own_warehouses failed: %s", e)
                 return
 
             api_ids = [_normalize_fulfillment_external_id(w.get("id")) for w in warehouses]
@@ -359,22 +364,37 @@ class FulfillmentWarehouses(models.Model):
                                 existing_map[wh_id] = fresh
                         _logger.info("[Logger][Info]: [IMPORT][WAREHOUSE] >>> Processing %s (%s)", wh.get("name"), wh_id)
 
-                        # Only import warehouses created FOR US by this partner.
-                        # A warehouse belongs to us as a client when fulfillment_client_id == our profile id.
-                        # Skip warehouses that are not rented to us (belong to other clients or are unassigned).
                         wh_client_id = _normalize_fulfillment_external_id(wh.get("fulfillment_client_id"))
-                        if not wh_client_id or (profile_fid and wh_client_id != profile_fid):
+                        wh_owner_id = _normalize_fulfillment_external_id(wh.get("fulfillment_id"))
+
+                        is_our_client = profile_fid and wh_client_id == profile_fid
+                        is_our_owner = profile_fid and wh_owner_id == profile_fid
+
+                        if not is_our_client and not is_our_owner:
+                            # Neither rented to us nor owned by us — skip entirely.
                             _logger.info(
-                                "[IMPORT][WAREHOUSE] Skipping warehouse %s — not rented to us (client=%s, our=%s)",
-                                wh.get("name"), wh_client_id, profile_fid
+                                "[IMPORT][WAREHOUSE] Skipping %s — not ours (client=%s, owner=%s, us=%s)",
+                                wh.get("name"), wh_client_id, wh_owner_id, profile_fid,
                             )
                             continue
 
-                        # Skip warehouses that belong to us as owner (already registered locally).
-                        wh_owner_id = _normalize_fulfillment_external_id(wh.get("fulfillment_id"))
-                        if profile_fid and wh_owner_id == profile_fid:
-                            _logger.info("[IMPORT][WAREHOUSE] Skipping own warehouse %s", wh.get("name"))
-                            continue
+                        if is_our_owner and not is_our_client:
+                            # We own it but it's leased to someone else — update local record to reflect leased_out.
+                            existing_wh = existing_map.get(wh_id) or self.search(
+                                [("fulfillment_warehouse_id", "=", wh_id)], limit=1
+                            )
+                            if existing_wh:
+                                client_fp = self.env["fulfillment.partners"].search(
+                                    [("fulfillment_id", "=", wh_client_id)], limit=1
+                                )
+                                existing_wh.with_context(skip_api_sync=True, from_fulfillment_import=True).write({
+                                    "fulfillment_client_id": client_fp.id if client_fp else False,
+                                })
+                                _logger.info(
+                                    "[IMPORT][WAREHOUSE] Updated own warehouse %s → leased_out to %s",
+                                    existing_wh.name, wh_client_id,
+                                )
+                            continue  # No need to re-create our own warehouse
 
                         warehouse = existing_map.get(wh_id)
 

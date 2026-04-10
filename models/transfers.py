@@ -409,9 +409,7 @@ class FulfillmentTransfers(models.Model):
         if not self.env.context.get('skip_fulfillment_push') and not self.env.context.get('from_fulfillment_import'):
             for rec in self:
                 if (
-                    rec.fulfillment_transfer_id
-                    and rec.fulfillment_transfer_id not in ('', 'Empty')
-                    and rec._is_managed_by_fulfillment()
+                    rec._is_managed_by_fulfillment()
                     and rec.fulfillment_delivery_status not in ('delivering', 'delivered')
                 ):
                     raise UserError(
