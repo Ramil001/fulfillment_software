@@ -19,6 +19,9 @@
                         <field name="last_update"/>
                     </group>
                     <group string="Settings">
+                        <field name="fulfillment_network_partner_id"
+                            options="{'no_create': True}"
+                            domain="[('partner_id', '!=', False)]"/>
                         <field name="is_fulfillment"/>
                     </group>
                 </group>

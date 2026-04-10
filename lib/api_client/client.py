@@ -1,5 +1,6 @@
-import requests
 import logging
+import urllib3
+import requests
 from .warehouse import WarehouseAPI
 from .purchase import PurchaseAPI
 from .transfer import TransferAPI
@@ -26,10 +27,12 @@ class FulfillmentAPIClient:
     """
 
     def __init__(self, profile):
-        
+
         self.api_key = profile.fulfillment_api_key
         self.api_domain = profile.api_domain
         self.profile_id = profile.fulfillment_profile_id
+        # When True, pass verify=False to requests (misconfigured API TLS / hostname mismatch).
+        self.verify_tls = not bool(getattr(profile, 'fulfillment_api_skip_ssl_verify', False))
 
         self.warehouse = WarehouseAPI(self)
         self.purchase = PurchaseAPI(self)
@@ -52,17 +55,24 @@ class FulfillmentAPIClient:
 
     def _request(self, method, url, payload=None, params=None):
         try:
-            _logger.info(f"[Fulfillment API] {method} {url} | Payload: {payload} | Params: {params}")
+            verify = self.verify_tls
+            if not verify:
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            _logger.info(
+                "[Fulfillment API] %s %s | verify_tls=%s | Payload: %s | Params: %s",
+                method, url, verify, payload, params,
+            )
+            kwargs = dict(headers=self._headers(), timeout=30, verify=verify)
             if method == 'GET':
-                response = requests.get(url, headers=self._headers(), params=params, timeout=10)
+                response = requests.get(url, params=params, **kwargs)
             elif method == 'POST':
-                response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
+                response = requests.post(url, json=payload, **kwargs)
             elif method == 'PATCH':
-                response = requests.patch(url, json=payload, headers=self._headers(), timeout=10)
+                response = requests.patch(url, json=payload, **kwargs)
             elif method == 'PUT':
-                response = requests.put(url, json=payload, headers=self._headers(), timeout=10)
+                response = requests.put(url, json=payload, **kwargs)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=self._headers(), timeout=10)
+                response = requests.delete(url, **kwargs)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
 

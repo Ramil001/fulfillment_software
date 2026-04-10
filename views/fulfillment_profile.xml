@@ -45,6 +45,7 @@
                                 <separator string="API connection" colspan="2"/>
                                 <field name="api_domain" required="1"/>
                                 <field name="fulfillment_api_key" password="True" required="1"/>
+                                <field name="fulfillment_api_skip_ssl_verify"/>
                             </group>
                             <group>
                                 <separator string="Webhook"/>
@@ -59,7 +60,7 @@
                             </group>
                             <group >
                                 <separator string="Connect with Fulfillment Software" colspan="2"/>
-                                <field name="update_at" password="True"/>
+                                <field name="update_at"/>
                                 <field name="fulfillment_profile_id"></field>
                             </group>
 

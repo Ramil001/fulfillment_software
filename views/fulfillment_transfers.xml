@@ -34,18 +34,29 @@
                 </xpath>
                 <!-- Status banners -->
                 <xpath expr="//sheet/notebook" position="before">
+                    <field name="is_cross_instance_sender" invisible="1"/>
+                    <!-- Sender view: goods dispatched, waiting for receiver to confirm -->
                     <div class="alert alert-warning mb-0 d-flex align-items-center gap-2"
-                         invisible="fulfillment_delivery_status != 'delivering'"
+                         invisible="fulfillment_delivery_status != 'delivering' or not is_cross_instance_sender"
                          style="border-radius:6px; font-size:14px;">
                         <i class="fa fa-truck fa-lg" title="In transit"/>
-                        <span><b>Sent to fulfillment</b> — awaiting confirmation from the fulfillment center.</span>
+                        <span><b>Goods dispatched</b> — awaiting confirmation of receipt from the other party.</span>
                         <field name="fulfillment_delivery_status" invisible="1"/>
                     </div>
+                    <!-- Receiver view: goods incoming, waiting for this side to confirm -->
+                    <div class="alert alert-info mb-0 d-flex align-items-center gap-2"
+                         invisible="fulfillment_delivery_status != 'delivering' or is_cross_instance_sender"
+                         style="border-radius:6px; font-size:14px;">
+                        <i class="fa fa-inbox fa-lg" title="Awaiting receipt"/>
+                        <span><b>Incoming goods</b> — validate this receipt when you physically receive the goods.</span>
+                        <field name="fulfillment_delivery_status" invisible="1"/>
+                    </div>
+                    <!-- Delivery confirmed -->
                     <div class="alert alert-success mb-0 d-flex align-items-center gap-2"
                          invisible="fulfillment_delivery_status != 'delivered'"
                          style="border-radius:6px; font-size:14px;">
                         <i class="fa fa-check-circle fa-lg" title="Received"/>
-                        <span><b>Received by fulfillment</b> — the fulfillment center confirmed receipt of the goods.</span>
+                        <span><b>Receipt confirmed</b> — the other party confirmed receipt of the goods.</span>
                         <field name="fulfillment_delivery_status" invisible="1"/>
                     </div>
                 </xpath>

@@ -429,7 +429,8 @@ class FulfillmentPartners(models.Model):
 
                     for transfer in transfers:
                         try:
-                            Picking._import_transfer(transfer)
+                            with self.env.cr.savepoint():
+                                Picking._import_transfer(transfer)
                         except Exception as e:
                             _logger.error(
                                 '[CRON] Import failed for transfer %s: %s',

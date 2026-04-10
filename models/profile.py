@@ -40,6 +40,15 @@ class FulfillmentProfile(models.Model):
     fulfillment_api_key = fields.Char(
         string="X-Fulfillment-API-Key"
     )
+    fulfillment_api_skip_ssl_verify = fields.Boolean(
+        string="Skip API SSL verification",
+        default=True,
+        help=(
+            "Enable if HTTPS calls to the Fulfillment API fail with certificate or "
+            "hostname mismatch errors (SSLCertVerificationError). Use only when the API "
+            "endpoint TLS is misconfigured; prefer fixing server certificates in production."
+        ),
+    )
     fulfillment_profile_id = fields.Char(
         string="Fulfillment Application Key",
         readonly=True
@@ -193,28 +202,6 @@ class FulfillmentProfile(models.Model):
                 except Exception as e:
                     _logger.warning('[Profile] Webhook check failed on create: %s', e)
 
-        if self.env.context.get('skip_auto_import'):
-            _logger.debug("[PARTNERS][CREATE] skip_auto_import in context — skipping auto import_all")
-            return records
-
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile or not profile.fulfillment_api_key:
-            _logger.warning("[PARTNERS][CREATE] No active fulfillment.profile with API key — skipping auto import_all")
-            return records
-
-        try:
-            _logger.info(
-                "[PARTNERS][CREATE] Triggering auto import_all() (profile id=%s) ...",
-                profile.id
-            )
-
-            self.env['fulfillment.partners'].sudo().import_all(profile=profile.sudo())
-
-            _logger.info("[PARTNERS][CREATE] auto import_all() finished")
-
-        except Exception as e:
-            _logger.exception("[PARTNERS][CREATE] auto import_all() failed: %s", e)
-
         return records
 
 
@@ -239,20 +226,14 @@ class FulfillmentProfile(models.Model):
         new_key = vals.get("fulfillment_api_key")
 
         result = super().write(vals)
-        
+
         self._check_availiable_webhook()
-        
+
         if not self.env.context.get('skip_webhook_check'):
             self._check_availiable_webhook()
 
-        self._sync_with_fulfillment_api()
-
-        if new_key and not had_key_before:
-            try:
-                _logger.info("[PROFILE][WRITE] fulfillment_api_key added → running import_all()")
-                self.env['fulfillment.partners'].sudo().import_all(profile=self.sudo())
-            except Exception as e:
-                _logger.exception("[PROFILE][WRITE] import_all() failed: %s", e)
+        if not self.env.context.get('skip_fulfillment_api_sync'):
+            self._sync_with_fulfillment_api()
 
         return result
 
@@ -273,6 +254,24 @@ class FulfillmentProfile(models.Model):
                     {'webhook_domain': domain}
                 )
         return domain or ''
+
+    @staticmethod
+    def _extract_fulfillment_id_from_response(response):
+        """API may return id at data.id or nested (e.g. data.fulfillment.id)."""
+        if not isinstance(response, dict):
+            return None
+        data = response.get("data")
+        if data is None:
+            return None
+        if isinstance(data, dict):
+            fid = data.get("id")
+            if fid:
+                return fid
+            for key in ("fulfillment", "record", "result"):
+                inner = data.get(key)
+                if isinstance(inner, dict) and inner.get("id"):
+                    return inner["id"]
+        return None
 
     def _sync_with_fulfillment_api(self):
         _logger.info(f"[_sync_with_fulfillment_api]")
@@ -316,30 +315,83 @@ class FulfillmentProfile(models.Model):
                         _logger.warning("PATCH — неожиданный ответ: %s", response)
 
                 else:
-                    response = client.fulfillment.create(payload)
-                    data = response.get("data")
+                    # Before creating, check if the API already has a fulfillment
+                    # with our webhook_domain (can happen after DB reset).
+                    existing_id = None
+                    try:
+                        all_remote = client.fulfillment.list()
+                        remote_list = (all_remote or {}).get("data") or []
+                        for item in remote_list:
+                            if item.get("webhook_domain") == webhook_domain:
+                                existing_id = item.get("id")
+                                _logger.info(
+                                    "Found existing fulfillment in API for domain %s → %s",
+                                    webhook_domain, existing_id,
+                                )
+                                break
+                    except Exception as lookup_err:
+                        _logger.warning("Could not list fulfillments from API: %s", lookup_err)
 
-                    if data and data.get("id"):
-                        record.write({
-                            "fulfillment_profile_id": data["id"],
-                            "name": data.get("name", record.name),
-                            "api_domain": data.get("api_domain", record.api_domain),
-                            "webhook_domain": data.get(
-                                "webhook_domain",
-                                record.webhook_domain
+                    if existing_id:
+                        # Re-use existing — patch it and save the ID locally
+                        client.fulfillment.update(existing_id, payload)
+                        response = {"data": {"id": existing_id}}
+                        remote_id = existing_id
+                    else:
+                        response = client.fulfillment.create(payload)
+                        remote_id = self._extract_fulfillment_id_from_response(response)
+                    data = response.get("data") if isinstance(response, dict) else None
+
+                    if remote_id:
+                        record.with_context(skip_fulfillment_api_sync=True).write({
+                            "fulfillment_profile_id": remote_id,
+                            "name": (data.get("name", record.name) if isinstance(data, dict) else None) or record.name,
+                            "api_domain": (data.get("api_domain", record.api_domain) if isinstance(data, dict) else None) or record.api_domain,
+                            "webhook_domain": (
+                                data.get("webhook_domain", record.webhook_domain)
+                                if isinstance(data, dict)
+                                else record.webhook_domain
                             ),
                         })
                         _logger.info(
                             "Fulfillment создан через POST с ID %s",
-                            data["id"]
+                            remote_id,
+                        )
+                        bus.send_notification(
+                            title="Fulfillment",
+                            message="Connected. Fulfillment Application Key saved.",
+                            level="info",
+                            sticky=False,
                         )
                     else:
                         _logger.warning("POST — неожиданный ответ: %s", response)
+                        bus.send_notification(
+                            title="Fulfillment API",
+                            message="Unexpected API response (no id). Check server logs.",
+                            level="warning",
+                            sticky=True,
+                        )
 
             except FulfillmentAPIError as e:
-                _logger.error("Ошибка API Fulfillment: %s", str(e))
+                err_txt = str(e)
+                _logger.error("Ошибка API Fulfillment: %s", err_txt)
+                hint = ""
+                if "SSL" in err_txt or "CERTIFICATE" in err_txt.upper():
+                    hint = " Enable «Skip API SSL verification» on the profile if the API TLS certificate does not match the hostname."
+                bus.send_notification(
+                    title="Fulfillment API error",
+                    message=(err_txt[:500] + hint) if err_txt else "Request failed.",
+                    level="error",
+                    sticky=True,
+                )
             except Exception:
                 _logger.exception("Неожиданная ошибка при sync")
+                bus.send_notification(
+                    title="Fulfillment API",
+                    message="Unexpected error during sync. See Odoo log.",
+                    level="error",
+                    sticky=True,
+                )
 
 
     @api.model

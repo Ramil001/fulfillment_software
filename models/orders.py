@@ -201,7 +201,9 @@ class FulfillmentOrder(models.Model):
 
                     if transfer_id:
                         picking.with_context(skip_fulfillment_push=True).write({
-                            'fulfillment_transfer_id': transfer_id
+                            'fulfillment_transfer_id': transfer_id,
+                            'fulfillment_transfer_owner_id': payload.get('fulfillment_in') or 'Empty',
+                            'fulfillment_transfer_out_id': payload.get('fulfillment_out') or 'Empty',
                         })
                         _logger.info(f"[FULFILLMENT][SYNC] Transfer {transfer_id} создан для {picking.name}")
                     else:

@@ -8,7 +8,7 @@
             <!-- Добавляем новую вкладку Fulfillment -->
             <xpath expr="//notebook" position="inside">
                 <page string="Fulfillment">
-                    <group>
+                    <group string="Assigned warehouse (from partner / import)">
                         <field name="fulfillment_contact_id"></field>
                         <field name="fulfillment_partner_id" />
                         <field name="fulfillment_warehouse_id"/>

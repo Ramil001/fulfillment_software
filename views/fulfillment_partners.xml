@@ -47,6 +47,8 @@
                     <list>
                       <field name="name"/>
                       <field name="code"/>
+                      <field name="warehouse_role" optional="show"/>
+                      <field name="fulfillment_warehouse_id" optional="show"/>
                       <field name="partner_id"/>
                       <field name="company_id"/>
                       <field name="is_fulfillment"/>

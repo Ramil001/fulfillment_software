@@ -151,6 +151,21 @@ class FulfillmentTransfers(models.Model):
         ('delivered', 'Received by fulfillment'),
     ], string='Fulfillment Delivery Status', readonly=True, copy=False, index=True)
 
+    # True when THIS instance is the sender of the cross-instance transfer.
+    # Used in views to show context-appropriate status banners.
+    is_cross_instance_sender = fields.Boolean(
+        string='I am the Sender',
+        compute='_compute_is_cross_instance_sender',
+        store=False,
+    )
+
+    @api.depends('fulfillment_transfer_out_id')
+    def _compute_is_cross_instance_sender(self):
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        my_id = profile.fulfillment_profile_id if profile else None
+        for rec in self:
+            rec.is_cross_instance_sender = bool(my_id and rec.fulfillment_transfer_out_id == my_id)
+
     # Computed: expose the fulfillment_operation_type of the picking type for use in views
     fulfillment_operation_type = fields.Selection(
         related='picking_type_id.fulfillment_operation_type',
@@ -308,6 +323,8 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[action_confirm]")
         old_states = {rec.id: rec.state for rec in self}
         res = super(FulfillmentTransfers, self).action_confirm()
+        if self.env.context.get('skip_fulfillment_push'):
+            return res
         for rec in self:
             self._log_state_transition(rec, old_states.get(rec.id), rec.state, "action_confirm")
             if not rec.fulfillment_transfer_id or rec.fulfillment_transfer_id == "Empty":
@@ -354,21 +371,83 @@ class FulfillmentTransfers(models.Model):
             return bool(owner_fid) and owner_fid != my_id
         return False
 
+    def _is_managed_by_fulfillment(self):
+        """Return True if this picking's stock is managed by a remote fulfillment partner.
+
+        This is the case for:
+        - Receipts (incoming) whose destination is a RENTED warehouse (managed remotely).
+        - Outgoing/internal transfers whose source is a rented warehouse.
+
+        When True, the picking should NOT be validated locally — only the fulfillment
+        partner can confirm physical movement, which auto-validates via webhook.
+        """
+        dest_wh = self.env['stock.warehouse'].search([
+            '|',
+            ('lot_stock_id', '=', self.location_dest_id.id),
+            ('view_location_id', 'parent_of', self.location_dest_id.id),
+        ], limit=1)
+        src_wh = self.env['stock.warehouse'].search([
+            '|',
+            ('lot_stock_id', '=', self.location_id.id),
+            ('view_location_id', 'parent_of', self.location_id.id),
+        ], limit=1)
+
+        if self.picking_type_code == 'incoming' and dest_wh and dest_wh.warehouse_role == 'rented':
+            return True
+        if self.picking_type_code in ('outgoing', 'internal') and src_wh and src_wh.warehouse_role == 'rented':
+            return True
+        # Internal transfer going TO a rented warehouse: Fulfillment must confirm receipt.
+        if self.picking_type_code == 'internal' and dest_wh and dest_wh.warehouse_role == 'rented':
+            return True
+        return False
+
     def button_validate(self):
         _logger.info("[button_validate]")
         old_states = {rec.id: rec.state for rec in self}
-        res = super(FulfillmentTransfers, self).button_validate()
-        for rec in self:
-            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "button_validate")
-            if rec.state == 'done' and not rec.fulfillment_delivery_status:
-                if rec._is_transfer_to_fulfillment():
-                    rec.with_context(skip_fulfillment_push=True).write({
-                        'fulfillment_delivery_status': 'delivering',
-                    })
-                    _logger.info(
-                        "[Fulfillment] Set fulfillment_delivery_status=delivering for %s (%s)",
-                        rec.name, rec.picking_type_code,
+
+        # Block manual validation for pickings managed by a remote fulfillment partner.
+        if not self.env.context.get('skip_fulfillment_push') and not self.env.context.get('from_fulfillment_import'):
+            for rec in self:
+                if (
+                    rec.fulfillment_transfer_id
+                    and rec.fulfillment_transfer_id not in ('', 'Empty')
+                    and rec._is_managed_by_fulfillment()
+                    and rec.fulfillment_delivery_status not in ('delivering', 'delivered')
+                ):
+                    raise UserError(
+                        f"Transfer {rec.name} is managed by a remote fulfillment partner. "
+                        f"Validation is only allowed after the fulfillment partner confirms the operation."
                     )
+
+        # Detect cross-instance transfers BEFORE validation so we can intercept the push.
+        cross_instance_senders = {rec.id for rec in self if rec._is_transfer_to_fulfillment()}
+        res = super(FulfillmentTransfers, self).button_validate()
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        my_fid = profile.fulfillment_profile_id if profile else None
+        for rec in self:
+            if rec.state == 'done' and not rec.fulfillment_delivery_status and not rec.env.context.get('from_fulfillment_import'):
+                if rec.id in cross_instance_senders:
+                    # Only send 'assigned' (and wait for the other side to confirm)
+                    # when WE are the CLIENT (fulfillment_out ≠ us).
+                    # When WE are the MANAGER (fulfillment_out == us), push 'done' directly —
+                    # do NOT set fulfillment_delivery_status='delivering'.
+                    is_manager = bool(my_fid and rec.fulfillment_transfer_out_id == my_fid)
+                    if not is_manager:
+                        # Mark as "delivering" BEFORE _log_state_transition so that
+                        # _push_status_update can intercept 'done' and send 'assigned' instead.
+                        rec.with_context(skip_fulfillment_push=True).write({
+                            'fulfillment_delivery_status': 'delivering',
+                        })
+                        _logger.info(
+                            "[Fulfillment] Set fulfillment_delivery_status=delivering for %s (%s) — client side",
+                            rec.name, rec.picking_type_code,
+                        )
+                    else:
+                        _logger.info(
+                            "[Fulfillment] %s: we are the manager (fulfillment_out=%s) — pushing done directly",
+                            rec.name, rec.fulfillment_transfer_out_id,
+                        )
+            self._log_state_transition(rec, old_states.get(rec.id), rec.state, "button_validate")
             # Sync linked FulfillmentOrder state
             if rec.state == 'done':
                 self._sync_fulfillment_orders(rec)
@@ -499,10 +578,21 @@ class FulfillmentTransfers(models.Model):
         client = self.fulfillment_api
         if not client:
             return
-        payload = {"status": new_state}
+        # For cross-instance transfers where WE are the sender:
+        # When our local picking is validated (done), we push 'assigned' to the API
+        # to signal "goods dispatched, awaiting receiver confirmation".
+        # 'done' is only pushed when the RECEIVER validates their incoming picking.
+        api_status = new_state
+        if new_state == 'done' and self.fulfillment_delivery_status == 'delivering':
+            api_status = 'assigned'
+            _logger.info(
+                "[Fulfillment][API] Cross-instance sender: pushing 'assigned' instead of 'done' for %s — receiver must confirm receipt",
+                self.fulfillment_transfer_id,
+            )
+        payload = {"status": api_status}
         try:
             client.transfer.update(self.fulfillment_transfer_id, payload)
-            _logger.info("[Fulfillment][API] Status pushed: %s -> %s", self.fulfillment_transfer_id, new_state)
+            _logger.info("[Fulfillment][API] Status pushed: %s -> %s", self.fulfillment_transfer_id, api_status)
         except Exception as e:
             _logger.error("[Fulfillment][API ERROR] Failed status push: %s", e)
 
@@ -582,11 +672,26 @@ class FulfillmentTransfers(models.Model):
                     "Check the Fulfillment Partner record."
                 )
         elif self.picking_type_code == "incoming":
-            if not warehouse_out_id or not warehouse_in_id:
-                raise UserError("[Fulfillment] Cannot push incoming transfer: missing fulfillment_warehouse mapping.")
+            # warehouse_out_id may be None for PO receipts from external (non-fulfillment) suppliers.
+            # Only warehouse_in_id (destination rented warehouse) and fulfillment_out are required.
+            if not warehouse_in_id:
+                _logger.debug(
+                    "[Fulfillment] Skipping incoming %s — no fulfillment_warehouse_id on destination.", self.name
+                )
+                return
             if not fulfillment_out:
-                raise UserError("[Fulfillment] Cannot push incoming transfer: missing fulfillment_out.")
+                _logger.debug(
+                    "[Fulfillment] Skipping incoming %s — destination warehouse has no fulfillment owner.", self.name
+                )
+                return
         elif self.picking_type_code == "outgoing":
+            src_wh = self.picking_type_id.warehouse_id
+            if src_wh and src_wh.warehouse_role == 'own':
+                _logger.debug(
+                    "[Fulfillment] Skip outgoing %s — source warehouse '%s' has role='own' (not Fulfillment-managed).",
+                    self.name, src_wh.code,
+                )
+                return
             if not warehouse_out_id:
                 raise UserError("[Fulfillment] Cannot push outgoing transfer: missing fulfillment_warehouse_out.")
             if not fulfillment_out:
@@ -602,13 +707,39 @@ class FulfillmentTransfers(models.Model):
             self, items, warehouse_out_id, warehouse_in_id,
             fulfillment_out, fulfillment_in, []
         )
-        if self.picking_type_code == 'outgoing' and self.partner_id:
-            contact_id = getattr(self.partner_id, "fulfillment_contact_id", None)
+        if self.partner_id:
+            contact_id = self._ensure_contact_synced(client, self.partner_id)
             if contact_id:
                 payload["contacts"] = [{"contact_id": str(contact_id), "role": "DELIVERY"}]
-                _logger.info("[Fulfillment] Added contact %s", contact_id)
+                _logger.info("[Fulfillment] Added contact %s (%s)", contact_id, self.partner_id.name)
         _logger.info("[Fulfillment][PAYLOAD] Full data sent to API: %s", json.dumps(payload, indent=2))
         self._sync_transfer(client, payload)
+
+    def _ensure_contact_synced(self, client, partner):
+        """Return the Fulfillment API contact_id for partner, registering it if needed."""
+        contact_id = getattr(partner, 'fulfillment_contact_id', None)
+        if contact_id:
+            return contact_id
+        # Contact not registered yet — create it in the API.
+        try:
+            payload = {
+                'name': partner.name or '',
+                'email': partner.email or '',
+                'phone': partner.phone or partner.mobile or '',
+            }
+            resp = client.contact.create(payload)
+            contact_id = (resp.get('data') or resp).get('id') if resp else None
+            if contact_id:
+                partner.sudo().write({'fulfillment_contact_id': contact_id})
+                _logger.info(
+                    "[_ensure_contact_synced] Registered contact '%s' → %s",
+                    partner.name, contact_id,
+                )
+            else:
+                _logger.warning("[_ensure_contact_synced] API returned no id for '%s': %s", partner.name, resp)
+        except Exception as e:
+            _logger.warning("[_ensure_contact_synced] Failed to register contact '%s': %s", partner.name, e)
+        return contact_id
 
     def _resolve_warehouses_and_profiles(self, my_fulfillment_id):
         _logger.info("[_resolve_warehouses_and_profiles]")
@@ -705,12 +836,27 @@ class FulfillmentTransfers(models.Model):
         # ── Legacy fallback: resolve by picking_type_code and locations ────────────
         partner = self.partner_id if getattr(self, "partner_id", False) else None
         if self.picking_type_code == 'incoming':
-            warehouse_out_id = getattr(partner, "fulfillment_warehouse_id", None)
             dest_wh = self.env['stock.warehouse'].search(
                 [('lot_stock_id', '=', self.location_dest_id.id)], limit=1
             )
             warehouse_in_id = getattr(dest_wh, "fulfillment_warehouse_id", None) if dest_wh else None
-            fulfillment_out = self._get_partner_fulfillment_profile_id(partner)
+
+            # For receipts into a RENTED warehouse the supplier is external (no fulfillment ID).
+            # The fulfillment partner that manages the rented warehouse must confirm receipt.
+            if dest_wh and dest_wh.warehouse_role == 'rented' and dest_wh.fulfillment_owner_id:
+                # External goods arrive at a warehouse operated by the fulfillment partner.
+                # warehouse_out is null (external supplier), fulfillment_out = warehouse owner.
+                warehouse_out_id = None
+                fulfillment_out = dest_wh.fulfillment_owner_id.fulfillment_id
+                _logger.info(
+                    "[RESOLVE][INCOMING/RENTED] dest_wh=%s fulfillment_out=%s wh_in=%s",
+                    dest_wh.name, fulfillment_out, warehouse_in_id,
+                )
+            else:
+                # Regular incoming: supplier may be a fulfillment partner
+                warehouse_out_id = getattr(partner, "fulfillment_warehouse_id", None)
+                fulfillment_out = self._get_partner_fulfillment_profile_id(partner)
+
             fulfillment_in = my_fulfillment_id
         elif self.picking_type_code == 'outgoing':
             src_wh = self.picking_type_id.warehouse_id
@@ -805,6 +951,15 @@ class FulfillmentTransfers(models.Model):
                     "fulfillment_transfer_out_id": out_id,
                 })
                 _logger.info("[Fulfillment] Success! Linked %s to API ID: %s", self.name, remote_id)
+                # If the picking is already validated, push the current state immediately.
+                odoo_to_api = {"draft": "draft", "confirmed": "confirmed", "assigned": "assigned", "done": "done"}
+                api_status = odoo_to_api.get(self.state)
+                if api_status and api_status != "draft":
+                    try:
+                        client.transfer.update(remote_id, {"status": api_status})
+                        _logger.info("[Fulfillment] Post-create status push: %s → %s", remote_id, api_status)
+                    except Exception as se:
+                        _logger.warning("[Fulfillment] Post-create status push failed: %s", se)
             else:
                 _logger.info("[Fulfillment][UPDATE] Updating existing transfer %s", self.fulfillment_transfer_id)
                 client.transfer.update(self.fulfillment_transfer_id, payload)
@@ -827,6 +982,13 @@ class FulfillmentTransfers(models.Model):
         if not profile:
             _logger.warning("[Fulfillment] Profile not found")
             return False
+        # Default to this instance's own profile ID so the API returns
+        # all transfers involving us (as sender or receiver).
+        if not fulfillment_id:
+            fulfillment_id = getattr(profile, 'fulfillment_profile_id', None)
+        if not fulfillment_id:
+            _logger.warning("[Fulfillment] No fulfillment_profile_id — cannot filter transfers")
+            return False
         client = FulfillmentAPIClient(profile)
         try:
             response = client.transfer.list(fulfillment_id=fulfillment_id, page=page, limit=limit)
@@ -839,11 +1001,38 @@ class FulfillmentTransfers(models.Model):
             return False
         for transfer in response.get("data", []):
             try:
-                self._import_transfer(transfer)
+                with self.env.cr.savepoint():
+                    self._import_transfer(transfer)
             except Exception as e:
                 _logger.error("[Fulfillment][IMPORT] Failed transfer %s: %s", transfer.get("id"), e, exc_info=True)
-                self.env.cr.rollback()
+        # Advance picking-type sequences past any names that were explicitly assigned
+        # during import to prevent future sequence collisions.
+        self._sync_picking_sequences()
         return True
+
+    @api.model
+    def _sync_picking_sequences(self):
+        """Advance ir.sequence counters past max picking names to avoid conflicts."""
+        import re as _re
+        picking_types = self.env['stock.picking.type'].search([])
+        for pt in picking_types:
+            if not pt.sequence_id:
+                continue
+            prefix = pt.sequence_id.prefix or ''
+            padding = pt.sequence_id.padding or 5
+            pattern = f'^{_re.escape(prefix)}\\d{{{padding}}}$'
+            self.env.cr.execute(
+                "SELECT MAX(CAST(SUBSTRING(name, %s, %s) AS INTEGER)) "
+                "FROM stock_picking WHERE name ~ %s AND company_id = %s",
+                (len(prefix) + 1, padding, pattern, self.env.company.id),
+            )
+            row = self.env.cr.fetchone()
+            if row and row[0]:
+                max_num = row[0]
+                cur_seq = pt.sequence_id.number_next
+                if cur_seq <= max_num:
+                    pt.sequence_id.sudo().write({'number_next': max_num + 1})
+                    _logger.info("[_sync_picking_sequences] %sXXXXX: seq %s → %s", prefix, cur_seq, max_num + 1)
 
     def _import_transfer(self, transfer):
         _logger.info("[_import_transfer]")
@@ -851,6 +1040,28 @@ class FulfillmentTransfers(models.Model):
         if not remote_id:
             _logger.warning("[Fulfillment] Transfer without ID skipped")
             return False
+
+        # Skip transfers where THIS instance is not involved (neither sender nor receiver).
+        # The catch-up cron iterates over all partners, so we must guard against importing
+        # transfers that belong entirely to another fulfillment account.
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        my_fid = profile.fulfillment_profile_id if profile else None
+        if my_fid:
+            f_in = transfer.get("fulfillment_in")
+            f_out = transfer.get("fulfillment_out")
+            if f_in and f_out and f_in != my_fid and f_out != my_fid:
+                # Check if the transfer is already locally tracked (keep it updated)
+                already_local = self.search([
+                    ("fulfillment_transfer_id", "=", remote_id),
+                    ("company_id", "=", self.env.company.id),
+                ], limit=1)
+                if not already_local:
+                    _logger.info(
+                        "[_import_transfer] Skipping transfer %s (%s) — this instance (%s) is not involved"
+                        " (f_in=%s, f_out=%s)",
+                        remote_id, transfer.get("reference"), my_fid, f_in, f_out,
+                    )
+                    return False
         wh_in_ext = transfer.get("warehouse_in")
         wh_out_ext = transfer.get("warehouse_out")
         status = transfer.get("status")
@@ -859,6 +1070,26 @@ class FulfillmentTransfers(models.Model):
         warehouse_out = self.env["stock.warehouse"].search([("fulfillment_warehouse_id", "=", wh_out_ext)], limit=1)
         location_id = warehouse_out.lot_stock_id.id if warehouse_out else False
         location_dest_id = warehouse_in.lot_stock_id.id if warehouse_in else False
+
+        # For cross-instance transfers one side's warehouse may not exist locally.
+        # Use standard virtual locations as fallback so location_id/location_dest_id are never NULL.
+        if not location_id:
+            supplier_loc = (
+                self.env.ref('stock.stock_location_suppliers', raise_if_not_found=False)
+                or self.env['stock.location'].search([('usage', '=', 'supplier')], limit=1)
+            )
+            location_id = supplier_loc.id if supplier_loc else False
+            if location_id:
+                _logger.info("[_import_transfer] location_id fallback to supplier virtual: %s", location_id)
+        if not location_dest_id:
+            customer_loc = (
+                self.env.ref('stock.stock_location_customers', raise_if_not_found=False)
+                or self.env['stock.location'].search([('usage', '=', 'customer')], limit=1)
+            )
+            location_dest_id = customer_loc.id if customer_loc else False
+            if location_dest_id:
+                _logger.info("[_import_transfer] location_dest_id fallback to customer virtual: %s", location_dest_id)
+
         partner_id = self._find_or_create_partner(contacts, wh_in_ext)
         picking = self._create_or_update_picking(
             remote_id, transfer, location_id, location_dest_id, partner_id, warehouse_out, warehouse_in
@@ -887,7 +1118,10 @@ class FulfillmentTransfers(models.Model):
     def _find_or_create_partner(self, contacts, wh_in_ext):
         _logger.info("[_find_or_create_partner]")
         partner_id = False
-        contact_data = next((c for c in contacts if (c.get("role") or "").upper() == "CUSTOMER"), (contacts[0] if contacts else None))
+        contact_data = next(
+            (c for c in contacts if (c.get("role") or "").upper() in ("DELIVERY", "CUSTOMER")),
+            (contacts[0] if contacts else None),
+        )
         if contact_data:
             cid = contact_data.get("contact_id")
             contact_info = contact_data.get("contact") or {}
@@ -928,14 +1162,43 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[_create_or_update_picking]")
         picking = self.search([("fulfillment_transfer_id", "=", remote_id), ("company_id", "=", self.env.company.id)], limit=1)
         picking_type_id = self._map_type(transfer)
-        picking_type = self.env["stock.picking.type"].browse(picking_type_id)
+        picking_type = self.env["stock.picking.type"].browse(picking_type_id) if picking_type_id else self.env["stock.picking.type"]
         type_code = picking_type.code if picking_type else "unknown"
-        wh_code = warehouse_out.code or warehouse_in.code or "WH"
+        wh_code = (warehouse_out.code if warehouse_out else None) or (warehouse_in.code if warehouse_in else None) or "WH"
         type_short = {"incoming": "IN", "outgoing": "OUT", "internal": "INT"}.get(type_code, "UNK")
-        hash_part = str(remote_id)[:8]
+        # Use 12 hex chars from the UUID (without dashes) to reduce collision chance.
+        hash_part = str(remote_id).replace("-", "")[:12]
         transfer_reference = (transfer.get("reference") or "").strip()
         fallback_name = f"[F] {wh_code}/{type_short}/{hash_part}"
         name = transfer_reference or fallback_name
+
+        # Use picking type defaults as last-resort fallback for locations
+        if not location_id and picking_type and picking_type.default_location_src_id:
+            location_id = picking_type.default_location_src_id.id
+            _logger.info("[_create_or_update_picking] location_id fallback to picking type default: %s", location_id)
+        if not location_dest_id and picking_type and picking_type.default_location_dest_id:
+            location_dest_id = picking_type.default_location_dest_id.id
+            _logger.info("[_create_or_update_picking] location_dest_id fallback to picking type default: %s", location_dest_id)
+        # Emergency fallback: search by location usage
+        if not location_id:
+            loc = self.env['stock.location'].search([('usage', '=', 'supplier')], limit=1)
+            if loc:
+                location_id = loc.id
+                _logger.info("[_create_or_update_picking] location_id emergency fallback (usage=supplier): %s", location_id)
+        if not location_dest_id:
+            loc = self.env['stock.location'].search([('usage', '=', 'customer')], limit=1)
+            if loc:
+                location_dest_id = loc.id
+                _logger.info("[_create_or_update_picking] location_dest_id emergency fallback (usage=customer): %s", location_dest_id)
+
+        if not location_id or not location_dest_id:
+            _logger.error(
+                "[_create_or_update_picking] Cannot resolve locations for transfer %s "
+                "(type=%s location_id=%s location_dest_id=%s) — skipping",
+                remote_id, type_code, location_id, location_dest_id,
+            )
+            return self.env["stock.picking"]
+
         vals = {
             "fulfillment_transfer_id": remote_id,
             "fulfillment_transfer_owner_id": transfer.get("fulfillment_in") or "Empty",
@@ -961,7 +1224,35 @@ class FulfillmentTransfers(models.Model):
             picking.write(vals_write)
             _logger.info("[Fulfillment] Updated picking %s", picking.name)
         else:
-            vals["name"] = name
+            # Avoid name collision: if the API reference already exists as a local picking
+            # (e.g. same sequential number generated on both instances), use the fallback name.
+            # Use raw SQL to detect existing names (sees uncommitted rows in the same tx).
+            chosen_name = name
+            if transfer_reference:
+                self.env.cr.execute(
+                    "SELECT 1 FROM stock_picking WHERE name = %s AND company_id = %s LIMIT 1",
+                    (transfer_reference, self.env.company.id),
+                )
+                if self.env.cr.fetchone():
+                    chosen_name = fallback_name
+                    _logger.info(
+                        "[_create_or_update_picking] Name '%s' already taken — trying fallback '%s'",
+                        transfer_reference, fallback_name,
+                    )
+            # Also ensure the fallback itself is not taken.
+            if chosen_name == fallback_name:
+                self.env.cr.execute(
+                    "SELECT 1 FROM stock_picking WHERE name = %s AND company_id = %s LIMIT 1",
+                    (fallback_name, self.env.company.id),
+                )
+                if self.env.cr.fetchone():
+                    # Last resort: use full UUID as name suffix.
+                    chosen_name = f"[F] {remote_id}"
+                    _logger.info(
+                        "[_create_or_update_picking] Fallback '%s' also taken — using UUID name '%s'",
+                        fallback_name, chosen_name,
+                    )
+            vals["name"] = chosen_name
             picking = self.with_context(skip_fulfillment_push=True).create(vals)
             _logger.info("[Fulfillment] Created picking %s", picking.name)
         return picking
@@ -970,6 +1261,11 @@ class FulfillmentTransfers(models.Model):
         _logger.info("[_create_transfer_items]")
         items = transfer.get("items", [])
         if not items:
+            return
+        # Skip move updates for already-completed/cancelled pickings to avoid
+        # "cannot change UoM for a Done move" errors.
+        if picking.state in ('done', 'cancel'):
+            _logger.info("[_create_transfer_items] Picking %s is %s — skipping move sync", picking.name, picking.state)
             return
         Move = self.env["stock.move"]
         for item in items:
@@ -999,6 +1295,9 @@ class FulfillmentTransfers(models.Model):
             }
             existing_move = Move.search([("picking_id", "=", picking.id), ("product_id", "=", product_id)], limit=1)
             if existing_move:
+                if existing_move.state in ('done', 'cancel'):
+                    _logger.info("[_create_transfer_items] Move %s is %s — skipping update", existing_move.id, existing_move.state)
+                    continue
                 existing_move.write(move_vals)
             else:
                 Move.create(move_vals)
@@ -1108,8 +1407,9 @@ class FulfillmentTransfers(models.Model):
             return
         current_i = sequence.index(state)
         target_i = sequence.index(target_status)
-        # When fulfillment center validates incoming, push status "done".
-        # If this picking was already done and marked "delivering", upgrade to "delivered".
+        # When the remote side confirms receipt (done), update our delivery status.
+        # This must happen even if local picking is already 'done' (sender scenario:
+        # local = done, API becomes done when receiver confirms → mark as delivered).
         if target_status == 'done' and self.fulfillment_delivery_status == 'delivering':
             self.with_context(skip_fulfillment_push=True).write({'fulfillment_delivery_status': 'delivered'})
             _logger.info("[Fulfillment] Set fulfillment_delivery_status=delivered for %s", self.name)
@@ -1126,7 +1426,11 @@ class FulfillmentTransfers(models.Model):
                 if not move.quantity:
                     move.quantity = move.product_uom_qty
                     _logger.info("[Fulfillment][_apply_status] Set quantity=%.2f for move '%s'", move.product_uom_qty, move.product_id.display_name)
-            self.with_context(skip_backorder=True, skip_fulfillment_push=True).button_validate()
+            # Mark as delivered BEFORE button_validate so the cross_instance_sender
+            # logic in button_validate does not downgrade the status back to 'delivering'.
+            if self._is_managed_by_fulfillment():
+                self.with_context(skip_fulfillment_push=True).write({'fulfillment_delivery_status': 'delivered'})
+            self.with_context(skip_backorder=True, skip_fulfillment_push=True, from_fulfillment_import=True).button_validate()
 
     def _map_type(self, transfer, current_picking=None):
         _logger.info("[_map_type]")
@@ -1145,11 +1449,21 @@ class FulfillmentTransfers(models.Model):
             # Sender pushed an outgoing; we are the destination → incoming for us
             op_code = "incoming"
         elif tr_type == "incoming" and my_id and fulfillment_out == my_id:
-            # Sender pushed an incoming (they receive from us); we are the source → outgoing for us
-            op_code = "outgoing"
+            # Sender (Handler) pushed an incoming PO receipt; we physically manage the warehouse
+            # and must confirm receipt → incoming for us too (goods arrive at our warehouse).
+            op_code = "incoming"
         elif tr_type == "internal":
-            op_code = "internal"
-        elif tr_type in ("incoming", "outgoing", "internal"):
+            if my_id and fulfillment_in and fulfillment_out and fulfillment_in != fulfillment_out:
+                # Cross-instance "internal": each side sees it as delivery/receipt
+                if fulfillment_in == my_id:
+                    op_code = "incoming"   # goods arrive at our warehouse
+                elif fulfillment_out == my_id:
+                    op_code = "outgoing"   # goods leave our warehouse
+                else:
+                    op_code = "internal"
+            else:
+                op_code = "internal"
+        elif tr_type in ("incoming", "outgoing"):
             op_code = tr_type
         else:
             if current_picking:
