@@ -7,20 +7,7 @@
             <field name="arch" type="xml">
                 <form string="Fulfillment Profile">
                     <header>
-                        <button
-                            name="action_sync_images_from_api"
-                            type="object"
-                            string="Sync Images from API"
-                            class="btn-primary"
-                            confirm="Download missing product images from the Fulfillment API. Continue?"
-                        />
-                        <button
-                            name="action_resync_images_to_api"
-                            type="object"
-                            string="Resync Product Images to API"
-                            class="btn-secondary"
-                            confirm="This will update img_url for all linked products in the Fulfillment API. Continue?"
-                        />
+                       
                     </header>
                     <sheet>
                         <group col="2">
