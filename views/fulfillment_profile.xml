@@ -6,9 +6,7 @@
             <field name="model">fulfillment.profile</field>
             <field name="arch" type="xml">
                 <form string="Fulfillment Profile">
-                    <header>
-                       
-                    </header>
+                    
                     <sheet>
                         <group col="2">
                             <group>

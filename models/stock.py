@@ -55,6 +55,20 @@ class StockQuant(models.Model):
         my_id = getattr(profile, 'fulfillment_profile_id', None)
         owner_fid = getattr(owner, 'fulfillment_id', None)
         return not my_id or not owner_fid or owner_fid == my_id
+    
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        for quant in records:
+            qty = quant.quantity
+            if qty != 0:
+                _logger.info(
+                    "[Stock Create] Создана новая запись stock.quant для товара '%s' (ID: %s). Начальное количество: %s шт.",
+                    quant.product_id.display_name,
+                    quant.id,
+                    qty
+                )
+        return records
 
     def write(self, vals):
         """Prevent manual edits to stock quantities for external fulfillment warehouses.
@@ -71,6 +85,10 @@ class StockQuant(models.Model):
             and not ctx.get('from_fulfillment_import')
             and not ctx.get('skip_fulfillment_push')
         )
+        
+        # Сохраняем старые значения количества для логирования разницы
+        old_quantities = {q.id: q.quantity for q in self} if 'quantity' in vals else {}
+
         if is_manual_edit:
             for quant in self:
                 warehouse = self.env['stock.warehouse'].search([
@@ -90,7 +108,97 @@ class StockQuant(models.Model):
                         "the fulfillment API.",
                         warehouse.display_name,
                     ))
-        return super().write(vals)
+                    
+        res = super().write(vals)
+        
+        # Логируем изменение количества (добавилось/удалилось)
+        if 'quantity' in vals:
+            for quant in self:
+                old_qty = old_quantities.get(quant.id, 0.0)
+                new_qty = quant.quantity
+                diff = new_qty - old_qty
+                if diff != 0:
+                    _logger.info(
+                        "[Stock Change] Товар '%s' (ID: %s): количество изменилось с %s до %s. "
+                        "Разница: %s (%s шт.)",
+                        quant.product_id.display_name,
+                        quant.id,
+                        old_qty,
+                        new_qty,
+                        f"+{diff}" if diff > 0 else diff,
+                        abs(diff)
+                    )
+
+        if is_manual_edit:
+            self._push_stock_to_api()
+        return res
+    
+    def _push_stock_to_api(self):
+        """Sends updated stock quantities to the Fulfillment API."""
+        try:
+            from odoo.addons.fulfillment_software.lib.api_client.client import FulfillmentAPIClient
+        except ImportError:
+            _logger.error("[Fulfillment] Cannot import FulfillmentAPIClient")
+            return
+
+        profile = self.env['fulfillment.profile'].search([], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Profile not found for push")
+            return
+
+        client = FulfillmentAPIClient(profile)
+        _logger.info("[Fulfillment] Starting push process for %s quants", len(self))
+
+        for quant in self:
+            warehouse = self.env['stock.warehouse'].search([
+                '|',
+                ('lot_stock_id', '=', quant.location_id.id),
+                ('view_location_id', 'parent_of', quant.location_id.id),
+            ], limit=1)
+
+            _logger.info("[Fulfillment DEBUG] Quant: %s, Location: %s, Warehouse: %s", 
+                         quant.id, quant.location_id.display_name, warehouse.name if warehouse else 'None')
+
+            if not warehouse:
+                _logger.info("[Fulfillment DEBUG] SKIP: No warehouse found for location %s", quant.location_id.display_name)
+                continue
+                
+            if not warehouse.fulfillment_warehouse_id:
+                _logger.info("[Fulfillment DEBUG] SKIP: Warehouse '%s' has empty fulfillment_warehouse_id", warehouse.name)
+                continue
+                
+            if not quant._is_local_warehouse(warehouse):
+                _logger.info("[Fulfillment DEBUG] SKIP: Warehouse '%s' is not considered local", warehouse.name)
+                continue
+
+            product_fid = quant.product_id.product_tmpl_id.fulfillment_product_id
+            if not product_fid:
+                _logger.info("[Fulfillment DEBUG] SKIP: Product '%s' has empty fulfillment_product_id", quant.product_id.display_name)
+                continue
+
+            try:
+                payload = {
+                    'product_id': product_fid,
+                    'warehouse_id': warehouse.fulfillment_warehouse_id,
+                    'quantity': quant.quantity,
+                }
+                
+                if quant.fulfillment_stock_id:
+                    _logger.info("[Fulfillment DEBUG] Sending UPDATE to API. Stock ID: %s, Payload: %s", quant.fulfillment_stock_id, payload)
+                    client.stock.update(quant.fulfillment_stock_id, payload)
+                    _logger.info("[Fulfillment] Pushed stock UPDATE for %s: qty=%s", quant.product_id.name, quant.quantity)
+                else:
+                    _logger.info("[Fulfillment DEBUG] Sending CREATE to API. Payload: %s", payload)
+                    response = client.stock.create(payload)
+                    _logger.info("[Fulfillment] Pushed stock CREATE for %s: qty=%s", quant.product_id.name, quant.quantity)
+                    
+                    if response and isinstance(response, dict) and response.get('id'):
+                        quant.with_context(skip_fulfillment_push=True).write({
+                            'fulfillment_stock_id': response.get('id')
+                        })
+
+            except Exception as e:
+                _logger.error("[Fulfillment] Error pushing stock for quant %s: %s", quant.id, e, exc_info=True)
 
     def import_stock(self, filters=None):
         _logger.info("[import_stock]")
@@ -218,16 +326,13 @@ class StockWarehouse(models.Model):
             owner_fid = wh.fulfillment_owner_id.fulfillment_id if wh.fulfillment_owner_id else None
             client_fid = wh.fulfillment_client_id.fulfillment_id if wh.fulfillment_client_id else None
             if owner_fid and my_id and owner_fid != my_id:
-                # Owner is someone else — we are renting this space
                 wh.warehouse_role = 'rented'
             elif client_fid and my_id and client_fid != my_id:
-                # Owner is us, client is someone else — we leased it out
                 wh.warehouse_role = 'leased_out'
             else:
                 wh.warehouse_role = 'own'
 
     def name_get(self):
-        # Icons: 🏠 own local, 📦 rented from partner, 🔑 leased out to client
         _icons = {
             'rented': '📦',
             'leased_out': '🔑',
@@ -243,7 +348,6 @@ class StockWarehouse(models.Model):
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
-        # Strip any leading icon + space so search still works
         for icon in ('📦 ', '🔑 ', '🏠 '):
             if name.startswith(icon):
                 name = name[len(icon):]
