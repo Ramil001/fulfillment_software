@@ -65,157 +65,120 @@ class FulfillmentWarehouses(models.Model):
     
     @api.model_create_multi
     def create(self, vals_list):
-        _logger.info(f"[create]")
-        
+        _logger.info("[WAREHOUSE][CREATE] Starting batch create for %s records", len(vals_list))
         created_warehouses = super().create(vals_list)
-        
-        profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
-        if not profile or not profile.fulfillment_api_key:
-            _logger.warning("[WAREHOUSE][CREATE] No active fulfillment.profile with API key found — skipping API sync for created warehouses")
-            return created_warehouses
 
-        owner_fulfillment_id = getattr(profile, 'fulfillment_profile_id', False)
-        if not owner_fulfillment_id:
-            _logger.warning("[WAREHOUSE][CREATE] fulfillment_profile_id missing in profile — skipping API sync")
+        # Fast-exit checks
+        profile = self.env['fulfillment.profile'].sudo().search([('fulfillment_api_key', '!=', False)], limit=1)
+        owner_fulfillment_id = getattr(profile, 'fulfillment_profile_id', False) if profile else False
+        
+        if not profile or not owner_fulfillment_id:
+            _logger.warning("[WAREHOUSE][CREATE] No active profile or missing fulfillment_profile_id — skipping API sync")
             return created_warehouses
 
         client = FulfillmentAPIClient(profile)
+        # Создаем базовый контекст без циклической синхронизации
+        sync_context = {'skip_api_sync': True, 'skip_warehouse_contact': True, 'from_fulfillment_import': True}
 
         for warehouse in created_warehouses:
             try:
-                _logger.info("[WAREHOUSE][CREATE][PROCESS] id=%s name=%s partner=%s", warehouse.id, warehouse.name, bool(warehouse.partner_id))
+                _logger.info("[WAREHOUSE][CREATE][PROCESS] id=%s name=%s", warehouse.id, warehouse.name)
 
-                if warehouse.fulfillment_network_partner_id and warehouse.fulfillment_network_partner_id.partner_id:
-                    parent_partner = warehouse.fulfillment_network_partner_id.partner_id
-                else:
-                    parent_partner = warehouse.partner_id.parent_id or warehouse.partner_id
+                # 1. Определение родительского партнера
+                parent_partner = (
+                    warehouse.fulfillment_network_partner_id.partner_id 
+                    if warehouse.fulfillment_network_partner_id and warehouse.fulfillment_network_partner_id.partner_id 
+                    else (warehouse.partner_id.parent_id or warehouse.partner_id)
+                )
+
+                # 2. Поиск или создание контакта склада
+                selected_partner = warehouse.partner_id
+                is_warehouse_contact = selected_partner and (
+                    selected_partner.linked_warehouse_id or 
+                    any(c.name == 'Warehouse' for c in selected_partner.category_id)
+                )
+
                 child_contact = None
                 fulfillment_partner_obj = None
 
-                # If the user already selected a dedicated warehouse contact (tagged 'Warehouse'
-                # or already linked to a warehouse), reuse it directly without creating a new one.
-                selected_partner = warehouse.partner_id
-                _is_warehouse_contact = (
-                    selected_partner
-                    and (
-                        selected_partner.linked_warehouse_id
-                        or any(c.name == 'Warehouse' for c in selected_partner.category_id)
-                    )
-                )
-                if _is_warehouse_contact:
+                if is_warehouse_contact:
                     child_contact = selected_partner
-                    fulfillment_partner_obj = self.env['fulfillment.partners'].search(
-                        [('partner_id', '=', child_contact.id)], limit=1
-                    )
-                    _logger.info(
-                        "[WAREHOUSE][CREATE] Reusing existing warehouse contact %s for warehouse %s",
-                        child_contact.id, warehouse.id,
-                    )
+                    fulfillment_partner_obj = self.env['fulfillment.partners'].search([('partner_id', '=', child_contact.id)], limit=1)
+                    _logger.info("[WAREHOUSE][CREATE] Reusing existing contact %s", child_contact.id)
                 elif parent_partner:
                     child_contact, fulfillment_partner_obj = self._get_or_create_warehouse_contact(
                         parent_partner, warehouse.name, warehouse=warehouse
                     )
-
                     if child_contact:
-                        try:
-                            warehouse.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({'partner_id': child_contact.id})
-                            _logger.info("[WAREHOUSE][CREATE] Relinked warehouse %s → child partner %s", warehouse.id, child_contact.id)
-                        except Exception as e:
-                            _logger.exception("[WAREHOUSE][CREATE] Failed to relink partner for warehouse %s: %s", warehouse.id, e)
+                        warehouse.with_context(sync_context).write({'partner_id': child_contact.id})
 
-                customer_fulfillment_id = None
-                if child_contact and getattr(child_contact, 'fulfillment_partner_id', False):
-                    customer_fulfillment_id = child_contact.fulfillment_partner_id
-                    _logger.debug("[WAREHOUSE][CREATE] Using customer_fulfillment_id from child_contact: %s", customer_fulfillment_id)
-                elif fulfillment_partner_obj and getattr(fulfillment_partner_obj, 'fulfillment_id', False):
-                    customer_fulfillment_id = fulfillment_partner_obj.fulfillment_id
-                    _logger.debug("[WAREHOUSE][CREATE] Using customer_fulfillment_id from fulfillment.partners object: %s", customer_fulfillment_id)
-                elif parent_partner and getattr(parent_partner, 'fulfillment_partner_id', False):
-                    customer_fulfillment_id = parent_partner.fulfillment_partner_id
-                    _logger.debug("[WAREHOUSE][CREATE] Using customer_fulfillment_id from parent_partner: %s", customer_fulfillment_id)
+                # 3. Извлечение customer_fulfillment_id
+                customer_fulfillment_id = (
+                    getattr(child_contact, 'fulfillment_partner_id', False) or
+                    getattr(fulfillment_partner_obj, 'fulfillment_id', False) or
+                    getattr(parent_partner, 'fulfillment_partner_id', False)
+                )
 
                 if not customer_fulfillment_id:
-                    _logger.warning("[WAREHOUSE][CREATE] No customer_fulfillment_id for warehouse %s (partner=%s) — skipping API create", warehouse.name, parent_partner.id if parent_partner else None)
+                    _logger.warning("[WAREHOUSE][CREATE] No customer_fulfillment_id for warehouse %s — skipping API", warehouse.name)
                     continue
 
+                # 4. Вызов API
                 payload = {
                     "name": warehouse.name,
                     "code": warehouse.code,
-                    "location": (warehouse.partner_id.city or "") if warehouse.partner_id else "",
-                    "short_name": (warehouse.code or warehouse.name or "")[:50].upper(),  # короткое имя, безопасно усечь
+                    "location": warehouse.partner_id.city or "" if warehouse.partner_id else "",
+                    "short_name": (warehouse.code or warehouse.name or "")[:50].upper(),
                     "fulfillment_client_id": customer_fulfillment_id,
                 }
 
-                _logger.info("[WAREHOUSE][CREATE][API] POST → fulfillment_id=%s payload=%s", owner_fulfillment_id, payload)
-
-                
                 try:
-                    response = client.warehouse.create(
-                        fulfillment_id=owner_fulfillment_id,
-                        payload=payload
-                    )
-                except FulfillmentAPIError as e:
-                    _logger.error("Fulfillment API error on create for warehouse %s: %s", warehouse.name, e)
-                    continue
-                except Exception as e:
-                    _logger.exception("Unexpected error calling API for warehouse %s: %s", warehouse.name, e)
+                    response = client.warehouse.create(fulfillment_id=owner_fulfillment_id, payload=payload)
+                except (FulfillmentAPIError, Exception) as e:
+                    _logger.exception("[WAREHOUSE][CREATE] API call failed for %s: %s", warehouse.name, e)
                     continue
 
-                
-                data = response["data"]
-                owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_id'))], limit=1)
+                data = response.get("data")
+                if not data or not isinstance(data, dict):
+                    _logger.warning("[WAREHOUSE][CREATE][API] Invalid/empty payload received for %s: %s", warehouse.name, response)
+                    continue
+
+                # 5. Сопоставление с локальными партнерами
+                ext_wh_id = _normalize_fulfillment_external_id(data.get('id'))
+                ret_owner_id = data.get('fulfillment_id')
+                ret_client_id = data.get('fulfillment_client_id')
+
+                owner_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', ret_owner_id)], limit=1) if ret_owner_id else None
                 client_fp = None
-                if data.get('fulfillment_client_id') and data.get('fulfillment_client_id') != data.get('fulfillment_id'):
-                    client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', data.get('fulfillment_client_id'))], limit=1)
-                else:
-                    _logger.warning("[WAREHOUSE][CREATE][API] owner_fulfillment_id == fulfillment_client_id for warehouse %s (api returned same id)", warehouse.name)
+                if ret_client_id and ret_client_id != ret_owner_id:
+                    client_fp = self.env['fulfillment.partners'].search([('fulfillment_id', '=', ret_client_id)], limit=1)
 
-                try:
-                    warehouse.with_context(
-                        skip_api_sync=True,
-                        skip_warehouse_contact=True,
-                        from_fulfillment_import=True
-                    ).write({
-                        'fulfillment_owner_id': owner_fp.id if owner_fp else False,
-                        'fulfillment_client_id': client_fp.id if client_fp else False,
-                        'fulfillment_warehouse_id': _normalize_fulfillment_external_id(data.get('id')),
-                        'last_update': datetime.now(),
-                    })
-                except Exception as e:
-                    _logger.exception("[WAREHOUSE][CREATE] Failed to write API IDs to warehouse %s: %s", warehouse.id, e)
+                # 6. Атомарные записи в модель
+                warehouse.with_context(sync_context).write({
+                    'fulfillment_owner_id': owner_fp.id if owner_fp else False,
+                    'fulfillment_client_id': client_fp.id if client_fp else False,
+                    'fulfillment_warehouse_id': ext_wh_id,
+                    'last_update': fields.Datetime.now(),
+                })
 
                 if child_contact:
-                    try:
-                        child_contact.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
-                            'fulfillment_warehouse_id': _normalize_fulfillment_external_id(data.get('id')),
-                            'linked_warehouse_id': warehouse.id,
-                        })
-                        _logger.info("[WAREHOUSE][CREATE] Child contact %s updated with fulfillment_warehouse_id=%s", child_contact.id, data.get('id'))
-                    except Exception as e:
-                        _logger.exception("[WAREHOUSE][CREATE] Failed to update child contact %s with warehouse id: %s", child_contact.id if child_contact else None, e)
+                    child_contact.with_context(sync_context).write({
+                        'fulfillment_warehouse_id': ext_wh_id,
+                        'linked_warehouse_id': warehouse.id,
+                    })
 
-                try:
-                    if parent_partner:
-                        parent_partner.with_context(skip_api_sync=True, skip_warehouse_contact=True).write({
-                            'fulfillment_warehouse_id': _normalize_fulfillment_external_id(data.get('id')),
-                        })
-                except Exception as e:
-                    _logger.exception("[WAREHOUSE][CREATE] Failed to update parent partner %s with warehouse id: %s", parent_partner.id if parent_partner else None, e)
+                if parent_partner:
+                    parent_partner.with_context(sync_context).write({'fulfillment_warehouse_id': ext_wh_id})
 
-                
-                
+                # 7. Push-уведомление
                 if client_fp and client_fp.fulfillment_id:
                     self.env['send.action'].push_update(client_fp.fulfillment_id)
-                    _logger.info(f"[SEND ACTION]: Отправка на фулфиллмент партнера {client_fp.fulfillment_id} ")
-                
-
-                else:
-                    _logger.warning("[WAREHOUSE][CREATE][API] unexpected response for %s: %s", warehouse.name, response)
+                    _logger.info("[SEND ACTION]: Sent to partner %s", client_fp.fulfillment_id)
 
             except Exception as e:
-                _logger.exception("[WAREHOUSE][CREATE] Unexpected error processing warehouse %s: %s", getattr(warehouse, 'id', None), e)
-                
-        _logger.info("[WAREHOUSE][CREATE][DONE] processed %s warehouses", len(created_warehouses))
+                _logger.exception("[WAREHOUSE][CREATE] Critical failure for warehouse %s: %s", getattr(warehouse, 'id', None), e)
+
+        _logger.info("[WAREHOUSE][CREATE][DONE] Processed %s warehouses", len(created_warehouses))
         return created_warehouses
 
     def write(self, vals):
