@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import logging
-
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 
@@ -19,6 +18,7 @@ class StockQuant(models.Model):
         string='Fulfillment Stock ID',
         readonly=True,
         copy=False,
+        index=True,
         help='External stock record ID from the Fulfillment API',
     )
 
@@ -30,14 +30,21 @@ class StockQuant(models.Model):
              'Quantity can only be updated via API import, not manually.',
     )
 
+    # ===== Compute Methods =====
+
     @api.depends('location_id')
     def _compute_is_external_fulfillment_stock(self):
         for quant in self:
+            if not quant.location_id:
+                quant.is_external_fulfillment_stock = False
+                continue
+
             warehouse = self.env['stock.warehouse'].search([
                 '|',
                 ('lot_stock_id', '=', quant.location_id.id),
                 ('view_location_id', 'parent_of', quant.location_id.id),
             ], limit=1)
+
             quant.is_external_fulfillment_stock = (
                 bool(warehouse)
                 and bool(warehouse.fulfillment_warehouse_id)
@@ -51,11 +58,13 @@ class StockQuant(models.Model):
         owner = getattr(warehouse, 'fulfillment_owner_id', None)
         if not owner:
             return True
-        profile = self.env['fulfillment.profile'].search([], limit=1)
+        profile = self.env['fulfillment.profile'].sudo().search([('fulfillment_api_key', '!=', False)], limit=1)
         my_id = getattr(profile, 'fulfillment_profile_id', None)
         owner_fid = getattr(owner, 'fulfillment_id', None)
         return not my_id or not owner_fid or owner_fid == my_id
-    
+
+    # ===== ORM Overrides =====
+
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
@@ -63,7 +72,7 @@ class StockQuant(models.Model):
             qty = quant.quantity
             if qty != 0:
                 _logger.info(
-                    "[Stock Create] Создана новая запись stock.quant для товара '%s' (ID: %s). Начальное количество: %s шт.",
+                    "[Stock Create] Created stock.quant for product '%s' (ID: %s). Qty: %s",
                     quant.product_id.display_name,
                     quant.id,
                     qty
@@ -71,22 +80,16 @@ class StockQuant(models.Model):
         return records
 
     def write(self, vals):
-        """Prevent manual edits to stock quantities for external fulfillment warehouses.
-
-        Only blocks direct edits from the Inventory Adjustments UI (inventory_mode context).
-        Automatic updates from transfers (stock moves), imports, and system operations
-        are always allowed.
-        """
-        qty_fields = {'quantity', 'reserved_quantity'}
+        """Prevent manual edits to stock quantities for external fulfillment warehouses."""
+        qty_fields = {'quantity', 'inventory_quantity'}
         ctx = self.env.context
         is_manual_edit = (
-            qty_fields & set(vals.keys())
+            bool(qty_fields & set(vals.keys()))
             and ctx.get('inventory_mode')
             and not ctx.get('from_fulfillment_import')
             and not ctx.get('skip_fulfillment_push')
         )
-        
-        # Сохраняем старые значения количества для логирования разницы
+
         old_quantities = {q.id: q.quantity for q in self} if 'quantity' in vals else {}
 
         if is_manual_edit:
@@ -108,10 +111,9 @@ class StockQuant(models.Model):
                         "the fulfillment API.",
                         warehouse.display_name,
                     ))
-                    
+
         res = super().write(vals)
-        
-        # Логируем изменение количества (добавилось/удалилось)
+
         if 'quantity' in vals:
             for quant in self:
                 old_qty = old_quantities.get(quant.id, 0.0)
@@ -119,31 +121,30 @@ class StockQuant(models.Model):
                 diff = new_qty - old_qty
                 if diff != 0:
                     _logger.info(
-                        "[Stock Change] Товар '%s' (ID: %s): количество изменилось с %s до %s. "
-                        "Разница: %s (%s шт.)",
+                        "[Stock Change] Product '%s' (ID: %s): changed %s -> %s (Diff: %s)",
                         quant.product_id.display_name,
                         quant.id,
                         old_qty,
                         new_qty,
-                        f"+{diff}" if diff > 0 else diff,
-                        abs(diff)
+                        f"+{diff}" if diff > 0 else diff
                     )
 
         if is_manual_edit:
             self._push_stock_to_api()
+
         return res
-    
+
+    # ===== API Sync Methods =====
+
     def _push_stock_to_api(self):
         """Sends updated stock quantities to the Fulfillment API."""
-        try:
-            from odoo.addons.fulfillment_software.lib.api_client.client import FulfillmentAPIClient
-        except ImportError:
-            _logger.error("[Fulfillment] Cannot import FulfillmentAPIClient")
+        profile = self.env['fulfillment.profile'].sudo().search([('fulfillment_api_key', '!=', False)], limit=1)
+        if not profile:
+            _logger.warning("[Fulfillment] Active profile not found for stock push")
             return
 
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            _logger.warning("[Fulfillment] Profile not found for push")
+        if FulfillmentAPIClient is None:
+            _logger.error("[Fulfillment] FulfillmentAPIClient is not imported")
             return
 
         client = FulfillmentAPIClient(profile)
@@ -156,24 +157,12 @@ class StockQuant(models.Model):
                 ('view_location_id', 'parent_of', quant.location_id.id),
             ], limit=1)
 
-            _logger.info("[Fulfillment DEBUG] Quant: %s, Location: %s, Warehouse: %s", 
-                         quant.id, quant.location_id.display_name, warehouse.name if warehouse else 'None')
-
-            if not warehouse:
-                _logger.info("[Fulfillment DEBUG] SKIP: No warehouse found for location %s", quant.location_id.display_name)
-                continue
-                
-            if not warehouse.fulfillment_warehouse_id:
-                _logger.info("[Fulfillment DEBUG] SKIP: Warehouse '%s' has empty fulfillment_warehouse_id", warehouse.name)
-                continue
-                
-            if not quant._is_local_warehouse(warehouse):
-                _logger.info("[Fulfillment DEBUG] SKIP: Warehouse '%s' is not considered local", warehouse.name)
+            if not warehouse or not warehouse.fulfillment_warehouse_id or not quant._is_local_warehouse(warehouse):
                 continue
 
             product_fid = quant.product_id.product_tmpl_id.fulfillment_product_id
             if not product_fid:
-                _logger.info("[Fulfillment DEBUG] SKIP: Product '%s' has empty fulfillment_product_id", quant.product_id.display_name)
+                _logger.info("[Fulfillment] SKIP: Product '%s' missing fulfillment_product_id", quant.product_id.display_name)
                 continue
 
             try:
@@ -182,53 +171,47 @@ class StockQuant(models.Model):
                     'warehouse_id': warehouse.fulfillment_warehouse_id,
                     'quantity': quant.quantity,
                 }
-                
+
                 if quant.fulfillment_stock_id:
-                    _logger.info("[Fulfillment DEBUG] Sending UPDATE to API. Stock ID: %s, Payload: %s", quant.fulfillment_stock_id, payload)
+                    _logger.info("[Fulfillment] Stock UPDATE -> ID: %s, Payload: %s", quant.fulfillment_stock_id, payload)
                     client.stock.update(quant.fulfillment_stock_id, payload)
-                    _logger.info("[Fulfillment] Pushed stock UPDATE for %s: qty=%s", quant.product_id.name, quant.quantity)
                 else:
-                    _logger.info("[Fulfillment DEBUG] Sending CREATE to API. Payload: %s", payload)
+                    _logger.info("[Fulfillment] Stock CREATE -> Payload: %s", payload)
                     response = client.stock.create(payload)
-                    _logger.info("[Fulfillment] Pushed stock CREATE for %s: qty=%s", quant.product_id.name, quant.quantity)
-                    
+
                     if response and isinstance(response, dict) and response.get('id'):
-                        quant.with_context(skip_fulfillment_push=True).write({
-                            'fulfillment_stock_id': response.get('id')
+                        quant.with_context(skip_fulfillment_push=True, skip_api_sync=True).write({
+                            'fulfillment_stock_id': str(response.get('id'))
                         })
 
             except Exception as e:
                 _logger.error("[Fulfillment] Error pushing stock for quant %s: %s", quant.id, e, exc_info=True)
 
     def import_stock(self, filters=None):
-        _logger.info("[import_stock]")
-        profile = self.env['fulfillment.profile'].search([], limit=1)
-        if not profile:
-            _logger.warning("[Fulfillment] Profile not found")
-            return False
-
-        if FulfillmentAPIClient is None:
-            _logger.error("[Fulfillment] API client not available")
+        _logger.info("[IMPORT_STOCK] Initiated")
+        profile = self.env['fulfillment.profile'].sudo().search([('fulfillment_api_key', '!=', False)], limit=1)
+        if not profile or FulfillmentAPIClient is None:
+            _logger.error("[Fulfillment] Profile or API Client unavailable for stock import")
             return False
 
         client = FulfillmentAPIClient(profile)
         try:
             response = client.stock.list(filters=filters)
         except Exception as e:
-            _logger.error("[Fulfillment] Error fetching stock: %s", e)
+            _logger.error("[Fulfillment] Error fetching stock from API: %s", e)
             return False
 
-        data = response.get('data')
+        data = response.get('data') if isinstance(response, dict) else None
         if not isinstance(data, list):
-            _logger.warning("[Fulfillment] Invalid stock response: %s", response)
+            _logger.warning("[Fulfillment] Invalid stock response format: %s", response)
             return False
 
         for item in data:
             try:
-                self._import_stock_item(item)
+                with self.env.cr.savepoint():
+                    self._import_stock_item(item)
             except Exception as e:
                 _logger.error("[Fulfillment] Error importing stock item %s: %s", item, e, exc_info=True)
-                self.env.cr.rollback()
 
         return True
 
@@ -236,22 +219,21 @@ class StockQuant(models.Model):
         fulfillment_product_id = item.get('product_id')
         warehouse_id = item.get('warehouse_id')
         qty = float(item.get('quantity') or 0.0)
-        available = float(item.get('available') or 0.0)
         stock_id = item.get('id')
 
         if not fulfillment_product_id or not warehouse_id:
-            _logger.warning("[Fulfillment] Stock item missing product or warehouse: %s", item)
             return
 
-        product = self.env['product.template'].search(
-            [('fulfillment_product_id', '=', fulfillment_product_id)], limit=1
+        product = self.env['product.product'].search(
+            ['|', ('fulfillment_product_id', '=', fulfillment_product_id), ('product_tmpl_id.fulfillment_product_id', '=', fulfillment_product_id)],
+            limit=1
         )
         if not product:
             _logger.warning("[Fulfillment] Product not found for fulfillment_id %s", fulfillment_product_id)
             return
 
         warehouse = self.env['stock.warehouse'].search(
-            [('fulfillment_warehouse_id', '=', warehouse_id)], limit=1
+            [('fulfillment_warehouse_id', '=', str(warehouse_id))], limit=1
         )
         if not warehouse:
             _logger.warning("[Fulfillment] Warehouse not found for fulfillment_id %s", warehouse_id)
@@ -259,29 +241,37 @@ class StockQuant(models.Model):
 
         location = warehouse.lot_stock_id
         if not location:
-            _logger.warning("[Fulfillment] Warehouse %s has no stock location", warehouse.name)
+            _logger.warning("[Fulfillment] Warehouse %s missing lot_stock_id", warehouse.name)
             return
 
+        # Использование официального API Odoo Корректировки Остатков
         quant = self.search([
-            ('product_id', '=', product.product_variant_id.id),
+            ('product_id', '=', product.id),
             ('location_id', '=', location.id),
         ], limit=1)
 
+        sync_context = {
+            'inventory_mode': True,
+            'from_fulfillment_import': True,
+            'skip_fulfillment_push': True
+        }
+
         if quant:
-            quant.with_context(from_fulfillment_import=True).write({
-                'quantity': qty,
-                'reserved_quantity': qty - available if qty > available else 0.0,
+            quant.with_context(sync_context).write({
+                'inventory_quantity': qty,
+                'fulfillment_stock_id': str(stock_id) if stock_id else quant.fulfillment_stock_id
             })
-            _logger.info("[Fulfillment] Updated stock: %s qty=%s", product.name, qty)
+            quant.with_context(sync_context).action_apply_inventory()
+            _logger.info("[Fulfillment] Updated stock quant for %s -> qty: %s", product.name, qty)
         else:
-            self.with_context(from_fulfillment_import=True).create({
-                'product_id': product.product_variant_id.id,
+            new_quant = self.with_context(sync_context).create({
+                'product_id': product.id,
                 'location_id': location.id,
-                'quantity': qty,
-                'reserved_quantity': qty - available if qty > available else 0.0,
-                'fulfillment_stock_id': stock_id,
+                'inventory_quantity': qty,
+                'fulfillment_stock_id': str(stock_id) if stock_id else False,
             })
-            _logger.info("[Fulfillment] Created stock: %s qty=%s", product.name, qty)
+            new_quant.with_context(sync_context).action_apply_inventory()
+            _logger.info("[Fulfillment] Applied new stock quant for %s -> qty: %s", product.name, qty)
 
 
 class StockPickingType(models.Model):
@@ -291,16 +281,13 @@ class StockPickingType(models.Model):
         ('send_to_fulfillment', 'Send to Fulfillment'),
         ('request_from_fulfillment', 'Request from Fulfillment'),
     ], string='Fulfillment Operation', copy=False,
-       help='Mark this operation type for fulfillment integration.\n'
-            '• Send to Fulfillment: outgoing transfer from your warehouse to a fulfillment partner warehouse.\n'
-            '• Request from Fulfillment: incoming transfer requesting goods from a fulfillment partner warehouse.')
+       help='Mark this operation type for fulfillment integration.')
 
     fulfillment_partner_id = fields.Many2one(
         'fulfillment.partners',
         string='Fulfillment Partner',
         copy=False,
-        help='The fulfillment partner associated with this operation type. '
-             'Used to automatically resolve API warehouse IDs during transfer sync.',
+        help='The fulfillment partner associated with this operation type.',
     )
 
 
@@ -317,7 +304,7 @@ class StockWarehouse(models.Model):
 
     @api.depends('fulfillment_owner_id', 'fulfillment_client_id', 'fulfillment_warehouse_id')
     def _compute_warehouse_role(self):
-        profile = self.env['fulfillment.profile'].sudo().search([], limit=1)
+        profile = self.env['fulfillment.profile'].sudo().search([('fulfillment_api_key', '!=', False)], limit=1)
         my_id = profile.fulfillment_profile_id if profile else None
         for wh in self:
             if not wh.fulfillment_warehouse_id:
@@ -332,19 +319,18 @@ class StockWarehouse(models.Model):
             else:
                 wh.warehouse_role = 'own'
 
-    def name_get(self):
+    @api.depends('name', 'warehouse_role')
+    def _compute_display_name(self):
+        """Современный механизм Odoo 17/18 вместо name_get()"""
         _icons = {
             'rented': '📦',
             'leased_out': '🔑',
             'own': '🏠',
         }
-        result = []
         for wh in self:
             role = wh.warehouse_role or ('own' if not wh.fulfillment_warehouse_id else None)
             icon = _icons.get(role, '')
-            name = f"{icon} {wh.name}" if icon else wh.name
-            result.append((wh.id, name))
-        return result
+            wh.display_name = f"{icon} {wh.name}".strip() if icon else wh.name
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
